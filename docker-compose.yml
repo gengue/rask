@@ -1,0 +1,23 @@
+name: rask
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rask
+      POSTGRES_PASSWORD: rask
+      POSTGRES_DB: rask
+    # ponytail: override POSTGRES_PORT if 5432 is already taken locally
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rask -d rask"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

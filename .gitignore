@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+.turbo/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Playwright
+playwright-report/
+test-results/
+
+*.log
+.DS_Store
