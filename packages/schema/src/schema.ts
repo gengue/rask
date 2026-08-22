@@ -192,6 +192,8 @@ export const tasks = pgTable(
     index("tasks_status_idx").on(t.listId, t.status),
     index("tasks_due_idx").on(t.dueDate),
     index("tasks_updated_idx").on(t.dateUpdated),
+    // The API's change feed polls this to decide what to push over SSE.
+    index("tasks_synced_idx").on(t.syncedAt),
     index("tasks_parent_idx").on(t.parentId),
     // Tag filtering is `tags @> '[{"name":"..."}]'`, which needs jsonb_path_ops.
     index("tasks_tags_idx").using("gin", sql`${t.tags} jsonb_path_ops`),

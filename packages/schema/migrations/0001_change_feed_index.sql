@@ -1,0 +1,1 @@
+CREATE INDEX "tasks_synced_idx" ON "tasks" USING btree ("synced_at");

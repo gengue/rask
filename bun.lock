@@ -10,6 +10,16 @@
         "typescript": "^7.0.2",
       },
     },
+    "apps/worker": {
+      "name": "@rask/worker",
+      "version": "0.0.0",
+      "dependencies": {
+        "@rask/clickup-client": "workspace:*",
+        "@rask/schema": "workspace:*",
+        "drizzle-orm": "^0.45.2",
+        "zod": "^4.4.3",
+      },
+    },
     "packages/clickup-client": {
       "name": "@rask/clickup-client",
       "version": "0.0.0",
@@ -108,6 +118,8 @@
     "@rask/clickup-client": ["@rask/clickup-client@workspace:packages/clickup-client"],
 
     "@rask/schema": ["@rask/schema@workspace:packages/schema"],
+
+    "@rask/worker": ["@rask/worker@workspace:apps/worker"],
 
     "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 

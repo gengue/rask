@@ -1,0 +1,19 @@
+{
+  "name": "@rask/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "measure": "bun scripts/measure-sync.ts"
+  },
+  "dependencies": {
+    "@rask/clickup-client": "workspace:*",
+    "@rask/schema": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.4.3"
+  }
+}
