@@ -372,7 +372,7 @@ describe("resolving a rich comment", () => {
     await applyCommentPatch(db, { comment, userId: AUTHOR, patch: { resolved: true } });
 
     const [row] = await queued();
-    expect((row?.payload as { segments: unknown }).segments).toEqual(segments);
+    expect((row?.payload as { segments: unknown } | undefined)?.segments).toEqual(segments);
   });
 
   test("an actual edit sends the new text and drops the old body", async () => {
@@ -387,7 +387,7 @@ describe("resolving a rich comment", () => {
 
   test("is not offered for inline editing in the first place", async () => {
     const comment = await findComment(db, RICH);
-    expect(comment && isEditable(comment)).toBe(false);
+    expect(comment ? isEditable(comment) : null).toBe(false);
   });
 
   test("a mention-only body is still editable", () => {

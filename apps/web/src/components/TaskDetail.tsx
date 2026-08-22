@@ -28,7 +28,7 @@ import { setUi, ui } from "../lib/ui.ts";
 import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { MarkdownEditor } from "./MarkdownEditor.tsx";
-import { Menu } from "./Menu.tsx";
+import { Menu, type MenuItem } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
 
 /**
@@ -65,6 +65,19 @@ export function TaskDetail(props: {
   };
 
   const [assigneeMenu, setAssigneeMenu] = createSignal<{ x: number; y: number } | null>(null);
+  const [priorityMenu, setPriorityMenu] = createSignal<{ x: number; y: number } | null>(null);
+  const [tagMenu, setTagMenu] = createSignal<{ x: number; y: number } | null>(null);
+
+  /**
+   * The Space's whole tag set, fetched when the menu opens.
+   *
+   * Not from the mirror: the picker needs tags nobody has used yet, and the
+   * mirror only knows the ones already on a task.
+   */
+  const [spaceTags] = createResource(
+    () => (tagMenu() ? (task()?.spaceId ?? null) : null),
+    (spaceId) => api.spaceTags(spaceId).catch(() => []),
+  );
   const [editingDescription, setEditingDescription] = createSignal(false);
 
   /** Optimistic edit of the open task. The collection rolls it back on failure. */
@@ -225,12 +238,19 @@ export function TaskDetail(props: {
               </Property>
 
               <Property label="Priority">
-                <div class="flex h-6 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setPriorityMenu({ x: rect.left, y: rect.bottom + 6 });
+                  }}
+                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                >
                   <PriorityIcon priority={task().priority} />
                   <span class="text-base text-ink-2">
                     {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
                   </span>
-                </div>
+                </button>
               </Property>
 
               <Property label="Assignees">
@@ -269,13 +289,47 @@ export function TaskDetail(props: {
                 />
               </Property>
 
+              <Property label="Tags">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setTagMenu({ x: rect.left, y: rect.bottom + 6 });
+                  }}
+                  class="-mx-1.5 flex h-6 w-full items-center gap-1 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                >
+                  <Show
+                    when={task().tags.length > 0}
+                    fallback={<span class="text-base text-ink-4">Add…</span>}
+                  >
+                    <For each={task().tags}>
+                      {(tag) => (
+                        <span
+                          class="rounded-[4px] border px-1.5 py-px text-xs leading-4 text-ink-2"
+                          style={{
+                            "border-color": `${tag.bg ?? "var(--color-line-strong)"}55`,
+                            background: `${tag.bg ?? "transparent"}24`,
+                          }}
+                        >
+                          {tag.name}
+                        </span>
+                      )}
+                    </For>
+                  </Show>
+                </button>
+              </Property>
+
               <Property label="List">
                 <span class="flex h-6 items-center truncate text-base text-ink-2">
                   {task().listName ?? "—"}
                 </span>
               </Property>
 
-              <CustomFields fields={task().customFields} />
+              <CustomFields
+                taskId={props.taskId}
+                fields={task().customFields}
+                onChanged={() => void refetch()}
+              />
             </div>
 
             <section
@@ -344,21 +398,97 @@ export function TaskDetail(props: {
             anchor={anchor()}
             placeholder="Assign to…"
             items={[
-              { id: "", label: "Unassigned" },
+              { id: "", label: "Clear all" },
               ...members().map((user) => ({
                 id: user.id,
                 label: user.username ?? user.id,
+                // A checkmark, because this menu toggles rather than replaces
+                // and there is otherwise no way to see who is already on it.
+                hint: task()?.assignees.some((a) => a.id === user.id) ? "✓" : "",
                 icon: <Avatar user={user} size={16} />,
               })),
             ]}
             onSelect={(id) => {
               setAssigneeMenu(null);
-              const picked = id ? members().find((user) => user.id === id) : null;
+              // Toggle, not replace. Picking a name used to drop everyone else,
+              // so assigning yourself quietly unassigned whoever you pair with.
+              if (!id) {
+                patch((draft) => {
+                  draft.assignees = [];
+                });
+                return;
+              }
+              const picked = members().find((user) => user.id === id);
+              if (!picked) return;
               patch((draft) => {
-                draft.assignees = picked ? [toAssignee(picked)] : [];
+                draft.assignees = draft.assignees.some((user) => user.id === id)
+                  ? draft.assignees.filter((user) => user.id !== id)
+                  : [...draft.assignees, toAssignee(picked)];
               });
             }}
             onClose={() => setAssigneeMenu(null)}
+          />
+        )}
+      </Show>
+
+      <Show when={priorityMenu()}>
+        {(anchor) => (
+          <Menu
+            anchor={anchor()}
+            width={200}
+            placeholder="Set priority…"
+            items={[
+              ...[1, 2, 3, 4].map((level) => ({
+                id: String(level),
+                label: PRIORITY_LABELS[level] ?? String(level),
+                icon: <PriorityIcon priority={level} />,
+              })),
+              { id: "none", label: "No priority", icon: <PriorityIcon priority={null} /> },
+            ]}
+            onSelect={(id) => {
+              setPriorityMenu(null);
+              patch((draft) => {
+                draft.priority = id === "none" ? null : Number(id);
+              });
+            }}
+            onClose={() => setPriorityMenu(null)}
+          />
+        )}
+      </Show>
+
+      <Show when={tagMenu()}>
+        {(anchor) => (
+          <Menu
+            anchor={anchor()}
+            width={240}
+            placeholder="Add or remove a tag…"
+            items={(spaceTags() ?? []).map((tag) => ({
+              id: tag.name,
+              label: tag.name,
+              // Toggles, so say which ones are already on.
+              hint: task()?.tags.some((t) => t.name === tag.name) ? "✓" : "",
+            }))}
+            onSelect={(name) => {
+              setTagMenu(null);
+              const current = task()?.tags.map((tag) => tag.name) ?? [];
+              const next = current.includes(name)
+                ? current.filter((tag) => tag !== name)
+                : [...current, name];
+              patch((draft) => {
+                draft.tags = next.map(
+                  (tagName) =>
+                    task()?.tags.find((tag) => tag.name === tagName) ?? {
+                      name: tagName,
+                      fg: null,
+                      bg: null,
+                    },
+                );
+              });
+              void api.setTags(props.taskId, next).catch((error) => {
+                pushToast({ tone: "error", title: "Could not set tags", detail: message(error) });
+              });
+            }}
+            onClose={() => setTagMenu(null)}
           />
         )}
       </Show>
@@ -427,31 +557,72 @@ function DueField(props: {
  */
 const VISIBLE_FIELDS = 4;
 
-function CustomFields(props: { fields: TaskDetailData["customFields"] }): JSX.Element {
+function CustomFields(props: {
+  taskId: string;
+  fields: TaskDetailData["customFields"];
+  onChanged: () => void;
+}): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
+  const [menu, setMenu] = createSignal<{
+    field: Field;
+    anchor: { x: number; y: number };
+  } | null>(null);
 
-  const filled = () =>
-    props.fields
-      .map((field) => ({
-        ...field,
-        display: formatFieldValue(field.type, field.typeConfig, field.value),
-      }))
-      .filter((field) => field.display !== "—");
+  /*
+   * An empty field is still worth showing once you can fill it.
+   *
+   * Collapsed, only the fields that have a value are listed — a real ClickUp
+   * list carries a dozen and most are blank on any given task. Expanded, the
+   * blanks come too, because that is the only way to set one.
+   */
+  const decorated = () =>
+    props.fields.map((field) => ({
+      ...field,
+      display: formatFieldValue(field.type, field.typeConfig, field.value),
+    }));
 
-  const shown = () => (expanded() ? filled() : filled().slice(0, VISIBLE_FIELDS));
-  const hidden = () => filled().length - shown().length;
+  const filled = () => decorated().filter((field) => field.display !== "—");
+  const shown = () => (expanded() ? decorated() : filled().slice(0, VISIBLE_FIELDS));
+  const hidden = () => decorated().length - shown().length;
+
+  /** Sends the value and asks the parent to refetch, since it lives in a resource. */
+  const write = async (fieldId: string, value: unknown) => {
+    setMenu(null);
+    try {
+      await api.setField(props.taskId, fieldId, value);
+      props.onChanged();
+    } catch (error) {
+      pushToast({ tone: "error", title: "Could not set the field", detail: message(error) });
+    }
+  };
 
   return (
     <>
       <For each={shown()}>
         {(field) => (
           <Property label={field.name}>
-            <span class="flex h-6 items-center truncate text-base text-ink-2" title={field.display}>
-              {field.display}
-            </span>
+            <FieldValue
+              field={field}
+              onPick={(anchor) => setMenu({ field, anchor })}
+              onToggle={(next) => void write(field.id, next)}
+              onText={(next) => void write(field.id, next)}
+            />
           </Property>
         )}
       </For>
+
+      <Show when={menu()}>
+        {(open) => (
+          <Menu
+            anchor={open().anchor}
+            width={240}
+            placeholder={`Set ${open().field.name}…`}
+            items={fieldOptions(open().field)}
+            onSelect={(id) => void write(open().field.id, id === CLEAR ? null : id)}
+            onClose={() => setMenu(null)}
+          />
+        )}
+      </Show>
 
       <Show when={hidden() > 0 || expanded()}>
         <button
@@ -953,6 +1124,158 @@ function Composer(props: {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const CLEAR = "__clear__";
+
+type Field = TaskDetailData["customFields"][number] & { display: string };
+
+/**
+ * One custom field's value, editable in place where ClickUp's type allows it.
+ *
+ * Dropdowns and labels open the shared menu; a checkbox toggles; text and
+ * number edit inline. Anything else — formula, location, attachment — stays
+ * read-only, because writing a value we cannot render back is how a field ends
+ * up holding something nobody meant.
+ */
+function FieldValue(props: {
+  field: Field;
+  onPick: (anchor: { x: number; y: number }) => void;
+  onToggle: (next: boolean) => void;
+  onText: (next: string | null) => void;
+}): JSX.Element {
+  const [editing, setEditing] = createSignal(false);
+  const type = () => props.field.type;
+  const pickable = () => type() === "drop_down" || type() === "labels";
+  const typable = () =>
+    type() === "text" || type() === "short_text" || type() === "number" || type() === "url";
+
+  return (
+    <Show
+      when={pickable() || type() === "checkbox" || typable()}
+      fallback={
+        <span
+          class="flex h-6 items-center truncate text-base text-ink-2"
+          title={props.field.display}
+        >
+          {props.field.display}
+        </span>
+      }
+    >
+      <Show when={type() === "checkbox"}>
+        <button
+          type="button"
+          onClick={() => props.onToggle(props.field.display !== "Yes")}
+          class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 text-base text-ink-2 hover:bg-hover"
+        >
+          <span
+            class="flex size-3.5 items-center justify-center rounded-[3px] border"
+            classList={{
+              "border-accent bg-accent text-white": props.field.display === "Yes",
+              "border-line-strong": props.field.display !== "Yes",
+            }}
+          >
+            <Show when={props.field.display === "Yes"}>
+              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                <path
+                  d="M2 5.2 4 7.2 8 2.8"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </Show>
+          </span>
+          {props.field.display === "Yes" ? "Yes" : "No"}
+        </button>
+      </Show>
+
+      <Show when={pickable()}>
+        <button
+          type="button"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            props.onPick({ x: rect.left, y: rect.bottom + 6 });
+          }}
+          class="-mx-1.5 flex h-6 w-full items-center rounded-[5px] px-1.5 text-left"
+          classList={{ "hover:bg-hover": true }}
+          title={props.field.display}
+        >
+          <span
+            class="truncate text-base"
+            classList={{
+              "text-ink-2": props.field.display !== "—",
+              "text-ink-4": props.field.display === "—",
+            }}
+          >
+            {props.field.display === "—" ? "Set…" : props.field.display}
+          </span>
+        </button>
+      </Show>
+
+      <Show when={typable()}>
+        <Show
+          when={editing()}
+          fallback={
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              class="-mx-1.5 flex h-6 w-full items-center rounded-[5px] px-1.5 text-left hover:bg-hover"
+              title={props.field.display}
+            >
+              <span
+                class="truncate text-base"
+                classList={{
+                  "text-ink-2": props.field.display !== "—",
+                  "text-ink-4": props.field.display === "—",
+                }}
+              >
+                {props.field.display === "—" ? "Set…" : props.field.display}
+              </span>
+            </button>
+          }
+        >
+          <input
+            ref={(el) => queueMicrotask(() => el.focus())}
+            type={type() === "number" ? "number" : "text"}
+            value={props.field.display === "—" ? "" : props.field.display}
+            onBlur={(event) => {
+              setEditing(false);
+              const next = event.currentTarget.value.trim();
+              if (next !== (props.field.display === "—" ? "" : props.field.display)) {
+                props.onText(next === "" ? null : next);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") {
+                event.currentTarget.value = props.field.display === "—" ? "" : props.field.display;
+                event.currentTarget.blur();
+              }
+              event.stopPropagation();
+            }}
+            class="-mx-1.5 h-6 w-full rounded-[5px] bg-elevated px-1.5 text-base text-ink"
+          />
+        </Show>
+      </Show>
+    </Show>
+  );
+}
+
+/** Menu entries for a dropdown or label field, straight from its type_config. */
+function fieldOptions(field: Field): MenuItem[] {
+  const options =
+    (field.typeConfig as { options?: Array<{ id: string; name?: string; label?: string }> } | null)
+      ?.options ?? [];
+
+  return [
+    ...options.map((option) => ({
+      id: option.id,
+      label: option.name ?? option.label ?? option.id,
+    })),
+    { id: CLEAR, label: "Clear" },
+  ];
 }
 
 /** Custom field values arrive raw. Only the types worth rendering get special care. */

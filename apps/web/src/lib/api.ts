@@ -288,6 +288,14 @@ export const api = {
   deleteComment: (commentId: string) =>
     request<TaskDetail>(`/api/comments/${commentId}`, { method: "DELETE" }),
 
+  setTags: (taskId: string, tags: string[]) =>
+    request<TaskDetail>(`/api/tasks/${taskId}/tags`, {
+      method: "PUT",
+      body: JSON.stringify({ tags }),
+    }),
+
+  spaceTags: (spaceId: string) => request<Tag[]>(`/api/spaces/${spaceId}/tags`),
+
   setField: (taskId: string, fieldId: string, value: unknown) =>
     request<{ ok: true }>(`/api/tasks/${taskId}/fields/${fieldId}`, {
       method: "PUT",
