@@ -66,7 +66,7 @@ export function QuickAdd(props: {
       <button
         type="button"
         aria-label="Cancel"
-        class="absolute inset-0 bg-black/55"
+        class="absolute inset-0 bg-scrim"
         onClick={props.onClose}
       />
 
@@ -93,17 +93,17 @@ export function QuickAdd(props: {
             }}
             placeholder={props.listId ? "New task…" : "Open a list first"}
             disabled={!props.listId}
-            class="h-14 w-full text-[16px] text-ink"
+            class="h-14 w-full text-md text-ink"
           />
         </div>
         <div class="flex items-center justify-between border-line/80 border-t px-4 py-2.5">
-          <span class="truncate text-[11px] text-ink-3">
+          <span class="truncate text-xs text-ink-3">
             <Show when={props.listName} fallback="No list selected">
               {props.listName}
               <Show when={initial()}> · {initial()?.status}</Show>
             </Show>
           </span>
-          <span class="text-[11px] text-ink-4">↵ to create · esc to cancel</span>
+          <span class="text-xs text-ink-4">↵ to create · esc to cancel</span>
         </div>
       </div>
     </div>

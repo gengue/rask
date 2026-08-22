@@ -18,6 +18,7 @@ import { PRIORITY_LABELS } from "./lib/format.ts";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { connect } from "./lib/sse.ts";
 import { tasks } from "./lib/store.ts";
+import { setTheme, type ThemeChoice, themeChoice } from "./lib/theme.ts";
 import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
   cursorTask,
@@ -28,6 +29,13 @@ import {
   viewTitle,
   viewTruncated,
 } from "./lib/view.ts";
+
+/** Ordered so "System", the default, comes first in the palette. */
+const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
+];
 
 /**
  * The shell: sidebar, main panel, detail panel, and the one keyboard listener
@@ -278,6 +286,18 @@ export function AppShell(): JSX.Element {
       section: "View",
       run: () => setUi("showClosed", !ui.showClosed),
     },
+    /*
+     * The theme lives here rather than behind a settings page, because there
+     * is no settings page and one switch does not justify inventing one. The
+     * palette is where every other action in the app already is.
+     */
+    ...THEMES.map(([value, label]) => ({
+      id: `theme:${value}`,
+      label: `Theme: ${label}`,
+      section: "Appearance",
+      hint: themeChoice() === value ? "on" : "",
+      run: () => setTheme(value),
+    })),
     {
       id: "task:new",
       label: "New task",
@@ -386,11 +406,11 @@ export function AppShell(): JSX.Element {
               when={searching()}
               fallback={
                 <>
-                  <h1 class="truncate font-medium text-[13.5px] text-ink tracking-[-0.005em]">
+                  <h1 class="truncate font-medium text-base text-ink tracking-[-0.005em]">
                     {viewTitle()}
                   </h1>
                   <span
-                    class="rounded bg-white/[0.05] px-1.5 text-[11px] text-ink-3 tabular-nums"
+                    class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums"
                     title={viewTruncated() ? "More tasks exist than were loaded" : undefined}
                   >
                     {rowTasks().length}
@@ -431,7 +451,7 @@ export function AppShell(): JSX.Element {
                   event.stopPropagation();
                 }}
                 placeholder="Filter tasks…"
-                class="h-full flex-1 text-[13px]"
+                class="h-full flex-1 text-base"
               />
               <button
                 type="button"
@@ -527,7 +547,7 @@ function GroupPicker(): JSX.Element {
           const rect = event.currentTarget.getBoundingClientRect();
           setAnchor({ x: rect.right - 180, y: rect.bottom + 6 });
         }}
-        class="flex h-[22px] items-center gap-1 rounded-[5px] px-1.5 text-[11.5px] text-ink-4 transition-colors hover:bg-white/[0.04] hover:text-ink-2"
+        class="flex h-[22px] items-center gap-1 rounded-[5px] px-1.5 text-xs text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path

@@ -21,7 +21,7 @@ export function Sidebar(props: {
     <aside class="flex w-[236px] shrink-0 flex-col">
       <header class="flex h-12 items-center gap-1.5 px-3">
         <Avatar user={props.me} size={20} />
-        <span class="flex-1 truncate font-medium text-[13px] text-ink">Rask</span>
+        <span class="flex-1 truncate font-medium text-base text-ink">Rask</span>
         <IconButton label="Search  /" onClick={props.onSearch}>
           <path d="M11.5 11.5 14 14M13 7.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Z" />
         </IconButton>
@@ -37,7 +37,7 @@ export function Sidebar(props: {
       </nav>
 
       <div class="mt-5 flex-1 overflow-y-auto px-2 pb-3">
-        <div class="px-2 pb-1 font-medium text-[11px] text-ink-4 uppercase tracking-[0.04em]">
+        <div class="px-2 pb-1 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
           Workspace
         </div>
         <For each={props.spaces}>{(space) => <SpaceNode space={space} />}</For>
@@ -52,7 +52,7 @@ export function Sidebar(props: {
             </span>
             <span
               class="size-1.5 shrink-0 rounded-full transition-colors"
-              classList={{ "bg-[#2ecd6f]": connected(), "bg-high": !connected() }}
+              classList={{ "bg-ok": connected(), "bg-high": !connected() }}
               title={
                 connected()
                   ? "Live: changes from ClickUp arrive as they land"
@@ -75,10 +75,10 @@ function SpaceNode(props: { space: Space }): JSX.Element {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-white/[0.045] hover:text-ink"
+        class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
         <Chevron open={open()} muted={empty()} />
-        <span class="truncate text-[13px]">{props.space.name}</span>
+        <span class="truncate text-base">{props.space.name}</span>
       </button>
 
       <Show when={open()}>
@@ -101,10 +101,10 @@ function FolderNode(props: {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-white/[0.045] hover:text-ink"
+        class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
         <Chevron open={open()} muted={props.folder.lists.length === 0} />
-        <span class="truncate text-[13px]">{props.folder.name}</span>
+        <span class="truncate text-base">{props.folder.name}</span>
       </button>
       <Show when={open()}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
@@ -125,10 +125,10 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
     <A
       to="/list/$listId"
       params={{ listId: props.id }}
-      class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-[13px]"
+      class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-base"
       classList={{
-        "bg-white/[0.07] text-ink": active(),
-        "text-ink-2 hover:bg-white/[0.045] hover:text-ink": !active(),
+        "row-selected text-ink": active(),
+        "text-ink-2 hover:bg-hover hover:text-ink": !active(),
       }}
     >
       <svg
@@ -158,10 +158,10 @@ function NavItem(props: { to: string; label: string; children: JSX.Element }): J
   return (
     <A
       to={props.to}
-      class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-[13px]"
+      class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-base"
       classList={{
-        "bg-white/[0.07] text-ink": active(),
-        "text-ink-2 hover:bg-white/[0.045] hover:text-ink": !active(),
+        "row-selected text-ink": active(),
+        "text-ink-2 hover:bg-hover hover:text-ink": !active(),
       }}
     >
       <svg
@@ -192,7 +192,7 @@ function IconButton(props: {
       title={props.label}
       aria-label={props.label}
       onClick={props.onClick}
-      class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
+      class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink"
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">

@@ -85,7 +85,7 @@ function FacetButton(props: {
       class="flex h-[22px] items-center rounded-[5px] transition-colors"
       classList={{
         "bg-accent-soft text-ink": Boolean(props.value),
-        "text-ink-4 hover:bg-white/[0.04] hover:text-ink-2": !props.value,
+        "text-ink-4 hover:bg-hover hover:text-ink-2": !props.value,
       }}
     >
       <button
@@ -95,7 +95,7 @@ function FacetButton(props: {
           const rect = event.currentTarget.getBoundingClientRect();
           props.onOpen({ x: rect.left, y: rect.bottom + 6 });
         }}
-        class="flex h-full items-center gap-1 truncate px-1.5 text-[11.5px] capitalize"
+        class="flex h-full items-center gap-1 truncate px-1.5 text-xs capitalize"
       >
         {props.value ?? props.facet}
         <Show when={!props.value}>

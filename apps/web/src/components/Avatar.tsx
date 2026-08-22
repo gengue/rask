@@ -23,14 +23,23 @@ export function Avatar(props: {
       {(user) => (
         <Show
           when={user().avatar}
+          /*
+           * Initials on a disc, in the colour ClickUp gave the member.
+           *
+           * White on that colour is a fixed pairing that no theme can change,
+           * because the background is a workspace value rather than a Rask
+           * surface. The fallback, for a member with no colour at all, is a
+           * theme token and so has to take a theme ink with it.
+           */
           fallback={
             <div
-              class="flex shrink-0 items-center justify-center rounded-full font-medium text-white"
+              class="flex shrink-0 items-center justify-center rounded-full font-medium"
+              classList={{ "text-white": Boolean(user().color), "text-ink": !user().color }}
               style={{
                 width: `${size()}px`,
                 height: `${size()}px`,
                 "font-size": `${Math.round(size() * 0.42)}px`,
-                background: user().color ?? "#4a4e55",
+                background: user().color ?? "var(--color-line-strong)",
               }}
               title={user().username ?? undefined}
             >

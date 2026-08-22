@@ -1,10 +1,39 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <title>Rask</title>
+    <script>
+      /*
+       * Theme, before anything else paints.
+       *
+       * This has to be inline and it has to be here. Reading localStorage from
+       * the bundle means the first frame is drawn with whatever the stylesheet
+       * says and then repainted, which on a dark theme is a white flash on
+       * every single page load. Setting colorScheme as well as the class
+       * covers the window before the stylesheet itself arrives, when there is
+       * no CSS to paint from at all.
+       *
+       * The six lines are duplicated from src/lib/theme.ts on purpose: the
+       * module cannot run early enough, and a second <script src> would be a
+       * blocking request to save a duplicated string key.
+       */
+      (() => {
+        let stored = null;
+        try {
+          stored = localStorage.getItem("rask.theme");
+        } catch {
+          // Private mode, or storage blocked. Follow the system and move on.
+        }
+        const dark =
+          stored === "dark" ||
+          (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.add(dark ? "dark" : "light");
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

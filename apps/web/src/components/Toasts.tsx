@@ -16,9 +16,9 @@ export function Toasts(): JSX.Element {
               }}
             />
             <div class="min-w-0 flex-1">
-              <div class="text-[13px] text-ink">{toast.title}</div>
+              <div class="text-base text-ink">{toast.title}</div>
               <Show when={toast.detail}>
-                <div class="truncate text-[11px] text-ink-3">{toast.detail}</div>
+                <div class="truncate text-xs text-ink-3">{toast.detail}</div>
               </Show>
             </div>
             <button

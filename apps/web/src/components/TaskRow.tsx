@@ -44,8 +44,8 @@ export function TaskRow(props: {
       onClick={props.onOpen}
       class="group relative flex h-9 cursor-default items-center gap-3 border-line/45 border-b pr-5 pl-5 transition-colors duration-75"
       classList={{
-        "bg-white/[0.05]": props.active,
-        "hover:bg-white/[0.025]": !props.active,
+        "row-selected": props.active,
+        "hover:bg-hover": !props.active,
         // A task that has not reached ClickUp yet is dimmed, not hidden.
         "opacity-55": pending(),
       }}
@@ -61,7 +61,7 @@ export function TaskRow(props: {
       <Show when={props.task.customId}>
         {/* The one string a developer copies out of here, into a branch name
             or a commit message, so it opts back in to text selection. */}
-        <span class="selectable w-[62px] shrink-0 truncate font-mono text-[11px] text-ink-3 tabular-nums">
+        <span class="selectable w-[62px] shrink-0 truncate font-mono text-xs text-ink-3 tabular-nums">
           {props.task.customId}
         </span>
       </Show>
@@ -72,7 +72,7 @@ export function TaskRow(props: {
           event.stopPropagation();
           props.onStatusClick(event);
         }}
-        class="-m-1 shrink-0 rounded-[5px] p-1 hover:bg-white/10"
+        class="-m-1 shrink-0 rounded-[5px] p-1 hover:bg-hover"
         title={props.task.status ?? "No status"}
       >
         <StatusIcon type={props.task.statusType} color={props.task.statusColor} />
@@ -80,37 +80,51 @@ export function TaskRow(props: {
 
       <Show when={props.task.parentId}>
         {/* A subtask is otherwise indistinguishable from a top-level task. */}
-        <span class="-ml-1.5 shrink-0 text-[11px] text-ink-4" title="Subtask">
+        <span class="-ml-1.5 shrink-0 text-xs text-ink-4" title="Subtask">
           &#8618;
         </span>
       </Show>
 
-      <span class="flex-1 truncate text-[13px] text-ink" classList={{ "text-white": props.active }}>
-        {props.task.name}
-      </span>
+      {/* The title is already the brightest ink in the row; the active row used
+          to nudge it to pure white, a difference of one step on a 4-step ladder
+          that nobody could see and that turns invisible on a light background. */}
+      <span class="flex-1 truncate text-base text-ink">{props.task.name}</span>
 
       <Show when={props.showList && props.task.listName}>
         {/* My Tasks spans 243 lists. Without this a row gives no clue which
             project it belongs to, and grouping by status does not help. */}
-        <span class="max-w-[120px] shrink-0 truncate text-[11px] text-ink-3">
+        <span class="max-w-[120px] shrink-0 truncate text-xs text-ink-3">
           {props.task.listName}
         </span>
       </Show>
 
       <Show when={props.task.tags.length > 0}>
         <div class="flex shrink-0 items-center gap-1">
-          {props.task.tags.slice(0, 2).map((tag) => (
-            <span
-              class="rounded-[4px] border px-1.5 py-px text-[10px] leading-4"
-              style={{
-                "border-color": `${tag.bg ?? "#2a2c30"}55`,
-                background: `${tag.bg ?? "#2a2c30"}1f`,
-                color: tag.bg ?? "var(--color-ink-3)",
-              }}
-            >
-              {tag.name}
-            </span>
-          ))}
+          {props.task.tags.slice(0, 2).map((tag) => {
+            /*
+             * The tag colour paints the border and a wash behind it; the label
+             * is a theme ink.
+             *
+             * It used to be the label. That put the legibility of an 11px word
+             * in the hands of whoever picked the colour in ClickUp — a dark
+             * tag was invisible on the dark theme, and a pale one would be
+             * invisible on the light theme. The chip is still recognisably the
+             * tag's colour, and the word is still readable, which is the part
+             * we can actually be responsible for.
+             */
+            const tint = tag.bg ?? "var(--color-line-strong)";
+            return (
+              <span
+                class="rounded-[4px] border px-1.5 py-px text-ink-2 text-xs leading-4"
+                style={{
+                  "border-color": `color-mix(in srgb, ${tint} 45%, transparent)`,
+                  background: `color-mix(in srgb, ${tint} 14%, transparent)`,
+                }}
+              >
+                {tag.name}
+              </span>
+            );
+          })}
         </div>
       </Show>
 
