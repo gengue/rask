@@ -1,0 +1,67 @@
+{
+  "id": "f66e2c95-ab84-463b-8b5d-3754a97ec1e7",
+  "task_id": "9hz",
+  "name": "Release steps",
+  "date_created": "1787165200145",
+  "orderindex": 1,
+  "creator": 82591240,
+  "resolved": 1,
+  "unresolved": 2,
+  "items": [
+    {
+      "id": "862d7093-bf6d-4627-9417-5ddebd92fe51",
+      "name": "Tag the release",
+      "orderindex": 0,
+      "assignee": null,
+      "group_assignee": null,
+      "resolved": true,
+      "parent": null,
+      "date_created": "1720478511620",
+      "start_date": null,
+      "start_date_time": null,
+      "due_date": null,
+      "due_date_time": null,
+      "sent_due_date_notif": false,
+      "children": []
+    },
+    {
+      "id": "b851599b-ac59-4e52-b15a-ec2a18921647",
+      "name": "Run the migrations",
+      "orderindex": 1,
+      "assignee": {
+        "id": 183,
+        "username": "John Doe",
+        "email": "example@email.com",
+        "color": "#827718",
+        "initials": "JD",
+        "profilePicture": "https://attachments.clickup.com/profilePictures/183_nx1.jpg"
+      },
+      "group_assignee": null,
+      "resolved": false,
+      "parent": null,
+      "date_created": "1720478566037",
+      "start_date": null,
+      "start_date_time": null,
+      "due_date": null,
+      "due_date_time": null,
+      "sent_due_date_notif": false,
+      "children": []
+    },
+    {
+      "id": "26b30a1f-7c16-4fa3-9de8-add0a9aee5fa",
+      "name": "Announce it in the channel",
+      "orderindex": 2,
+      "assignee": "183",
+      "group_assignee": null,
+      "resolved": false,
+      "parent": "b851599b-ac59-4e52-b15a-ec2a18921647",
+      "date_created": "1720478648947",
+      "start_date": null,
+      "start_date_time": null,
+      "due_date": null,
+      "due_date_time": null,
+      "sent_due_date_notif": false,
+      "children": []
+    }
+  ]
+}

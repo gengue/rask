@@ -3,8 +3,10 @@ import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "./db.ts";
 import {
   type MappedAttachment,
+  type MappedChecklist,
   type MappedCustomField,
   type MappedUser,
+  mapChecklist,
   mapComment,
   mapFolder,
   mapList,
@@ -12,6 +14,7 @@ import {
   mapTask,
 } from "./map.ts";
 import {
+  checklistItems,
   comments,
   customFieldDefs,
   folders,
@@ -19,6 +22,7 @@ import {
   spaces,
   taskAssignees,
   taskAttachments,
+  taskChecklists,
   taskCustomValues,
   tasks,
   users,
@@ -218,6 +222,7 @@ export async function ingestTasks(
     await replaceAssignees(db, taskIds, chunk);
     await replaceCustomValues(db, taskIds, chunk);
     await replaceAttachments(db, chunk);
+    await replaceChecklists(db, chunk);
 
     for (const m of chunk) {
       if (m.task.dateUpdated && (!newestUpdate || m.task.dateUpdated > newestUpdate)) {
@@ -285,6 +290,80 @@ async function replaceAttachments(
   if (rows.length === 0) return;
   for (const chunk of chunks(rows, ROW_CHUNK)) {
     await db.insert(taskAttachments).values(chunk).onConflictDoNothing();
+  }
+}
+
+/**
+ * Checklists, for the tasks in the batch that came with an opinion about them.
+ *
+ * Skipped for a task whose payload had no `checklists` key, exactly like
+ * attachments: every list endpoint omits it, so treating the silence as "no
+ * checklists" would empty the table on every poll and refill it the next time
+ * somebody opened the task. That reads as flakiness rather than as a bug, which
+ * is what makes it worth a comment in both places.
+ *
+ * Replacement rather than a diff. A checklist is a handful of rows, ClickUp's
+ * item ids are stable, and the delete cascades — so this also removes the
+ * optimistic placeholder a write left behind, with no bookkeeping.
+ */
+async function replaceChecklists(
+  db: Db,
+  mapped: Array<{ task: { id: string }; checklists: MappedChecklist[] | null }>,
+): Promise<void> {
+  const known = mapped.filter((m) => m.checklists !== null);
+  if (known.length === 0) return;
+
+  await db.delete(taskChecklists).where(
+    inArray(
+      taskChecklists.taskId,
+      known.map((m) => m.task.id),
+    ),
+  );
+
+  const mirrored = known.flatMap((m) => m.checklists ?? []);
+  if (mirrored.length === 0) return;
+
+  for (const chunk of chunks(
+    mirrored.map((entry) => entry.checklist),
+    ROW_CHUNK,
+  )) {
+    await db.insert(taskChecklists).values(chunk).onConflictDoNothing();
+  }
+
+  // Items only after every checklist is in: the foreign key cascades, so an
+  // item whose checklist is still missing is rejected rather than orphaned.
+  const items = mirrored.flatMap((entry) => entry.items);
+  for (const chunk of chunks(items, ROW_CHUNK)) {
+    await db.insert(checklistItems).values(chunk).onConflictDoNothing();
+  }
+}
+
+/**
+ * One checklist, as every checklist write answers with it.
+ *
+ * Items are replaced rather than merged, which is what retires the optimistic
+ * placeholder the API inserted: it has a `tmp_` id ClickUp never heard of, so a
+ * merge would leave it on screen for ever.
+ */
+export async function ingestChecklist(
+  db: Db,
+  taskId: string,
+  payload: Parameters<typeof mapChecklist>[0],
+): Promise<void> {
+  const mapped = mapChecklist(payload, taskId);
+
+  await db
+    .insert(taskChecklists)
+    .values(mapped.checklist)
+    .onConflictDoUpdate({
+      target: taskChecklists.id,
+      set: pick(["taskId", "name", "orderindex", "creatorId", "dateCreated"], { syncedAt: true }),
+    });
+
+  await db.delete(checklistItems).where(eq(checklistItems.checklistId, mapped.checklist.id));
+  if (mapped.items.length === 0) return;
+  for (const chunk of chunks(mapped.items, ROW_CHUNK)) {
+    await db.insert(checklistItems).values(chunk).onConflictDoNothing();
   }
 }
 

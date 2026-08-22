@@ -1,13 +1,28 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { comments, createTestDb, outbox, taskAssignees, tasks, users } from "@rask/schema";
+import {
+  checklistItems,
+  comments,
+  createTestDb,
+  outbox,
+  taskAssignees,
+  taskChecklists,
+  tasks,
+  users,
+} from "@rask/schema";
 import { asc, eq, inArray } from "drizzle-orm";
 import {
+  applyChecklistItemPatch,
   applyCommentPatch,
   applyTaskPatch,
+  createChecklist,
+  createChecklistItem,
   createComment,
   createTask,
+  deleteChecklist,
   deleteComment,
   discardPendingComment,
+  findChecklist,
+  findChecklistItem,
   findComment,
   isEditable,
   setTaskTags,
@@ -132,6 +147,163 @@ describe("createTask", () => {
     expect(rows[0]?.payload).toMatchObject({ listId: "writes-test-list", name: "brand new" });
 
     await db.delete(tasks).where(eq(tasks.id, id));
+  });
+
+  test("a subtask carries its parent under ClickUp's own name for it", async () => {
+    const id = await createTask(db, {
+      userId: AUTHOR,
+      task: {
+        // ClickUp requires the parent to be in the List named in the path, so
+        // the caller sends the parent's list, not whichever one is open.
+        listId: "writes-test-list",
+        name: "fix issue",
+        parentId: TASK,
+        assignees: [],
+        clientId: "client-sub",
+      },
+    });
+
+    const [placeholder] = await db.select().from(tasks).where(eq(tasks.id, id));
+    expect(placeholder?.parentId).toBe(TASK);
+
+    const rows = await queued();
+    expect(rows[0]?.payload).toMatchObject({ parent: TASK });
+
+    await db.delete(tasks).where(eq(tasks.id, id));
+  });
+
+  test("a top-level task queues no parent at all", async () => {
+    const id = await createTask(db, {
+      userId: AUTHOR,
+      task: { listId: "writes-test-list", name: "standalone", assignees: [], clientId: "client-t" },
+    });
+
+    const rows = await queued();
+    expect(rows[0]?.payload).not.toHaveProperty("parent");
+
+    await db.delete(tasks).where(eq(tasks.id, id));
+  });
+});
+
+/**
+ * Checklists.
+ *
+ * The tick is the interesting one. ClickUp's checklist-item PUT is a genuine
+ * partial update, unlike the comment PUT next door which blanks whatever it is
+ * not given — so the queued payload holds only what changed, and ticking a box
+ * is not able to rewrite its text. The other thing Postgres is needed for is
+ * the cascade: deleting a checklist has to take its items with it, because
+ * that is what ClickUp does upstream.
+ */
+describe("checklists", () => {
+  const CHECKLIST = "writes-test-checklist";
+
+  async function seedChecklist() {
+    await db
+      .insert(taskChecklists)
+      .values({ id: CHECKLIST, taskId: TASK, name: "Release steps", orderindex: 0 })
+      .onConflictDoNothing();
+    await db
+      .insert(checklistItems)
+      .values({ id: "writes-test-item", checklistId: CHECKLIST, name: "Tag it", orderindex: 0 })
+      .onConflictDoNothing();
+    const item = await findChecklistItem(db, "writes-test-item");
+    if (!item) throw new Error("expected the item");
+    return item;
+  }
+
+  test("creating one inserts a placeholder and queues the create", async () => {
+    const id = await createChecklist(db, {
+      taskId: TASK,
+      userId: AUTHOR,
+      checklist: { name: "Release steps", clientId: "client-cl" },
+    });
+
+    expect(id).toBe("tmp_client-cl");
+
+    const [row] = await db.select().from(taskChecklists).where(eq(taskChecklists.id, id));
+    expect(row?.name).toBe("Release steps");
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("create_checklist");
+    expect(rows[0]?.entityId).toBe(TASK);
+    expect(rows[0]?.payload).toEqual({ taskId: TASK, name: "Release steps" });
+  });
+
+  test("ticking flips the mirror and queues only the tick", async () => {
+    const item = await seedChecklist();
+
+    await applyChecklistItemPatch(db, { item, userId: AUTHOR, patch: { resolved: true } });
+
+    const [row] = await db.select().from(checklistItems).where(eq(checklistItems.id, item.id));
+    expect(row?.resolved).toBe(true);
+    expect(row?.name).toBe("Tag it");
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("update_checklist_item");
+    expect(rows[0]?.entityId).toBe(TASK);
+    expect(rows[0]?.payload).toEqual({
+      taskId: TASK,
+      checklistId: CHECKLIST,
+      itemId: item.id,
+      resolved: true,
+    });
+  });
+
+  test("renaming an item leaves the tick out of the payload", async () => {
+    const item = await seedChecklist();
+
+    await applyChecklistItemPatch(db, { item, userId: AUTHOR, patch: { name: "Tag the release" } });
+
+    const rows = await queued();
+    expect(rows[0]?.payload).toEqual({
+      taskId: TASK,
+      checklistId: CHECKLIST,
+      itemId: item.id,
+      name: "Tag the release",
+    });
+  });
+
+  test("an item knows which task it belongs to, which is what the outbox is keyed on", async () => {
+    const item = await seedChecklist();
+    expect(item.taskId).toBe(TASK);
+  });
+
+  test("deleting a checklist takes its items with it, as ClickUp does", async () => {
+    await seedChecklist();
+    const checklist = await findChecklist(db, CHECKLIST);
+    if (!checklist) throw new Error("expected the checklist");
+
+    await deleteChecklist(db, { checklist, userId: AUTHOR });
+
+    const items = await db
+      .select()
+      .from(checklistItems)
+      .where(eq(checklistItems.checklistId, CHECKLIST));
+    expect(items).toHaveLength(0);
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("delete_checklist");
+    expect(rows[0]?.payload).toEqual({ taskId: TASK, checklistId: CHECKLIST });
+  });
+
+  test("a new item has no orderindex, so it sorts after everything ClickUp numbered", async () => {
+    await seedChecklist();
+    const checklist = await findChecklist(db, CHECKLIST);
+    if (!checklist) throw new Error("expected the checklist");
+
+    const id = await createChecklistItem(db, {
+      checklist,
+      userId: AUTHOR,
+      item: { name: "Smoke test", clientId: "client-item" },
+    });
+
+    const [row] = await db.select().from(checklistItems).where(eq(checklistItems.id, id));
+    expect(row?.orderindex).toBeNull();
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("create_checklist_item");
+    expect(rows[0]?.clientId).toBe("client-item");
   });
 });
 
@@ -372,7 +544,7 @@ describe("resolving a rich comment", () => {
     await applyCommentPatch(db, { comment, userId: AUTHOR, patch: { resolved: true } });
 
     const [row] = await queued();
-    expect((row?.payload as { segments: unknown }).segments).toEqual(segments);
+    expect((row?.payload as { segments: unknown } | undefined)?.segments).toEqual(segments);
   });
 
   test("an actual edit sends the new text and drops the old body", async () => {

@@ -75,4 +75,10 @@ const FAILURE_LABELS: Record<string, string> = {
   update_comment: "comment edit",
   delete_comment: "comment deletion",
   set_custom_field: "field change",
+  create_checklist: "new checklist",
+  update_checklist: "checklist rename",
+  delete_checklist: "checklist deletion",
+  create_checklist_item: "new checklist item",
+  update_checklist_item: "checklist tick",
+  delete_checklist_item: "checklist item deletion",
 };

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ClickUpClient, ClickUpError } from "../src/client.ts";
 import { RateLimiter } from "../src/rate-limit.ts";
+import checklistFixture from "./fixtures/checklist.json" with { type: "json" };
 import taskFixture from "./fixtures/task.json" with { type: "json" };
 
 interface Call {
@@ -276,6 +277,85 @@ describe("writes", () => {
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url).toContain("/v2/task/9hz/field/field-1");
     expect(calls[0]?.body).toEqual({ value: "opt-2" });
+  });
+});
+
+/**
+ * Checklists.
+ *
+ * The vendored spec types the `checklists` array on a task as `object` and
+ * nothing more, and it contradicts itself on the item's `assignee` — a user
+ * object in one response, a bare id in another. The fixture is the shape the
+ * Ventura workspace actually sends, which is the only reason we know the
+ * `creator` field exists at all.
+ */
+describe("checklists", () => {
+  test("parses a checklist off a task, items and all", async () => {
+    const { client } = makeClient([{ body: { ...taskFixture, checklists: [checklistFixture] } }]);
+    const task = await client.getTask("9hz");
+
+    expect(task.checklists).toHaveLength(1);
+    expect(task.checklists?.[0]?.name).toBe("Release steps");
+    expect(task.checklists?.[0]?.items).toHaveLength(3);
+    expect(task.checklists?.[0]?.creator).toBe("82591240");
+    expect(task.checklists?.[0]?.date_created).toEqual(new Date(1787165200145));
+  });
+
+  test("accepts an item assignee as either a user object or a bare id", async () => {
+    const { client } = makeClient([{ body: { ...taskFixture, checklists: [checklistFixture] } }]);
+    const items = (await client.getTask("9hz")).checklists?.[0]?.items ?? [];
+
+    expect(items[1]?.assignee).toMatchObject({ id: 183 });
+    expect(items[2]?.assignee).toBe("183");
+  });
+
+  /**
+   * The difference that matters: a list page omits the key entirely, and
+   * defaulting it to `[]` would tell the mirror ClickUp had just said the task
+   * has no checklists. Same trap as attachments.
+   */
+  test("is undefined when the payload never mentioned checklists", async () => {
+    const { checklists: _dropped, ...withoutKey } = taskFixture;
+    const { client } = makeClient([{ body: { tasks: [withoutKey], last_page: true } }]);
+    const { tasks } = await client.getListTasks("777");
+
+    expect(tasks[0]?.checklists).toBeUndefined();
+  });
+
+  test("creating one posts to the task and unwraps the response", async () => {
+    const { client, calls } = makeClient([{ body: { checklist: checklistFixture } }]);
+    const created = await client.createChecklist("9hz", { name: "Release steps" });
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toContain("/v2/task/9hz/checklist");
+    expect(calls[0]?.body).toEqual({ name: "Release steps" });
+    expect(created.id).toBe("f66e2c95-ab84-463b-8b5d-3754a97ec1e7");
+  });
+
+  test("ticking an item sends only what changed and answers with the whole list", async () => {
+    const { client, calls } = makeClient([{ body: { checklist: checklistFixture } }]);
+    const updated = await client.updateChecklistItem("cl-1", "item-1", { resolved: true });
+
+    expect(calls[0]?.method).toBe("PUT");
+    expect(calls[0]?.url).toContain("/v2/checklist/cl-1/checklist_item/item-1");
+    expect(calls[0]?.body).toEqual({ resolved: true });
+    expect(updated.items).toHaveLength(3);
+  });
+
+  test("adding an item posts to the checklist, not the task", async () => {
+    const { client, calls } = makeClient([{ body: { checklist: checklistFixture } }]);
+    await client.createChecklistItem("cl-1", { name: "Smoke test" });
+
+    expect(calls[0]?.url).toContain("/v2/checklist/cl-1/checklist_item");
+    expect(calls[0]?.body).toEqual({ name: "Smoke test", assignee: undefined });
+  });
+
+  test("deleting an item needs both ids in the path", async () => {
+    const { client, calls } = makeClient([{ body: {} }]);
+    await client.deleteChecklistItem("cl-1", "item-1");
+
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toContain("/v2/checklist/cl-1/checklist_item/item-1");
   });
 });
 

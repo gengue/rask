@@ -1,12 +1,15 @@
 import { ClickUpError, type CommentSegment } from "@rask/clickup-client";
 import {
+  checklistItems,
   comments,
   type Db,
+  ingestChecklist,
   ingestComments,
   ingestReplies,
   ingestTasks,
   type OutboxOp,
   outbox,
+  taskChecklists,
   tasks,
 } from "@rask/schema";
 import { eq, sql } from "drizzle-orm";
@@ -166,6 +169,69 @@ async function execute(
       return;
     }
 
+    /*
+     * Checklists.
+     *
+     * Every write except the two deletes answers with the whole checklist,
+     * items included, so the mirror is repaired from the response rather than
+     * by refetching the task. Ticking a box costs exactly one request.
+     */
+    case "create_checklist": {
+      const { taskId, name } = payload as { taskId: string; name: string };
+      const created = await client.createChecklist(taskId, { name });
+      await ingestChecklist(db, taskId, created);
+      // Retire the placeholder now that the real row exists. The API's SSE push
+      // carries the swap to whoever has the task open.
+      if (row.client_id) {
+        await db.delete(taskChecklists).where(eq(taskChecklists.id, placeholderId(row.client_id)));
+      }
+      return;
+    }
+
+    case "update_checklist": {
+      const { checklistId, name } = payload as { checklistId: string; name: string };
+      // ClickUp answers an empty body and the mirror already holds this name.
+      await client.updateChecklist(checklistId, { name });
+      return;
+    }
+
+    case "delete_checklist": {
+      const { checklistId } = payload as { checklistId: string };
+      await client.deleteChecklist(checklistId);
+      return;
+    }
+
+    case "create_checklist_item": {
+      const { taskId, checklistId, name } = payload as {
+        taskId: string;
+        checklistId: string;
+        name: string;
+      };
+      const updated = await client.createChecklistItem(checklistId, { name });
+      // Replaces every item on the checklist, placeholder included.
+      await ingestChecklist(db, taskId, updated);
+      return;
+    }
+
+    case "update_checklist_item": {
+      const { taskId, checklistId, itemId, name, resolved } = payload as {
+        taskId: string;
+        checklistId: string;
+        itemId: string;
+        name?: string;
+        resolved?: boolean;
+      };
+      const updated = await client.updateChecklistItem(checklistId, itemId, { name, resolved });
+      await ingestChecklist(db, taskId, updated);
+      return;
+    }
+
+    case "delete_checklist_item": {
+      const { checklistId, itemId } = payload as { checklistId: string; itemId: string };
+      await client.deleteChecklistItem(checklistId, itemId);
+      return;
+    }
+
     case "set_custom_field": {
       const { taskId, fieldId, value } = payload as {
         taskId: string;
@@ -187,6 +253,10 @@ async function execute(
  * write was a comment: ClickUp wins, and whatever the user optimistically saw
  * gets overwritten. For a create it means deleting the placeholder, since
  * ClickUp has nothing to refetch.
+ *
+ * The task refetch covers checklists for free: `GET /task/{id}` carries them,
+ * and ingest replaces a task's checklists wholesale, so a rejected tick, rename
+ * or delete snaps back to what ClickUp actually holds.
  */
 async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
   try {
@@ -214,6 +284,19 @@ async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
           .where(eq(comments.id, payload.parentId));
       }
       return;
+    }
+
+    /*
+     * A checklist row that never reached ClickUp has nothing to refetch, and
+     * the refetch below is exactly what is unavailable when the token itself is
+     * the reason the write failed. Drop the placeholder locally first; the
+     * repair that follows is then only correcting what ClickUp really holds.
+     */
+    if (row.client_id && row.op === "create_checklist") {
+      await db.delete(taskChecklists).where(eq(taskChecklists.id, placeholderId(row.client_id)));
+    }
+    if (row.client_id && row.op === "create_checklist_item") {
+      await db.delete(checklistItems).where(eq(checklistItems.id, placeholderId(row.client_id)));
     }
 
     const client = await pool.for(row.user_id);

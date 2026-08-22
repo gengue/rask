@@ -1,4 +1,12 @@
-import { comments, type Db, outbox, taskAssignees, tasks } from "@rask/schema";
+import {
+  checklistItems,
+  comments,
+  type Db,
+  outbox,
+  taskAssignees,
+  taskChecklists,
+  tasks,
+} from "@rask/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -29,6 +37,13 @@ export const newTaskInput = z.object({
   priority: z.number().int().min(1).max(4).nullable().optional(),
   dueDate: z.number().int().nullable().optional(),
   assignees: z.array(z.string()).default([]),
+  /**
+   * Makes the new task a subtask of this one.
+   *
+   * ClickUp requires the parent to live in the List named in the path, so the
+   * caller sends the parent's own list rather than whichever one is open.
+   */
+  parentId: z.string().min(1).optional(),
   /** Client-generated, so the optimistic row can be matched to ClickUp's reply. */
   clientId: z.string().min(1).max(64),
 });
@@ -123,6 +138,7 @@ export async function createTask(
         status: task.status ?? null,
         priority: task.priority ?? null,
         dueDate: task.dueDate ? new Date(task.dueDate) : null,
+        parentId: task.parentId ?? null,
         dateCreated: new Date(),
         dateUpdated: new Date(),
         creatorId: userId,
@@ -148,6 +164,8 @@ export async function createTask(
         priority: task.priority,
         due_date: task.dueDate,
         assignees: task.assignees.map(Number),
+        // ClickUp's own name for it. See NewTask in the client.
+        parent: task.parentId,
       },
     });
   });
@@ -358,6 +376,231 @@ export async function discardPendingComment(
         .where(eq(comments.id, input.comment.parentCommentId));
     }
     await tx.delete(outbox).where(and(eq(outbox.clientId, clientId), eq(outbox.status, "pending")));
+  });
+}
+
+// --- Checklists -----------------------------------------------------------
+
+/*
+ * Checklists follow the same two-step as everything else here: the mirror is
+ * written and an outbox row queued in one transaction, and the route answers
+ * with the whole refreshed task detail. The detail is the unit because the task
+ * collection carries no checklists, so there is nothing for the browser to
+ * patch into — the same reason comment writes answer that way.
+ */
+
+export const newChecklistInput = z.object({
+  name: z.string().min(1).max(255),
+  clientId: z.string().min(1).max(64),
+});
+
+export const checklistPatchInput = z.object({ name: z.string().min(1).max(255) });
+
+export const newChecklistItemInput = z.object({
+  name: z.string().min(1).max(2000),
+  clientId: z.string().min(1).max(64),
+});
+
+export const checklistItemPatchInput = z
+  .object({
+    name: z.string().min(1).max(2000).optional(),
+    resolved: z.boolean().optional(),
+  })
+  .refine((patch) => patch.name !== undefined || patch.resolved !== undefined, {
+    message: "nothing to change",
+  });
+export type ChecklistItemPatchInput = z.infer<typeof checklistItemPatchInput>;
+
+export interface ChecklistOwner {
+  id: string;
+  taskId: string;
+  name: string;
+}
+
+export interface ChecklistItemOwner {
+  id: string;
+  checklistId: string;
+  taskId: string;
+  name: string;
+  resolved: boolean;
+}
+
+export async function findChecklist(db: Db, checklistId: string): Promise<ChecklistOwner | null> {
+  const [row] = await db
+    .select({ id: taskChecklists.id, taskId: taskChecklists.taskId, name: taskChecklists.name })
+    .from(taskChecklists)
+    .where(eq(taskChecklists.id, checklistId))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The item plus the task it hangs off, which is what the outbox row is keyed on. */
+export async function findChecklistItem(
+  db: Db,
+  itemId: string,
+): Promise<ChecklistItemOwner | null> {
+  const [row] = await db
+    .select({
+      id: checklistItems.id,
+      checklistId: checklistItems.checklistId,
+      taskId: taskChecklists.taskId,
+      name: checklistItems.name,
+      resolved: checklistItems.resolved,
+    })
+    .from(checklistItems)
+    .innerJoin(taskChecklists, eq(taskChecklists.id, checklistItems.checklistId))
+    .where(eq(checklistItems.id, itemId))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function createChecklist(
+  db: Db,
+  input: { taskId: string; userId: string; checklist: z.infer<typeof newChecklistInput> },
+): Promise<string> {
+  const { taskId, userId, checklist } = input;
+  const id = placeholderId(checklist.clientId);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(taskChecklists)
+      .values({ id, taskId, name: checklist.name, dateCreated: new Date() })
+      .onConflictDoNothing();
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "create_checklist",
+      entityId: taskId,
+      clientId: checklist.clientId,
+      payload: { taskId, name: checklist.name },
+    });
+  });
+
+  return id;
+}
+
+export async function renameChecklist(
+  db: Db,
+  input: { checklist: ChecklistOwner; userId: string; name: string },
+): Promise<void> {
+  const { checklist, userId, name } = input;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(taskChecklists)
+      .set({ name, syncedAt: new Date() })
+      .where(eq(taskChecklists.id, checklist.id));
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "update_checklist",
+      entityId: checklist.taskId,
+      payload: { taskId: checklist.taskId, checklistId: checklist.id, name },
+    });
+  });
+}
+
+export async function deleteChecklist(
+  db: Db,
+  input: { checklist: ChecklistOwner; userId: string },
+): Promise<void> {
+  const { checklist, userId } = input;
+
+  await db.transaction(async (tx) => {
+    // Items go with it through the cascade, exactly as they do upstream.
+    await tx.delete(taskChecklists).where(eq(taskChecklists.id, checklist.id));
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "delete_checklist",
+      entityId: checklist.taskId,
+      payload: { taskId: checklist.taskId, checklistId: checklist.id },
+    });
+  });
+}
+
+export async function createChecklistItem(
+  db: Db,
+  input: { checklist: ChecklistOwner; userId: string; item: z.infer<typeof newChecklistItemInput> },
+): Promise<string> {
+  const { checklist, userId, item } = input;
+  const id = placeholderId(item.clientId);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(checklistItems)
+      .values({
+        id,
+        checklistId: checklist.id,
+        name: item.name,
+        // No orderindex: ClickUp assigns it. Nulls sort last, so the new item
+        // lands at the bottom of the list, which is where it was typed.
+        dateCreated: new Date(),
+      })
+      .onConflictDoNothing();
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "create_checklist_item",
+      entityId: checklist.taskId,
+      clientId: item.clientId,
+      payload: { taskId: checklist.taskId, checklistId: checklist.id, name: item.name },
+    });
+  });
+
+  return id;
+}
+
+/**
+ * Ticks an item, renames it, or both.
+ *
+ * Unlike the comment endpoint, ClickUp's PUT here is a genuine partial update —
+ * a field left out keeps its value — so only what changed is queued. That is
+ * what keeps ticking a box from being able to rewrite its text.
+ */
+export async function applyChecklistItemPatch(
+  db: Db,
+  input: { item: ChecklistItemOwner; userId: string; patch: ChecklistItemPatchInput },
+): Promise<void> {
+  const { item, userId, patch } = input;
+
+  await db.transaction(async (tx) => {
+    const local: Record<string, unknown> = { syncedAt: new Date() };
+    if (patch.name !== undefined) local.name = patch.name;
+    if (patch.resolved !== undefined) local.resolved = patch.resolved;
+
+    await tx.update(checklistItems).set(local).where(eq(checklistItems.id, item.id));
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "update_checklist_item",
+      entityId: item.taskId,
+      payload: {
+        taskId: item.taskId,
+        checklistId: item.checklistId,
+        itemId: item.id,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.resolved !== undefined ? { resolved: patch.resolved } : {}),
+      },
+    });
+  });
+}
+
+export async function deleteChecklistItem(
+  db: Db,
+  input: { item: ChecklistItemOwner; userId: string },
+): Promise<void> {
+  const { item, userId } = input;
+
+  await db.transaction(async (tx) => {
+    await tx.delete(checklistItems).where(eq(checklistItems.id, item.id));
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "delete_checklist_item",
+      entityId: item.taskId,
+      payload: { taskId: item.taskId, checklistId: item.checklistId, itemId: item.id },
+    });
   });
 }
 

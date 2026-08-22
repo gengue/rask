@@ -3,6 +3,7 @@ import { type CommentSegment, toCommentSegments } from "./mentions.ts";
 import { RateLimiter } from "./rate-limit.ts";
 import {
   accessTokenResponse,
+  type ClickUpChecklist,
   type ClickUpComment,
   type ClickUpCustomField,
   type ClickUpFolder,
@@ -13,6 +14,7 @@ import {
   type ClickUpTeam,
   type ClickUpUser,
   type ClickUpWebhook,
+  checklistResponse,
   clickUpComment,
   clickUpCustomField,
   clickUpFolder,
@@ -104,6 +106,13 @@ export interface NewTask {
   priority?: number | null;
   due_date?: number | null;
   tags?: string[];
+  /**
+   * Makes the new task a subtask of this one.
+   *
+   * The spec is explicit that the parent has to live in the List named in the
+   * path, and that it may itself be a subtask. Passing a parent from another
+   * list is a 400, not a move.
+   */
   parent?: string;
 }
 
@@ -507,6 +516,69 @@ export class ClickUpClient {
 
   async deleteComment(commentId: string): Promise<void> {
     await this.request(z.unknown(), "DELETE", `/v2/comment/${commentId}`);
+  }
+
+  // --- Checklists ---------------------------------------------------------
+
+  /*
+   * Checklists only ever arrive on `GET /task/{id}`, never on a list page, and
+   * every write below answers with the whole checklist rather than the row it
+   * touched. That is what lets the caller ingest the response instead of
+   * refetching the task after ticking a box.
+   */
+
+  createChecklist(taskId: string, input: { name: string }): Promise<ClickUpChecklist> {
+    return this.request(checklistResponse, "POST", `/v2/task/${taskId}/checklist`, {
+      body: { name: input.name },
+    }).then((r) => r.checklist);
+  }
+
+  /** Renames a checklist, or reorders it. `position` is 0-based from the top. */
+  async updateChecklist(
+    checklistId: string,
+    input: { name?: string; position?: number },
+  ): Promise<void> {
+    await this.request(z.unknown(), "PUT", `/v2/checklist/${checklistId}`, { body: input });
+  }
+
+  async deleteChecklist(checklistId: string): Promise<void> {
+    await this.request(z.unknown(), "DELETE", `/v2/checklist/${checklistId}`);
+  }
+
+  createChecklistItem(
+    checklistId: string,
+    input: { name: string; assignee?: number },
+  ): Promise<ClickUpChecklist> {
+    return this.request(checklistResponse, "POST", `/v2/checklist/${checklistId}/checklist_item`, {
+      body: { name: input.name, assignee: input.assignee },
+    }).then((r) => r.checklist);
+  }
+
+  /**
+   * Ticks, renames, assigns or re-nests one line item.
+   *
+   * Unlike the comment endpoint this is a genuine patch: fields left out keep
+   * their value, so ticking a box does not have to send the name back.
+   */
+  updateChecklistItem(
+    checklistId: string,
+    itemId: string,
+    input: { name?: string; resolved?: boolean; assignee?: number | null; parent?: string | null },
+  ): Promise<ClickUpChecklist> {
+    return this.request(
+      checklistResponse,
+      "PUT",
+      `/v2/checklist/${checklistId}/checklist_item/${itemId}`,
+      { body: input },
+    ).then((r) => r.checklist);
+  }
+
+  async deleteChecklistItem(checklistId: string, itemId: string): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "DELETE",
+      `/v2/checklist/${checklistId}/checklist_item/${itemId}`,
+    );
   }
 
   // --- Webhooks -----------------------------------------------------------

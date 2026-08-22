@@ -119,6 +119,64 @@ export const clickUpAttachment = z.looseObject({
 });
 export type ClickUpAttachment = z.infer<typeof clickUpAttachment>;
 
+/**
+ * One line item in a task checklist.
+ *
+ * The spec documents `id`, `name`, `orderindex`, `assignee`, `resolved`,
+ * `parent`, `date_created` and `children`. The Ventura workspace also sends
+ * `group_assignee`, `start_date`, `due_date` and `sent_due_date_notif` on every
+ * item, so this is loose like everything else here.
+ *
+ * `assignee` is documented two ways in the same spec — a full user object in
+ * the CreateChecklistItem response, a bare id or null in the EditChecklistItem
+ * one — so both are accepted and the mapper reduces them to an id.
+ *
+ * `children` is dropped. Nesting is already expressed by `parent` on the child,
+ * and keeping both would be two representations of one edge to disagree.
+ */
+export const clickUpChecklistItem = z.looseObject({
+  id: z.string(),
+  name: z.string(),
+  orderindex: z
+    .union([z.string(), z.number()])
+    .nullish()
+    .transform((v) => (v == null ? null : Number(v))),
+  assignee: z.union([clickUpUser, id]).nullish(),
+  resolved: z.boolean().nullish(),
+  /** The item this one is nested under. ClickUp allows one level in the UI. */
+  parent: z.string().nullish(),
+  date_created: epochMs,
+});
+export type ClickUpChecklistItem = z.infer<typeof clickUpChecklistItem>;
+
+/**
+ * A checklist on a task.
+ *
+ * `creator` is a bare numeric user id, not the user object every other creator
+ * field on the API carries, and the vendored spec does not mention the field at
+ * all — the Ventura workspace is where it turned up.
+ *
+ * `resolved` and `unresolved` are counts, not flags. They are deliberately not
+ * mirrored: they are `items` counted, and a stored copy is a second thing to
+ * keep in step every time a box is ticked.
+ */
+export const clickUpChecklist = z.looseObject({
+  id: z.string(),
+  task_id: z.string().nullish(),
+  name: z.string(),
+  orderindex: z
+    .union([z.string(), z.number()])
+    .nullish()
+    .transform((v) => (v == null ? null : Number(v))),
+  creator: id.nullish(),
+  date_created: epochMs,
+  items: z.array(clickUpChecklistItem).default([]),
+});
+export type ClickUpChecklist = z.infer<typeof clickUpChecklist>;
+
+/** Every checklist write answers with the whole checklist, items included. */
+export const checklistResponse = z.looseObject({ checklist: clickUpChecklist });
+
 export const clickUpTask = z.looseObject({
   id: z.string(),
   custom_id: z.string().nullish(),
@@ -162,6 +220,8 @@ export const clickUpTask = z.looseObject({
    * just told us the task has no files, and the mirror would delete them all.
    */
   attachments: z.array(clickUpAttachment).optional(),
+  /** Optional for the same reason as `attachments`, and with the same teeth. */
+  checklists: z.array(clickUpChecklist).optional(),
 });
 export type ClickUpTask = z.infer<typeof clickUpTask>;
 
