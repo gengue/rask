@@ -6,7 +6,8 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "includes": ["**", "!**/openapi", "!**/node_modules"]
   },
   "formatter": {
     "enabled": true,

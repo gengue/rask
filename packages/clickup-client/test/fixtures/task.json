@@ -1,0 +1,66 @@
+{
+  "id": "9hz",
+  "custom_id": "ENG-2703",
+  "custom_item_id": 0,
+  "name": "Faster app launch",
+  "text_content": "Render UI before vehicle_state sync",
+  "description": "Render UI before vehicle_state sync",
+  "markdown_description": "Render UI before `vehicle_state` sync",
+  "status": {
+    "id": "p123_todo",
+    "status": "in progress",
+    "color": "#f2c94c",
+    "orderindex": 1,
+    "type": "custom"
+  },
+  "orderindex": "1.00000000000000000000000000000000",
+  "date_created": "1567780450202",
+  "date_updated": "1567780450202",
+  "date_closed": null,
+  "date_done": null,
+  "archived": false,
+  "creator": {
+    "id": 183,
+    "username": "jori",
+    "color": "#827718",
+    "profilePicture": "https://cdn.clickup.com/avatar.jpg"
+  },
+  "assignees": [{ "id": 183, "username": "jori", "email": "jori@example.com", "color": "#827718" }],
+  "watchers": [],
+  "checklists": [],
+  "tags": [{ "name": "performance", "tag_fg": "#FFFFFF", "tag_bg": "#EA4335", "creator": 183 }],
+  "parent": null,
+  "priority": { "id": "2", "priority": "high", "color": "#ffcc00", "orderindex": "2" },
+  "due_date": "1508369194377",
+  "start_date": null,
+  "points": null,
+  "time_estimate": null,
+  "time_spent": 0,
+  "custom_fields": [
+    {
+      "id": "0a52c486-5f05-403b-b4fd-c512ff05131c",
+      "name": "Impact",
+      "type": "drop_down",
+      "type_config": {
+        "default": 0,
+        "options": [
+          { "id": "opt-1", "name": "Low", "color": null, "orderindex": 0 },
+          { "id": "opt-2", "name": "High", "color": "#EA4335", "orderindex": 1 }
+        ]
+      },
+      "date_created": "1622569176874",
+      "hide_from_guests": false,
+      "required": false,
+      "value": "opt-2"
+    }
+  ],
+  "dependencies": [],
+  "linked_tasks": [],
+  "team_id": "9001",
+  "url": "https://app.clickup.com/t/9hz",
+  "permission_level": "create",
+  "list": { "id": "123", "name": "Engineering", "access": true },
+  "project": { "id": "456", "name": "Q3", "hidden": false, "access": true },
+  "folder": { "id": "456", "name": "Q3", "hidden": false, "access": true },
+  "space": { "id": "789" }
+}
