@@ -275,6 +275,50 @@ export const taskAssignees = pgTable(
   ],
 );
 
+/**
+ * Files attached to a task.
+ *
+ * Only `GET /task/{id}` carries these, so they arrive on a different schedule
+ * from the rest of the row: the list poll that refreshes a task's name and
+ * status says nothing about its files, and ingest has to leave them alone
+ * rather than read the silence as "there are none".
+ *
+ * The URLs are mirrored rather than rebuilt. ClickUp's attachment CDN is public
+ * — no token, no signature — so the browser loads these directly and there is
+ * no proxy in the path. `url` is what an `<img>` gets; `urlWithQuery` carries
+ * the `?view=open` that makes the CDN serve a PDF inline instead of downloading
+ * it, and is what a link points at.
+ *
+ * All three thumbnails are kept because they are three different things
+ * depending on the file type, and which one is worth showing is a UI decision
+ * rather than an ingest decision. Today the grid reads `thumbnailMedium`:
+ * `thumbnailSmall` is roughly 80px on the long edge, which is a stripe, not a
+ * picture.
+ */
+export const taskAttachments = pgTable(
+  "task_attachments",
+  {
+    /** ClickUp's "<uuid>.<ext>". Stable, so a re-read updates rather than duplicates. */
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    title: text("title"),
+    extension: text("extension"),
+    mimetype: text("mimetype"),
+    /** Bytes. int64 on the wire, and a 4GB upload would overflow an integer. */
+    size: bigint("size", { mode: "number" }),
+    date: ts("date"),
+    thumbnailSmall: text("thumbnail_small"),
+    thumbnailMedium: text("thumbnail_medium"),
+    thumbnailLarge: text("thumbnail_large"),
+    url: text("url"),
+    urlWithQuery: text("url_with_query"),
+    syncedAt: ts("synced_at").notNull().defaultNow(),
+  },
+  (t) => [index("task_attachments_task_idx").on(t.taskId, t.date)],
+);
+
 // --- Custom fields --------------------------------------------------------
 
 /**
@@ -473,6 +517,11 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   assignees: many(taskAssignees),
   customValues: many(taskCustomValues),
   comments: many(comments),
+  attachments: many(taskAttachments),
+}));
+
+export const taskAttachmentsRelations = relations(taskAttachments, ({ one }) => ({
+  task: one(tasks, { fields: [taskAttachments.taskId], references: [tasks.id] }),
 }));
 
 export const taskAssigneesRelations = relations(taskAssignees, ({ one }) => ({

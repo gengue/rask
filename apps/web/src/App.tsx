@@ -6,6 +6,7 @@ import {
   CommandPalette,
 } from "./components/CommandPalette.tsx";
 import { FilterBar } from "./components/FilterBar.tsx";
+import { Lightbox } from "./components/Lightbox.tsx";
 import { Menu, type MenuItem } from "./components/Menu.tsx";
 import { QuickAdd } from "./components/QuickAdd.tsx";
 import { Shortcuts } from "./components/Shortcuts.tsx";
@@ -15,6 +16,7 @@ import { TaskDetail } from "./components/TaskDetail.tsx";
 import { Toasts } from "./components/Toasts.tsx";
 import { api, type StatusDef, type Task } from "./lib/api.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
+import { lightboxOpen } from "./lib/lightbox.ts";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { connect } from "./lib/sse.ts";
 import { tasks } from "./lib/store.ts";
@@ -119,6 +121,11 @@ export function AppShell(): JSX.Element {
 
   let lastKey = "";
   const onKeyDown = (event: KeyboardEvent) => {
+    // The lightbox is modal and owns every key while it is up, Escape and the
+    // arrows included. Without this, closing it also collapsed the panel behind
+    // it and the arrow keys moved the cursor in the list nobody could see.
+    if (lightboxOpen()) return;
+
     const target = event.target as HTMLElement;
     const typing =
       target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
@@ -509,6 +516,10 @@ export function AppShell(): JSX.Element {
           />
         )}
       </Show>
+
+      {/* Last, so it covers everything, and always mounted: it is what makes
+          images inside descriptions and comments clickable. */}
+      <Lightbox />
     </div>
   );
 }

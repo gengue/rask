@@ -25,6 +25,7 @@ import { pushedDetail } from "../lib/sse.ts";
 import { tasks } from "../lib/store.ts";
 import { pushToast } from "../lib/toast.ts";
 import { setUi, ui } from "../lib/ui.ts";
+import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { MarkdownEditor } from "./MarkdownEditor.tsx";
 import { Menu } from "./Menu.tsx";
@@ -320,7 +321,13 @@ export function TaskDetail(props: {
               </Show>
             </section>
 
+            {/* Inside the comments row rather than beside it: expanded, this
+                container is a grid whose third row is the one that stretches,
+                and a fourth child would push the conversation to the bottom of
+                the panel. */}
             <div classList={{ "col-start-1": ui.taskExpanded }}>
+              <Attachments items={task().attachments} />
+
               <Comments
                 taskId={props.taskId}
                 threads={task().comments}

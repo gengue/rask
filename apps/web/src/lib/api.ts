@@ -81,6 +81,38 @@ export interface CustomField {
   value: unknown;
 }
 
+/**
+ * A file on a task.
+ *
+ * Both URLs point straight at ClickUp's attachment CDN, which is public: no
+ * token, no signature, nothing for the API to proxy. They differ in what the
+ * CDN says about them — `url` comes back as a download, `urlWithQuery` carries
+ * the `?view=open` that makes it render in place. Images use the first, links
+ * use the second.
+ */
+export interface Attachment {
+  id: string;
+  title: string | null;
+  extension: string | null;
+  mimetype: string | null;
+  /** Bytes. */
+  size: number | null;
+  date: string | null;
+  /**
+   * ~80px on the long edge, which is a strip rather than a picture. Kept as the
+   * fallback for a file ClickUp gave no medium render.
+   */
+  thumbnailSmall: string | null;
+  /**
+   * The one worth showing. A 533px render for a PDF or a video; for an image it
+   * is the original file, which means the grid and the lightbox share a
+   * download instead of fetching the same picture twice.
+   */
+  thumbnailMedium: string | null;
+  url: string | null;
+  urlWithQuery: string | null;
+}
+
 export interface TaskDetail extends Task {
   description: string | null;
   creatorId: string | null;
@@ -91,6 +123,7 @@ export interface TaskDetail extends Task {
   comments: CommentThread[];
   customFields: CustomField[];
   statuses: StatusDef[];
+  attachments: Attachment[];
 }
 
 /** A task match from the palette's workspace-wide search. */
