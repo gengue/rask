@@ -136,7 +136,17 @@ export function TaskDetail(props: {
       aria-label="Task detail"
       class="flex flex-col bg-panel"
       classList={{
-        "w-[420px] shrink-0 border-line border-l": !ui.taskExpanded,
+        /*
+         * Above `split` this is a flex sibling of the list, exactly as it was.
+         * Below it the same 420px becomes a right-aligned sheet over the list:
+         * a row at 1280 with the panel docked got 604px, and it needs 830 to
+         * keep every column and 690 to keep the title readable, so a sibling
+         * panel there is not sharing the window, it is taking the list apart.
+         * The scrim and the click-out live in the shell, which is also where
+         * Escape has closed the task all along.
+         */
+        "w-[420px] max-w-full shrink-0 border-line border-l max-split:absolute max-split:inset-y-0 max-split:right-0 max-split:z-20":
+          !ui.taskExpanded,
         "flex-1 min-w-0": ui.taskExpanded,
       }}
     >
@@ -219,10 +229,20 @@ export function TaskDetail(props: {
           <div
             class="flex-1 overflow-y-auto"
             classList={{
-              // Three explicit rows — title, description, comments — so the
-              // properties rail can span all of them. Without that, the rail
-              // sizes row one and leaves a hole under the title.
-              "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24":
+              /*
+               * Three explicit rows — title, description, comments — so the
+               * properties rail can span all of them. Without that, the rail
+               * sizes row one and leaves a hole under the title.
+               *
+               * Below `split` there is no room for a rail: 680 + 48 + 300 + 80
+               * needs 1108px inside this panel and the window stops supplying
+               * it at 1354. The second column collapses into the first and the
+               * rail becomes a strip, which the source order already puts
+               * above the description — the only thing that changes is the
+               * template. The measure stays capped at 680px either way, so the
+               * description never widens past a readable line.
+               */
+              "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,680px)] max-split:grid-rows-none":
                 ui.taskExpanded,
             }}
           >
@@ -242,7 +262,12 @@ export function TaskDetail(props: {
             <div
               class="space-y-px px-3 pb-4"
               classList={{
-                "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8": ui.taskExpanded,
+                /* Below `split` the rail lands in column one under the title.
+                   Two columns of label/value rather than one, because a strip
+                   that is 680px wide and one property tall wastes the width it
+                   was moved here to use. */
+                "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8 max-split:col-start-1 max-split:row-start-auto max-split:row-span-1 max-split:grid max-split:grid-cols-2 max-split:gap-x-8 max-split:gap-y-px max-split:space-y-0 max-split:pt-0":
+                  ui.taskExpanded,
               }}
             >
               <Property label="Status">
@@ -354,7 +379,12 @@ export function TaskDetail(props: {
 
             <section
               class="border-line/70 border-t px-5 py-4"
-              classList={{ "col-start-1 border-t-0 px-0 pt-0": ui.taskExpanded }}
+              /* Below `split` the hairline comes back: the property strip is
+                 now directly above the description and the two need a seam. */
+              classList={{
+                "col-start-1 border-t-0 px-0 pt-0 max-split:border-t max-split:pt-6":
+                  ui.taskExpanded,
+              }}
             >
               <Show
                 when={editingDescription()}

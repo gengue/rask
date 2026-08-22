@@ -10,15 +10,33 @@ import { Avatar } from "./Avatar.tsx";
  * Two zones, like every macOS source list: fixed destinations at the top, the
  * workspace tree below. Rows are 28px because the tree gets deep and 32 would
  * push a third of it below the fold on a laptop.
+ *
+ * Below the `dock` breakpoint it stops being a column and becomes a drawer
+ * over the main panel, closed by default. 236px is a fifth of a 1100px window
+ * spent on a tree that gets used a few times an hour, and the same 236px is
+ * what pushes the row past its first shed (see --breakpoint-dock). It is
+ * hidden rather than reduced to icons because a tree of spaces and folders has
+ * no icons to reduce to — the second level down is five words of name and
+ * nothing else — and because ⌘K already navigates to any list by typing it.
+ * The drawer is what a mouse gets instead.
+ *
+ * The narrow layout is spelled with `max-dock:` rather than by rewriting the
+ * base classes mobile-first, so the wide layout below is byte-for-byte the one
+ * that was here before and the exceptions are the only thing to review.
  */
 export function Sidebar(props: {
   me: Me | null;
   spaces: Space[];
+  /** Drawer state. Ignored above `dock`, where the sidebar is always in flow. */
+  open: boolean;
   onSearch: () => void;
   onQuickAdd: () => void;
 }): JSX.Element {
   return (
-    <aside class="flex w-[236px] shrink-0 flex-col">
+    <aside
+      class="flex w-[236px] shrink-0 flex-col max-dock:absolute max-dock:inset-y-0 max-dock:left-0 max-dock:z-40 max-dock:border-line max-dock:border-r max-dock:bg-app"
+      classList={{ "max-dock:hidden": !props.open }}
+    >
       <header class="flex h-12 items-center gap-1.5 px-3">
         <Avatar user={props.me} size={20} />
         <span class="flex-1 truncate font-medium text-base text-ink">Rask</span>

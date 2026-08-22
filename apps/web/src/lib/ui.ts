@@ -21,6 +21,14 @@ export const [ui, setUi] = createStore({
   shortcuts: false,
   /** Task detail fills the main area instead of sitting in a 420px rail. */
   taskExpanded: false,
+  /**
+   * The sidebar drawer, below the `dock` breakpoint only.
+   *
+   * Above `dock` the sidebar is a column and this flag does nothing, which is
+   * why it is not persisted: a window that grows past `dock` should not
+   * remember that a drawer was once open at 900.
+   */
+  sidebarOpen: false,
   /** Set while a keystroke-driven menu is open, so j/k stop moving the cursor. */
   menu: null as null | "status" | "assignee" | "priority",
   /**
@@ -39,7 +47,7 @@ export const [ui, setUi] = createStore({
 });
 
 export function closeOverlays(): void {
-  setUi({ palette: false, quickAdd: false, shortcuts: false, menu: null });
+  setUi({ palette: false, quickAdd: false, shortcuts: false, menu: null, sidebarOpen: false });
 }
 
 export function clearFilters(): void {
