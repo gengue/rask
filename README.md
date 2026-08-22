@@ -127,6 +127,19 @@ from `.env.example`. `CLICKUP_REDIRECT_URI` has to match the redirect URL
 registered on the ClickUp OAuth app exactly, or the callback fails with no
 useful error.
 
+## Themes
+
+Dark by default, light available, and it follows the OS unless you say
+otherwise. The choice lives in `localStorage["rask.theme"]`; "system" is stored
+as the absence of that key, so a fresh profile follows `prefers-color-scheme`
+with nothing written. An inline script in `index.html` applies the class before
+the stylesheet loads, because a theme read after first paint is a white flash
+on a dark screen.
+
+Every text colour clears WCAG AA in both themes — 4.5:1 for body text, 3:1 for
+glyphs — measured rather than eyeballed. `apps/web/src/lib/contrast.ts` computes
+the ratios; run it before changing a colour token.
+
 ## Conventions
 
 - TypeScript strict everywhere. No `any`.
