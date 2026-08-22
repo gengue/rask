@@ -15,6 +15,13 @@
       "when": 1787416417110,
       "tag": "0001_change_feed_index",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787423261382,
+      "tag": "0002_custom_field_value_text",
+      "breakpoints": true
     }
   ]
 }

@@ -119,6 +119,12 @@ export class ApiError extends Error {
   }
 }
 
+/** A list response plus whether the server had more rows than it sent. */
+export interface TaskPage {
+  tasks: Task[];
+  truncated: boolean;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -144,7 +150,7 @@ export const api = {
   hierarchy: () => request<Space[]>("/api/hierarchy"),
   members: () => request<Assignee[]>("/api/members"),
 
-  tasks(query: TaskQuery = {}): Promise<Task[]> {
+  async tasks(query: TaskQuery = {}): Promise<TaskPage> {
     const params = new URLSearchParams();
     if (query.list) params.set("list", query.list);
     if (query.space) params.set("space", query.space);
@@ -153,7 +159,20 @@ export const api = {
     if (query.tag) params.set("tag", query.tag);
     if (query.closed) params.set("closed", "1");
     if (query.limit) params.set("limit", String(query.limit));
-    return request<Task[]>(`/api/tasks?${params}`);
+
+    const response = await fetch(`/api/tasks?${params}`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    if (response.status === 401) {
+      window.location.href = "/auth/clickup";
+      throw new ApiError(401, "unauthenticated");
+    }
+    if (!response.ok) throw new ApiError(response.status, response.statusText);
+
+    return {
+      tasks: (await response.json()) as Task[],
+      truncated: response.headers.get("X-Rask-Truncated") === "1",
+    };
   },
 
   task: (id: string) => request<TaskDetail>(`/api/tasks/${id}`),

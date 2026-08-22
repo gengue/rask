@@ -70,17 +70,55 @@ describe("jsonb columns", () => {
     expect(await storedType("spaces", "statuses", `id = '${SPACE}'`)).toBe("array");
   });
 
-  test("stores custom field config and values as objects", async () => {
+  test("stores custom field config as an object", async () => {
     await db.insert(customFieldDefs).values({
       id: FIELD,
       name: "Impact",
       type: "drop_down",
       typeConfig: { options: [{ id: "a", name: "High", orderindex: 0 }] },
     });
-    await db.insert(taskCustomValues).values({ taskId: TASK, fieldId: FIELD, value: { raw: "a" } });
 
     expect(await storedType("custom_field_defs", "type_config", `id = '${FIELD}'`)).toBe("object");
-    expect(await storedType("task_custom_values", "value", `field_id = '${FIELD}'`)).toBe("object");
+  });
+
+  /**
+   * ClickUp Custom Fields hold any JSON scalar. A number field sends 42, a
+   * checkbox sends true, and both used to blow up on insert because the driver
+   * bound them as int4 and bool against a jsonb column.
+   */
+  test("keeps custom field values as text, not jsonb", async () => {
+    // Without this the scalar round-trip below passes for the wrong reason:
+    // stringify-then-jsonb-encode cancels out on the way back through Drizzle.
+    const rows = (await db.execute(
+      sql`select data_type from information_schema.columns
+          where table_name = 'task_custom_values' and column_name = 'value'`,
+    )) as unknown as Array<{ data_type: string }>;
+
+    expect(rows[0]?.data_type).toBe("text");
+  });
+
+  test.each([
+    ["a number", 42],
+    ["a float", 1.5],
+    ["a boolean", true],
+    ["a string", "opt-2"],
+    ["an array", ["a", "b"]],
+    ["an object", { raw: "a" }],
+    ["null, meaning explicitly cleared", null],
+  ])("round-trips %s as a custom field value", async (_label, value) => {
+    await db
+      .insert(customFieldDefs)
+      .values({ id: FIELD, name: "F", type: "number" })
+      .onConflictDoNothing();
+    await db.delete(taskCustomValues).where(sql`task_id = ${TASK} and field_id = ${FIELD}`);
+    await db.insert(taskCustomValues).values({ taskId: TASK, fieldId: FIELD, value });
+
+    const [row] = await db
+      .select({ value: taskCustomValues.value })
+      .from(taskCustomValues)
+      .where(sql`task_id = ${TASK} and field_id = ${FIELD}`);
+
+    expect(row?.value).toEqual(value);
   });
 
   test("stores the outbox payload as an object the worker can read with raw SQL", async () => {

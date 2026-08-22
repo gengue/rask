@@ -87,6 +87,7 @@ api.get("/tasks", async (c) => {
   if (!query.success) return c.json({ error: z.prettifyError(query.error) }, 400);
   const f = query.data;
 
+  const limit = f.limit ?? 500;
   const rows = await listTasks(db, {
     listId: f.list,
     spaceId: f.space,
@@ -94,8 +95,14 @@ api.get("/tasks", async (c) => {
     statuses: f.status ? f.status.split(",") : undefined,
     tag: f.tag,
     includeClosed: f.closed === "1",
-    limit: f.limit,
+    limit,
   });
+
+  // A list of 5,000 tasks silently arriving as 500 is the kind of thing that
+  // makes a client stop trusting its own counts. Say so instead.
+  const truncated = rows.length > limit;
+  if (truncated) rows.length = limit;
+  c.header("X-Rask-Truncated", truncated ? "1" : "0");
 
   // Loading a list is what marks it worth polling. Nothing else registers
   // interest, so the worker never polls lists nobody looks at.

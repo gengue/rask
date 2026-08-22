@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "generate": "drizzle-kit generate",
-    "migrate": "bun run src/migrate.ts"
+    "migrate": "bun --env-file=../../.env src/migrate.ts"
   },
   "dependencies": {
     "@rask/clickup-client": "workspace:*",

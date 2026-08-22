@@ -1,18 +1,19 @@
 /**
  * Measures a real sync against a real workspace.
  *
- *   bun run --cwd apps/worker measure                 # hierarchy only
- *   bun run --cwd apps/worker measure --space 90020068902
- *   bun run --cwd apps/worker measure --space 90020068902 --lists 5
+ *   bun run --cwd apps/worker measure                       # hierarchy only
+ *   bun run --cwd apps/worker measure --space <id>          # + its 10 biggest lists
+ *   bun run --cwd apps/worker measure --space <id> --lists 3
+ *   bun run --cwd apps/worker measure --list <id>           # one specific list
  *
- * Uses CLICKUP_PERSONAL_TOKEN so it works before OAuth is wired up. Reports the
- * request count so the 100 req/min budget can be checked against real data
- * rather than guessed at.
+ * Uses CLICKUP_PERSONAL_TOKEN so it works before OAuth is wired up. Lists are
+ * taken biggest-first: the point is to find where the 100 req/min budget
+ * actually binds, and that is the worst case, not the median one.
  */
 
 import { ClickUpClient } from "@rask/clickup-client";
 import { createDb, lists as listsTable } from "@rask/schema";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import {
   syncHierarchy,
   syncList,
@@ -50,15 +51,28 @@ requests += hierarchy.requests;
 console.log(`hierarchy: ${hierarchy.requests} requests, ${hierarchy.ms}ms`);
 
 const spaceId = args.get("space");
-if (spaceId) {
-  const limit = Number(args.get("lists") ?? 10);
-  const candidates = await db
-    .select({ id: listsTable.id, name: listsTable.name })
-    .from(listsTable)
-    .where(eq(listsTable.spaceId, spaceId))
-    .limit(limit);
+const singleList = args.get("list");
 
-  console.log(`\nsyncing ${candidates.length} list(s) from space ${spaceId}`);
+const candidates = singleList
+  ? await db
+      .select({ id: listsTable.id, name: listsTable.name, taskCount: listsTable.taskCount })
+      .from(listsTable)
+      .where(eq(listsTable.id, singleList))
+  : spaceId
+    ? await db
+        .select({ id: listsTable.id, name: listsTable.name, taskCount: listsTable.taskCount })
+        .from(listsTable)
+        .where(eq(listsTable.spaceId, spaceId))
+        // Biggest first: the budget binds on the worst case, not the median.
+        .orderBy(desc(listsTable.taskCount))
+        .limit(Number(args.get("lists") ?? 10))
+    : [];
+
+if (candidates.length > 0) {
+  console.log(`\nfull sync of ${candidates.length} list(s), biggest first\n`);
+  console.log(
+    `  ${"list".padEnd(38)} ${"tasks".padStart(6)} ${"req".padStart(5)} ${"time".padStart(8)}`,
+  );
 
   for (const list of candidates) {
     await trackList(db, list.id);
@@ -66,15 +80,36 @@ if (spaceId) {
     const stats = await syncList(db, client, list.id, { full: true, teamId });
     requests += stats.requests + 1;
     console.log(
-      `  ${list.name.padEnd(38).slice(0, 38)} ${String(stats.tasks).padStart(5)} tasks  ` +
-        `${String(stats.requests + 1).padStart(3)} req  ${String(stats.ms).padStart(6)}ms`,
+      `  ${list.name.padEnd(38).slice(0, 38)} ${String(stats.tasks).padStart(6)} ` +
+        `${String(stats.requests + 1).padStart(5)} ${`${(stats.ms / 1000).toFixed(1)}s`.padStart(8)}`,
     );
   }
+
+  console.log("\n--- incremental pass over the same lists (nothing changed) ---\n");
+  const incrementalStart = Date.now();
+  let incrementalRequests = 0;
+  for (const list of candidates) {
+    const stats = await syncList(db, client, list.id, { teamId });
+    incrementalRequests += stats.requests;
+  }
+  console.log(
+    `  ${candidates.length} lists, ${incrementalRequests} requests, ` +
+      `${((Date.now() - incrementalStart) / 1000).toFixed(1)}s — this is what polling costs`,
+  );
+  requests += incrementalRequests;
 }
 
 const elapsed = Date.now() - started;
+const totalLists = (await db.select({ id: listsTable.id }).from(listsTable)).length;
+
 console.log(
-  `\ntotal: ${requests} requests, ${await taskCount(db)} tasks in the mirror, ${(elapsed / 1000).toFixed(1)}s ` +
-    `(${(requests / (elapsed / 60000)).toFixed(0)} req/min sustained; ClickUp allows 100)`,
+  `\ntotal: ${requests} requests, ${await taskCount(db)} tasks mirrored, ${(elapsed / 1000).toFixed(1)}s`,
+);
+console.log(
+  `budget: ClickUp allows 100 req/min per token. ${totalLists} lists exist; polling every one ` +
+    `costs ${totalLists} req/cycle, so a single token needs ${(totalLists / 100).toFixed(1)} min per full pass.`,
+);
+console.log(
+  "Rask only polls lists someone has opened, and spreads them across every signed-in user's token.",
 );
 process.exit(0);

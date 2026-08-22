@@ -1,0 +1,1 @@
+ALTER TABLE "task_custom_values" ALTER COLUMN "value" SET DATA TYPE text;

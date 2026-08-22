@@ -25,6 +25,7 @@ import {
   statusRequest,
   viewListId,
   viewTitle,
+  viewTruncated,
 } from "./lib/view.ts";
 
 /**
@@ -306,8 +307,12 @@ export function AppShell(): JSX.Element {
                   <h1 class="truncate font-medium text-[13.5px] text-ink tracking-[-0.005em]">
                     {viewTitle()}
                   </h1>
-                  <span class="rounded bg-white/[0.05] px-1.5 text-[11px] text-ink-3 tabular-nums">
+                  <span
+                    class="rounded bg-white/[0.05] px-1.5 text-[11px] text-ink-3 tabular-nums"
+                    title={viewTruncated() ? "More tasks exist than were loaded" : undefined}
+                  >
                     {rowTasks().length}
+                    {viewTruncated() ? "+" : ""}
                   </span>
                   <div class="flex-1" />
                   <FilterBar />

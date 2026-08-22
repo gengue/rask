@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "seed": "bun --env-file=../../.env scripts/seed-dev.ts",
-    "start:local": "bun --env-file=../../.env src/index.ts"
+    "start:local": "bun --env-file=../../.env src/index.ts",
+    "link": "bun --env-file=../../.env scripts/link-personal-token.ts"
   },
   "dependencies": {
     "@rask/clickup-client": "workspace:*",

@@ -36,8 +36,8 @@ export const tasks = createCollection<Task, string>({
 
       void api
         .tasks({ assignee: "me", limit: 500 })
-        .then((rows) => {
-          merge(rows);
+        .then((page) => {
+          merge(page.tasks);
           markReady();
         })
         .catch(markError);
@@ -96,10 +96,11 @@ export function merge(rows: Task[]): void {
  * navigating back to a view already has its data. The cost is that a task that
  * left a list stays visible until the next SSE frame corrects it.
  */
-export async function load(query: TaskQuery): Promise<void> {
-  const rows = await api.tasks({ limit: 500, ...query });
-  merge(rows);
+export async function load(query: TaskQuery): Promise<boolean> {
+  const page = await api.tasks({ limit: 500, ...query });
+  merge(page.tasks);
   markReadyOnce?.();
+  return page.truncated;
 }
 
 function toApiPatch(changes: Partial<Task>): Record<string, unknown> {

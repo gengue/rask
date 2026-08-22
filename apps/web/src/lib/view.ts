@@ -13,6 +13,8 @@ import { ui } from "./ui.ts";
 export const [viewTasks, setViewTasks] = createSignal<Task[]>([]);
 export const [viewTitle, setViewTitle] = createSignal("Tasks");
 export const [viewListId, setViewListId] = createSignal<string | null>(null);
+/** True when the server had more rows than it was willing to send. */
+export const [viewTruncated, setViewTruncated] = createSignal(false);
 
 /** Search, facet filters and grouping, shared by the list and the keyboard. */
 export const flatItems = createMemo<FlatItem[]>(() => {

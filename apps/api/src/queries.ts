@@ -87,6 +87,13 @@ export interface TaskFilters {
   limit?: number;
 }
 
+/**
+ * One row more than asked for.
+ *
+ * The caller drops the extra and reports "there is more" from its presence.
+ * A COUNT(*) would answer the same question and cost a second scan; this costs
+ * one row.
+ */
 export async function listTasks(db: Db, filters: TaskFilters) {
   const where = [];
 
@@ -132,7 +139,7 @@ export async function listTasks(db: Db, filters: TaskFilters) {
       sql`${tasks.dueDate} asc nulls last`,
       desc(tasks.dateUpdated),
     )
-    .limit(filters.limit ?? 500);
+    .limit((filters.limit ?? 500) + 1);
 }
 
 export async function getTaskDetail(db: Db, taskId: string) {

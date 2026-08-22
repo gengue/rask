@@ -14,7 +14,13 @@ import { useLiveTasks } from "./lib/live.ts";
 import { listName, me } from "./lib/session.ts";
 import { load } from "./lib/store.ts";
 import { ui } from "./lib/ui.ts";
-import { setStatusRequest, setViewListId, setViewTasks, setViewTitle } from "./lib/view.ts";
+import {
+  setStatusRequest,
+  setViewListId,
+  setViewTasks,
+  setViewTitle,
+  setViewTruncated,
+} from "./lib/view.ts";
 
 /**
  * Three routes. Which task is open is a search param rather than a path, so the
@@ -48,7 +54,7 @@ function MyTasksView(): JSX.Element {
   createEffect(() => {
     setViewTitle("My Tasks");
     setViewListId(null);
-    void load({ assignee: "me", closed: ui.showClosed });
+    void load({ assignee: "me", closed: ui.showClosed }).then(setViewTruncated);
   });
 
   const rows = useLiveTasks(
@@ -70,7 +76,7 @@ function ListView(): JSX.Element {
   createEffect(() => {
     const listId = params().listId;
     setViewListId(listId);
-    void load({ list: listId, closed: ui.showClosed });
+    void load({ list: listId, closed: ui.showClosed }).then(setViewTruncated);
   });
 
   const rows = useLiveTasks(

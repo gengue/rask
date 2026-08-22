@@ -53,6 +53,26 @@ const jsonb = <T>(name: string) =>
     fromDriver: (value) => value,
   })(name);
 
+/**
+ * JSON kept as text.
+ *
+ * The same Bun driver that encodes objects and arrays correctly binds numbers
+ * and booleans as int4 and bool, which Postgres refuses to assign to a jsonb
+ * column. That is fine everywhere the value is known to be a container, and
+ * fatal for ClickUp Custom Field values: a number field really does send `42`,
+ * and a checkbox sends `true`.
+ *
+ * Nothing queries inside this column — values are read whole and rendered — so
+ * text costs nothing here. The day filtering by Custom Field arrives, this
+ * becomes jsonb with a migration and an explicit cast.
+ */
+const jsonText = <T>(name: string) =>
+  customType<{ data: T; driverData: string }>({
+    dataType: () => "text",
+    toDriver: (value) => JSON.stringify(value ?? null),
+    fromDriver: (value) => (value === null ? null : JSON.parse(value)) as T,
+  })(name);
+
 /** Local-clock timestamp column. ClickUp sends epoch ms; the client converts. */
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
@@ -266,7 +286,7 @@ export const taskCustomValues = pgTable(
       .references(() => tasks.id, { onDelete: "cascade" }),
     fieldId: text("field_id").notNull(),
     /** Raw ClickUp value. Type depends on the field type; the UI reads typeConfig. */
-    value: jsonb<unknown>("value"),
+    value: jsonText<unknown>("value"),
   },
   (t) => [
     primaryKey({ columns: [t.taskId, t.fieldId] }),
