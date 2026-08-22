@@ -12,6 +12,14 @@ const schema = z.object({
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
   /** Directory of built SPA assets. Set in production so one process serves both. */
   WEB_DIST: z.string().optional(),
+  /**
+   * Cookie name for the session.
+   *
+   * Cookies are scoped by host and ignore the port, so two checkouts served
+   * from localhost overwrite each other's session. Give each one its own name
+   * and they stop fighting. Leave it alone unless you run more than one.
+   */
+  SESSION_COOKIE_NAME: z.string().min(1).default("rask_session"),
   NODE_ENV: z.string().default("development"),
 });
 

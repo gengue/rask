@@ -14,7 +14,6 @@ import type { Config } from "./config.ts";
  * The ClickUp token itself never leaves the server.
  */
 
-const SESSION_COOKIE = "rask_session";
 const SESSION_DAYS = 30;
 
 export interface SessionUser {
@@ -33,6 +32,7 @@ export function hashSession(raw: string): string {
 
 export function authRoutes(db: Db, config: Config) {
   const app = new Hono();
+  const cookieName = config.SESSION_COOKIE_NAME;
 
   /**
    * Kicks off the OAuth dance. `state` is a random value echoed back by
@@ -112,7 +112,7 @@ export function authRoutes(db: Db, config: Config) {
     const expiresAt = new Date(Date.now() + SESSION_DAYS * 86_400_000);
     await db.insert(sessions).values({ id: hashSession(raw), userId, expiresAt });
 
-    setCookie(c, SESSION_COOKIE, raw, {
+    setCookie(c, cookieName, raw, {
       httpOnly: true,
       sameSite: "Lax",
       secure: config.isProduction,
@@ -124,9 +124,9 @@ export function authRoutes(db: Db, config: Config) {
   });
 
   app.post("/logout", async (c) => {
-    const raw = getCookie(c, SESSION_COOKIE);
+    const raw = getCookie(c, cookieName);
     if (raw) await db.delete(sessions).where(eq(sessions.id, hashSession(raw)));
-    deleteCookie(c, SESSION_COOKIE, { path: "/" });
+    deleteCookie(c, cookieName, { path: "/" });
     return c.json({ ok: true });
   });
 
@@ -169,8 +169,6 @@ export async function currentUser(
   const { sessionId: _sessionId, ...user } = row;
   return user;
 }
-
-export { SESSION_COOKIE };
 
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);

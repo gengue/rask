@@ -18,6 +18,7 @@ export const [ui, setUi] = createStore({
   search: "",
   palette: false,
   quickAdd: false,
+  shortcuts: false,
   /** Set while a keystroke-driven menu is open, so j/k stop moving the cursor. */
   menu: null as null | "status" | "assignee" | "priority",
   /**
@@ -36,7 +37,7 @@ export const [ui, setUi] = createStore({
 });
 
 export function closeOverlays(): void {
-  setUi({ palette: false, quickAdd: false, menu: null });
+  setUi({ palette: false, quickAdd: false, shortcuts: false, menu: null });
 }
 
 export function clearFilters(): void {

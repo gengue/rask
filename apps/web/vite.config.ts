@@ -27,9 +27,13 @@ function devLogin(): Plugin {
           return;
         }
         const token = readFileSync(file, "utf8").trim();
+        // Must match the API's SESSION_COOKIE_NAME. Cookies are scoped by host
+        // and ignore the port, so two checkouts on localhost overwrite each
+        // other's session unless each names its own.
+        const cookie = process.env.SESSION_COOKIE_NAME ?? "rask_session";
         response.setHeader(
           "Set-Cookie",
-          `rask_session=${token}; Path=/; Max-Age=2592000; SameSite=Lax`,
+          `${cookie}=${token}; Path=/; Max-Age=2592000; SameSite=Lax`,
         );
         response.setHeader("Location", "/");
         response.statusCode = 302;

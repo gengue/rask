@@ -5,7 +5,7 @@ import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { authRoutes, currentUser, SESSION_COOKIE, type SessionUser } from "./auth.ts";
+import { authRoutes, currentUser, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
 import {
@@ -59,7 +59,7 @@ function pushTo(userId: string, event: string, data: unknown): void {
 type Env = { Variables: { user: SessionUser } };
 
 const requireAuth = createMiddleware<Env>(async (c, next) => {
-  const user = await currentUser(db, getCookie(c, SESSION_COOKIE));
+  const user = await currentUser(db, getCookie(c, config.SESSION_COOKIE_NAME));
   if (!user) return c.json({ error: "unauthenticated" }, 401);
   c.set("user", user);
   await next();

@@ -1,6 +1,7 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
 import type { Me, Space } from "../lib/api.ts";
 import { A, useMatchRoute } from "../lib/nav.tsx";
+import { connected } from "../lib/sse.ts";
 import { Avatar } from "./Avatar.tsx";
 
 /**
@@ -49,6 +50,15 @@ export function Sidebar(props: {
             <span class="flex-1 truncate text-ink-2 text-xs">
               {me().username ?? me().email ?? "Signed in"}
             </span>
+            <span
+              class="size-1.5 shrink-0 rounded-full transition-colors"
+              classList={{ "bg-[#2ecd6f]": connected(), "bg-high": !connected() }}
+              title={
+                connected()
+                  ? "Live: changes from ClickUp arrive as they land"
+                  : "Disconnected: you are reading a snapshot"
+              }
+            />
           </footer>
         )}
       </Show>

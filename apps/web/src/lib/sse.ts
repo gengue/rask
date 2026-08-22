@@ -1,6 +1,16 @@
+import { createSignal } from "solid-js";
 import type { Task, TaskDetail } from "./api.ts";
 import { merge } from "./store.ts";
 import { pushToast } from "./toast.ts";
+
+/**
+ * Whether the change feed is connected.
+ *
+ * EventSource reconnects silently, so with the API down a user reads a stale
+ * mirror with no signal at all. For a client whose whole premise is "this is a
+ * mirror of ClickUp", saying so is the cheapest trust available.
+ */
+export const [connected, setConnected] = createSignal(false);
 
 /**
  * Server-sent events from the API.
@@ -12,6 +22,10 @@ import { pushToast } from "./toast.ts";
  */
 export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}): () => void {
   const source = new EventSource("/api/events");
+
+  source.addEventListener("open", () => setConnected(true));
+  source.addEventListener("error", () => setConnected(source.readyState === EventSource.OPEN));
+  source.addEventListener("ready", () => setConnected(true));
 
   source.addEventListener("tasks", (event) => {
     merge(JSON.parse((event as MessageEvent<string>).data) as Task[]);
@@ -35,7 +49,10 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
     });
   });
 
-  return () => source.close();
+  return () => {
+    setConnected(false);
+    source.close();
+  };
 }
 
 const FAILURE_LABELS: Record<string, string> = {

@@ -8,6 +8,7 @@ import {
 import { FilterBar } from "./components/FilterBar.tsx";
 import { Menu, type MenuItem } from "./components/Menu.tsx";
 import { QuickAdd } from "./components/QuickAdd.tsx";
+import { Shortcuts } from "./components/Shortcuts.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusIcon } from "./components/StatusIcon.tsx";
 import { TaskDetail } from "./components/TaskDetail.tsx";
@@ -79,6 +80,20 @@ export function AppShell(): JSX.Element {
     void openStatusMenu(request.task, request.anchor);
   });
 
+  /**
+   * Where a menu opened by keystroke should appear.
+   *
+   * Anchoring at the middle of the screen put the menu 800px from the row you
+   * were looking at. The row carries its own id, so use it; every mouse path
+   * already anchors this way.
+   */
+  const anchorForCursor = (): { x: number; y: number } => {
+    const task = cursorTask();
+    const rect = task ? document.getElementById(`task-${task.id}`)?.getBoundingClientRect() : null;
+    if (!rect) return { x: window.innerWidth / 2 - 120, y: 180 };
+    return { x: rect.left + 44, y: rect.bottom + 4 };
+  };
+
   const closeMenu = () => {
     setMenu(null);
     setUi("menu", null);
@@ -116,7 +131,7 @@ export function AppShell(): JSX.Element {
     }
 
     if (event.key === "Escape") {
-      if (ui.palette || ui.quickAdd || menu()) {
+      if (ui.palette || ui.quickAdd || ui.shortcuts || menu()) {
         closeOverlays();
         closeMenu();
       } else if (searching()) {
@@ -131,7 +146,7 @@ export function AppShell(): JSX.Element {
     }
 
     // Everything below is a bare key. Typing in a field always wins.
-    if (typing || ui.palette || ui.quickAdd || menu()) return;
+    if (typing || ui.palette || ui.quickAdd || ui.shortcuts || menu()) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
 
     const key = event.key;
@@ -185,20 +200,19 @@ export function AppShell(): JSX.Element {
       case "s":
         if (task) {
           event.preventDefault();
-          void openStatusMenu(task, { x: window.innerWidth / 2 - 120, y: 180 });
+          void openStatusMenu(task, anchorForCursor());
         }
         break;
       case "p":
         if (task) {
           event.preventDefault();
-          setMenu({
-            kind: "priority",
-            task,
-            statuses: [],
-            anchor: { x: window.innerWidth / 2 - 120, y: 180 },
-          });
+          setMenu({ kind: "priority", task, statuses: [], anchor: anchorForCursor() });
           setUi("menu", "priority");
         }
+        break;
+      case "?":
+        event.preventDefault();
+        setUi("shortcuts", true);
         break;
     }
 
@@ -233,9 +247,20 @@ export function AppShell(): JSX.Element {
       run: () => setUi("groupBy", groupBy),
     })),
     {
+      id: "view:filter",
+      label: "Filter this view",
+      section: "View",
+      hint: "/",
+      run: () => {
+        setSearching(true);
+        queueMicrotask(() => searchInput?.focus());
+      },
+    },
+    {
       id: "view:clear-filters",
       label: "Clear all filters",
       section: "View",
+      hint: "esc",
       run: clearFilters,
     },
     {
@@ -250,6 +275,35 @@ export function AppShell(): JSX.Element {
       section: "Task",
       hint: "c",
       run: () => setUi("quickAdd", true),
+    },
+    {
+      id: "task:status",
+      label: "Change status",
+      section: "Task",
+      hint: "s",
+      run: () => {
+        const target = cursorTask();
+        if (target) void openStatusMenu(target, anchorForCursor());
+      },
+    },
+    {
+      id: "task:priority",
+      label: "Set priority",
+      section: "Task",
+      hint: "p",
+      run: () => {
+        const target = cursorTask();
+        if (!target) return;
+        setMenu({ kind: "priority", task: target, statuses: [], anchor: anchorForCursor() });
+        setUi("menu", "priority");
+      },
+    },
+    {
+      id: "help:shortcuts",
+      label: "Keyboard shortcuts",
+      section: "Help",
+      hint: "?",
+      run: () => setUi("shortcuts", true),
     },
     ...(viewListId()
       ? [
@@ -389,6 +443,10 @@ export function AppShell(): JSX.Element {
 
       <Show when={ui.palette}>
         <CommandPalette commands={commands()} onClose={() => setUi("palette", false)} />
+      </Show>
+
+      <Show when={ui.shortcuts}>
+        <Shortcuts onClose={() => setUi("shortcuts", false)} />
       </Show>
 
       <Show when={ui.quickAdd}>
