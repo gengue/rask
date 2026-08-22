@@ -4,7 +4,7 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { createEffect, type JSX, onCleanup } from "solid-js";
+import { type JSX, onCleanup, onMount } from "solid-js";
 
 /**
  * Markdown editing for task descriptions.
@@ -59,9 +59,20 @@ export function MarkdownEditor(props: {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
 
-  createEffect(() => {
-    // Reading props.value here would re-create the editor on every keystroke.
-    // The initial document is captured once; the parent owns it after that.
+  /*
+   * Built once, on mount.
+   *
+   * This used to be a createEffect that read props.value, which tracks it — so
+   * any change to the surrounding task tore the editor down and built a new one
+   * from the incoming text. The task refreshes from ClickUp in the background
+   * and again whenever a teammate touches any field, so someone typing a
+   * description would lose it, with no warning and nothing to undo: `destroy()`
+   * does not fire the blur handler that commits.
+   *
+   * The document is the editor's from here. The parent hears about it on blur
+   * or on Cmd-Enter.
+   */
+  onMount(() => {
     const initial = props.value;
 
     view = new EditorView({
@@ -116,8 +127,9 @@ export function MarkdownEditor(props: {
     });
 
     if (props.autofocus) view.focus();
-    onCleanup(() => view?.destroy());
   });
+
+  onCleanup(() => view?.destroy());
 
   return <div ref={host} class="selectable" />;
 }
