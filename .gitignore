@@ -20,3 +20,6 @@ test-results/
 
 # Dev-only session token written by the seed script
 apps/web/.dev-session
+
+# Agent worktrees and local tool state
+.claude/
