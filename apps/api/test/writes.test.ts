@@ -9,6 +9,7 @@ import {
   deleteComment,
   discardPendingComment,
   findComment,
+  isEditable,
   setTaskTags,
 } from "../src/writes.ts";
 
@@ -210,6 +211,7 @@ describe("comments", () => {
       parentId: null,
       text: "original",
       resolved: true,
+      segments: null,
     });
   });
 
@@ -333,5 +335,66 @@ describe("setTaskTags", () => {
 
     await setTaskTags(db, { taskId: TASK, userId: AUTHOR, tags: ["dup", "dup"] });
     expect(await queued()).toHaveLength(1);
+  });
+});
+
+describe("resolving a rich comment", () => {
+  /**
+   * ClickUp's PUT replaces the comment with the text we send, and the text is
+   * only a flattening of the body. Resolving one that held a screenshot used to
+   * delete the screenshot upstream.
+   */
+  const RICH = `${TASK}-rich`;
+  const segments = [
+    { text: "look at this " },
+    { type: "image", image: { url: "https://example.invalid/a.png" } },
+  ];
+
+  beforeEach(async () => {
+    await db.delete(comments).where(eq(comments.id, RICH));
+    await db.insert(comments).values({
+      id: RICH,
+      taskId: TASK,
+      userId: AUTHOR,
+      text: "look at this image.png",
+      segments,
+    });
+  });
+
+  afterEach(async () => {
+    await db.delete(comments).where(eq(comments.id, RICH));
+  });
+
+  test("queues the original body so the image survives", async () => {
+    const comment = await findComment(db, RICH);
+    if (!comment) throw new Error("expected the comment");
+
+    await applyCommentPatch(db, { comment, userId: AUTHOR, patch: { resolved: true } });
+
+    const [row] = await queued();
+    expect((row?.payload as { segments: unknown }).segments).toEqual(segments);
+  });
+
+  test("an actual edit sends the new text and drops the old body", async () => {
+    const comment = await findComment(db, RICH);
+    if (!comment) throw new Error("expected the comment");
+
+    await applyCommentPatch(db, { comment, userId: AUTHOR, patch: { text: "rewritten" } });
+
+    const [row] = await queued();
+    expect(row?.payload).toMatchObject({ text: "rewritten", segments: null });
+  });
+
+  test("is not offered for inline editing in the first place", async () => {
+    const comment = await findComment(db, RICH);
+    expect(comment && isEditable(comment)).toBe(false);
+  });
+
+  test("a mention-only body is still editable", () => {
+    expect(isEditable({ segments: [{ text: "hi " }, { type: "tag" }] })).toBe(true);
+  });
+
+  test("a comment ClickUp sent no segments for is editable", () => {
+    expect(isEditable({ segments: null })).toBe(true);
   });
 });

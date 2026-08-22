@@ -132,3 +132,48 @@ function makeCommentClient() {
     }),
   };
 }
+
+describe("resolving a comment must not rewrite it", () => {
+  /**
+   * ClickUp's PUT /comment requires comment_text and replaces the body with it.
+   * A comment holding a screenshot flattens to the word "image.png", so
+   * resolving one used to delete the image upstream.
+   */
+  const rich = [
+    { text: "look at this " },
+    { type: "image", image: { url: "https://example.invalid/a.png" } },
+  ] as unknown as Array<{ text: string }>;
+
+  test("sends the original body back untouched when segments are supplied", async () => {
+    const { client, calls } = makeCommentClient();
+    await client.updateComment("c1", {
+      text: "look at this image.png",
+      resolved: true,
+      segments: rich as never,
+    });
+
+    expect(calls[0]?.body).toMatchObject({ comment: rich, resolved: true });
+    expect((calls[0]?.body as { comment_text?: string } | undefined)?.comment_text).toBeUndefined();
+  });
+
+  test("falls back to the text when there are no segments to preserve", async () => {
+    const { client, calls } = makeCommentClient();
+    await client.updateComment("c1", { text: "plain", resolved: true, segments: null });
+
+    expect(calls[0]?.body).toMatchObject({ comment_text: "plain", resolved: true });
+  });
+
+  test("an empty segment array is not a body worth sending", async () => {
+    const { client, calls } = makeCommentClient();
+    await client.updateComment("c1", { text: "plain", resolved: false, segments: [] });
+
+    expect(calls[0]?.body).toMatchObject({ comment_text: "plain" });
+  });
+
+  test("an edit still goes out as the edited text, not the old body", async () => {
+    const { client, calls } = makeCommentClient();
+    await client.updateComment("c1", { text: "new words", resolved: false });
+
+    expect(calls[0]?.body).toMatchObject({ comment_text: "new words" });
+  });
+});

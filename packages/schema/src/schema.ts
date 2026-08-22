@@ -400,6 +400,16 @@ export const comments = pgTable(
      * the risk described above `jsonText`.
      */
     markdown: text("markdown"),
+    /**
+     * ClickUp's `comment` array, kept verbatim.
+     *
+     * Not for rendering — `markdown` is that. This exists so resolving a
+     * comment can put the body back exactly as it arrived. ClickUp's
+     * PUT /comment requires `comment_text` and replaces the body with it, so
+     * resolving a comment that held a screenshot used to delete the screenshot
+     * upstream.
+     */
+    segments: jsonb<unknown[] | null>("segments"),
     resolved: boolean("resolved").notNull().default(false),
     replyCount: integer("reply_count").notNull().default(0),
     date: ts("date"),

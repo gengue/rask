@@ -62,6 +62,12 @@ export interface Comment {
    * ingest. Null until ClickUp has answered, so render `markdown ?? text`.
    */
   markdown: string | null;
+  /**
+   * False when the body holds something ClickUp's edit endpoint would destroy —
+   * an image, a file, a table. Those get an Open in ClickUp link instead of an
+   * edit control, since PUT replaces the comment with whatever text we send.
+   */
+  editable: boolean;
   date: string | null;
   /** Set only when Rask rewrote the body; ClickUp has no edit timestamp. */
   editedAt: string | null;

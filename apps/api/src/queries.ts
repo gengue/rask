@@ -264,6 +264,21 @@ export async function listComments(db: Db, taskId: string): Promise<CommentThrea
       parentCommentId: comments.parentCommentId,
       text: comments.text,
       markdown: comments.markdown,
+      /**
+       * Whether an inline edit can round-trip.
+       *
+       * ClickUp's PUT replaces the body and all we could send back for a rich
+       * comment is its flattened text, so a screenshot or a table would be
+       * deleted by the act of editing. Those keep their Open in ClickUp link
+       * instead of an edit control.
+       */
+      editable: sql<boolean>`(
+        ${comments.segments} is null
+        or not exists (
+          select 1 from jsonb_array_elements(${comments.segments}) seg
+          where seg ? 'type' and seg ->> 'type' <> 'tag'
+        )
+      )`.as("editable"),
       date: comments.date,
       editedAt: comments.editedAt,
       resolved: comments.resolved,

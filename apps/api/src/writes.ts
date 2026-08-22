@@ -207,8 +207,27 @@ export interface CommentOwner {
   taskId: string;
   userId: string | null;
   text: string | null;
+  /** ClickUp's own body, kept so a resolve can put it back untouched. */
+  segments: unknown[] | null;
   resolved: boolean;
   parentCommentId: string | null;
+}
+
+/**
+ * True when the flat text is the whole comment.
+ *
+ * ClickUp's PUT replaces the body, and all we could send for a rich comment is
+ * its flattened text — which would delete the screenshot, the table, or the
+ * file that made it rich. Editing is offered only where the round trip is
+ * lossless; everything else keeps its Open in ClickUp link.
+ */
+export function isEditable(comment: Pick<CommentOwner, "segments">): boolean {
+  const segments = comment.segments;
+  if (!segments) return true;
+  return segments.every((segment) => {
+    const kind = (segment as { type?: string }).type;
+    return kind === undefined || kind === "tag";
+  });
 }
 
 export async function findComment(db: Db, commentId: string): Promise<CommentOwner | null> {
@@ -218,6 +237,7 @@ export async function findComment(db: Db, commentId: string): Promise<CommentOwn
       taskId: comments.taskId,
       userId: comments.userId,
       text: comments.text,
+      segments: comments.segments,
       resolved: comments.resolved,
       parentCommentId: comments.parentCommentId,
     })
@@ -241,6 +261,16 @@ export async function applyCommentPatch(
   const { comment, userId, patch } = input;
   const text = patch.text ?? comment.text ?? "";
   const resolved = patch.resolved ?? comment.resolved;
+
+  /*
+   * Resolving must not rewrite the body.
+   *
+   * ClickUp requires `comment_text` on PUT and replaces the comment with it, so
+   * resolving a comment that held a screenshot used to post its flattened text
+   * and delete the image upstream. When the body is not being edited, the
+   * original segments go back exactly as they arrived.
+   */
+  const segments = patch.text === undefined ? comment.segments : null;
 
   await db.transaction(async (tx) => {
     await tx
@@ -268,6 +298,7 @@ export async function applyCommentPatch(
         // reply is only readable through its thread, never the task's list.
         parentId: comment.parentCommentId,
         text,
+        segments,
         resolved,
       },
     });

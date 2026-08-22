@@ -709,7 +709,25 @@ function CommentItem(props: {
                     }
                   />
                   <Show when={mine()}>
-                    <CommentAction label="Edit" onClick={() => setEditing(true)} />
+                    {/* An image, a file or a table cannot survive our edit: the
+                        endpoint replaces the body with the text we send, and
+                        the text is only its flattening. Those go to ClickUp. */}
+                    <Show
+                      when={props.comment.editable}
+                      fallback={
+                        <a
+                          href={`https://app.clickup.com/t/${props.taskId}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="This comment has an attachment Rask cannot edit without losing it"
+                          class="text-[11px] text-ink-3 hover:text-ink-2"
+                        >
+                          Edit in ClickUp
+                        </a>
+                      }
+                    >
+                      <CommentAction label="Edit" onClick={() => setEditing(true)} />
+                    </Show>
                     <CommentAction
                       label="Delete"
                       onClick={() =>

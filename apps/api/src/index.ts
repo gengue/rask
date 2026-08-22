@@ -8,7 +8,7 @@ import {
   loadToken,
   syncCursors,
 } from "@rask/schema";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
@@ -432,17 +432,44 @@ async function refreshTask(userId: string, taskId: string): Promise<void> {
  */
 async function refreshComments(client: ClickUpClient, taskId: string): Promise<void> {
   const mirrored = await replyCounts(taskId);
+  /*
+   * A thread whose parent predates the segments column has to be re-read even
+   * when the counts agree.
+   *
+   * Without its segments, resolving a comment falls back to sending the flat
+   * text and ClickUp replaces the body with it — deleting whatever image or
+   * table made it worth keeping. Backfilling costs one request per thread,
+   * once, and then the counts take over again.
+   */
+  const unbacked = await threadsMissingSegments(taskId);
   let threads = 0;
 
   for await (const page of client.iterateComments(taskId, { maxPages: COMMENT_PAGES })) {
     await ingestComments(db, taskId, page);
 
     for (const comment of page) {
-      if (comment.reply_count === (mirrored.get(comment.id) ?? 0)) continue;
+      const counted = comment.reply_count === (mirrored.get(comment.id) ?? 0);
+      if (counted && !unbacked.has(comment.id)) continue;
       if (threads++ >= THREADS_PER_REFRESH) return;
       await ingestReplies(db, taskId, comment.id, await client.getThreadedComments(comment.id));
     }
   }
+}
+
+/** Parents whose thread holds a comment mirrored before segments were stored. */
+async function threadsMissingSegments(taskId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ parentId: comments.parentCommentId })
+    .from(comments)
+    .where(
+      and(
+        eq(comments.taskId, taskId),
+        isNotNull(comments.parentCommentId),
+        isNull(comments.segments),
+      ),
+    )
+    .groupBy(comments.parentCommentId);
+  return new Set(rows.map((row) => row.parentId ?? ""));
 }
 
 /** Replies the mirror already has, per parent comment. */

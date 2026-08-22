@@ -1,4 +1,4 @@
-import { ClickUpError } from "@rask/clickup-client";
+import { ClickUpError, type CommentSegment } from "@rask/clickup-client";
 import {
   comments,
   type Db,
@@ -137,14 +137,15 @@ async function execute(
     }
 
     case "update_comment": {
-      const { commentId, text, resolved } = payload as {
+      const { commentId, text, segments, resolved } = payload as {
         commentId: string;
         text: string;
+        segments?: CommentSegment[] | null;
         resolved: boolean;
       };
       // The mirror already holds this exact state, and ClickUp answers with an
       // empty body, so there is nothing to ingest on success.
-      await client.updateComment(commentId, { text, resolved });
+      await client.updateComment(commentId, { text, segments, resolved });
       return;
     }
 

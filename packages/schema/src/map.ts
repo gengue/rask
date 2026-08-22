@@ -251,6 +251,8 @@ export function mapComment(comment: ClickUpComment, taskId: string, parentCommen
     // What the flat text threw away: images, files, links, lists, emphasis, and
     // the ids behind the @mentions. See renderCommentBody for why markdown.
     markdown: renderCommentBody(comment.comment),
+    // Kept whole for the write path; see the column comment.
+    segments: comment.comment ?? null,
     resolved: comment.resolved ?? false,
     replyCount: comment.reply_count,
     date: comment.date ?? null,

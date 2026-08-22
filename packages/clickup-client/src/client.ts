@@ -483,10 +483,25 @@ export class ClickUpClient {
    */
   async updateComment(
     commentId: string,
-    input: { text: string; resolved: boolean; assignee?: number },
+    input: {
+      text: string;
+      resolved: boolean;
+      assignee?: number;
+      /**
+       * ClickUp's own body, to send back untouched.
+       *
+       * PUT replaces the comment, and `text` is only its flattening, so a
+       * comment holding a screenshot or a table loses it unless the original
+       * segments go back instead. Pass these whenever the body is not the thing
+       * being changed.
+       */
+      segments?: CommentSegment[] | null;
+    },
   ): Promise<void> {
+    const body = input.segments?.length ? { comment: input.segments } : commentBody(input.text);
+
     await this.request(z.unknown(), "PUT", `/v2/comment/${commentId}`, {
-      body: { ...commentBody(input.text), resolved: input.resolved, assignee: input.assignee },
+      body: { ...body, resolved: input.resolved, assignee: input.assignee },
     });
   }
 
