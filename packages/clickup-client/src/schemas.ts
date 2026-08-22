@@ -71,7 +71,12 @@ export const clickUpCustomField = z.looseObject({
 });
 export type ClickUpCustomField = z.infer<typeof clickUpCustomField>;
 
-const parentRef = z.looseObject({ id: id, name: z.string().nullish() });
+const parentRef = z.looseObject({
+  id: id,
+  name: z.string().nullish(),
+  /** True for the implicit folder ClickUp wraps folderless lists in. */
+  hidden: z.boolean().nullish(),
+});
 
 export const clickUpTask = z.looseObject({
   id: z.string(),

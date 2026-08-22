@@ -246,6 +246,15 @@
 .prose-rask hr {
   border-top: 1px solid var(--color-line);
 }
+/* A mention should read as a person, not as a link. */
+.rask-mention {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-weight: 500;
+  white-space: nowrap;
+}
 .prose-rask img {
   border-radius: 6px;
   max-width: 100%;

@@ -97,7 +97,7 @@ export function mapTask(task: ClickUpTask): MappedTask {
       // A task always belongs to a list. If ClickUp omits it we would be
       // inventing a parent, so let the caller supply the list it was fetched from.
       listId: task.list?.id ?? "",
-      folderId: task.folder?.id ?? null,
+      folderId: task.folder && !task.folder.hidden ? task.folder.id : null,
       spaceId: task.space?.id ?? null,
       name: task.name,
       description: task.markdown_description ?? task.description ?? null,
@@ -172,7 +172,11 @@ export function mapList(
   return {
     id: list.id,
     spaceId: list.space?.id ?? fallback.spaceId,
-    folderId: list.folder?.id ?? fallback.folderId ?? null,
+    // ClickUp puts every list in a folder. Lists that look folderless in the
+    // UI are in an implicit one marked `hidden`, and that folder is never
+    // returned by GET /space/{id}/folder — so storing its id points the list at
+    // a parent that does not exist and drops it out of the sidebar entirely.
+    folderId: list.folder && !list.folder.hidden ? list.folder.id : (fallback.folderId ?? null),
     name: list.name,
     orderindex: list.orderindex ?? null,
     content: list.content ?? null,

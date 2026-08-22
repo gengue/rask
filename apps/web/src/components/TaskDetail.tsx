@@ -1,3 +1,4 @@
+import { formatMention } from "@rask/clickup-client/mentions";
 import {
   createEffect,
   createResource,
@@ -18,6 +19,7 @@ import {
 } from "../lib/api.ts";
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
+import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
 import { tasks } from "../lib/store.ts";
@@ -762,7 +764,50 @@ function Composer(props: {
   onCancel?: () => void;
 }): JSX.Element {
   const [text, setText] = createSignal(props.initial ?? "");
+  const [mention, setMention] = createSignal<MentionQuery | null>(null);
+  const [picked, setPicked] = createSignal(0);
   let box!: HTMLTextAreaElement;
+
+  /** Members matching the `@token` under the caret, best first. */
+  const candidates = () => {
+    const query = mention();
+    if (!query) return [];
+    const term = query.term.toLowerCase();
+    const pool = members().filter((user) => user.username || user.email);
+    if (!term) return pool.slice(0, 6);
+    return pool
+      .filter((user) => `${user.username ?? ""} ${user.email ?? ""}`.toLowerCase().includes(term))
+      .sort((a, b) => {
+        // Someone whose name starts with what you typed is who you meant.
+        const aStarts = (a.username ?? "").toLowerCase().startsWith(term) ? 0 : 1;
+        const bStarts = (b.username ?? "").toLowerCase().startsWith(term) ? 0 : 1;
+        return aStarts - bStarts;
+      })
+      .slice(0, 6);
+  };
+
+  const syncMention = () => {
+    setMention(mentionQueryAt(box.value, box.selectionStart));
+    setPicked(0);
+  };
+
+  const insert = (user: Assignee) => {
+    const query = mention();
+    if (!query) return;
+    const next = applyMention(
+      box.value,
+      query,
+      box.selectionStart,
+      formatMention({ id: user.id, name: user.username ?? user.email ?? user.id }),
+    );
+    setText(next.text);
+    setMention(null);
+    // Restore the caret after Solid writes the new value back into the box.
+    queueMicrotask(() => {
+      box.focus();
+      box.setSelectionRange(next.caret, next.caret);
+    });
+  };
 
   const submit = () => {
     const value = text().trim();
@@ -780,13 +825,78 @@ function Composer(props: {
   });
 
   return (
-    <div class="rounded-lg border border-line bg-elevated/70 focus-within:border-line-strong">
+    <div class="relative rounded-lg border border-line bg-elevated/70 focus-within:border-line-strong">
+      <Show when={mention() && candidates().length > 0}>
+        {/* Anchored to the box rather than the caret. Tracking the caret in a
+            textarea means mirroring its content into a hidden element to
+            measure, which is a lot of machinery for a list that is readable
+            either way. */}
+        <div class="floating absolute bottom-full left-0 z-30 mb-1 w-[280px] overflow-hidden rounded-lg p-1">
+          <For each={candidates()}>
+            {(user, index) => (
+              <button
+                type="button"
+                // The box must not lose focus, or the caret position is gone
+                // before the click handler can use it.
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  insert(user);
+                }}
+                onMouseEnter={() => setPicked(index())}
+                class="flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[13px]"
+                classList={{
+                  "bg-white/[0.08] text-ink": picked() === index(),
+                  "text-ink-2": picked() !== index(),
+                }}
+              >
+                <Avatar user={user} size={18} />
+                <span class="flex-1 truncate">{user.username ?? user.email}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+
       <textarea
         ref={box}
         rows={2}
         value={text()}
-        onInput={(event) => setText(event.currentTarget.value)}
+        onInput={(event) => {
+          setText(event.currentTarget.value);
+          syncMention();
+        }}
+        onClick={syncMention}
+        onBlur={() => setMention(null)}
         onKeyDown={(event) => {
+          const list = candidates();
+
+          // While the picker is up it owns the arrows, Enter, Tab and Escape.
+          // Everything else falls through to the box.
+          if (mention() && list.length > 0) {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setPicked((i) => (i + 1) % list.length);
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setPicked((i) => (i - 1 + list.length) % list.length);
+              return;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              const user = list[picked()];
+              if (user) insert(user);
+              return;
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              setMention(null);
+              return;
+            }
+          }
+
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             submit();
@@ -795,14 +905,16 @@ function Composer(props: {
             event.preventDefault();
             props.onCancel();
           }
+          // Arrow keys move the caret, so re-read where it landed.
+          if (event.key.startsWith("Arrow")) queueMicrotask(syncMention);
           event.stopPropagation();
         }}
         placeholder={props.placeholder}
         class="w-full resize-none px-3 py-2 text-[13px]"
       />
       <div class="flex items-center justify-between px-3 pb-2">
-        <span class="text-[11px] text-ink-4">
-          ⌘↵ to send{props.onCancel ? " · esc to cancel" : ""}
+        <span class="text-[11px] text-ink-3">
+          @ to mention · ⌘↵ to send{props.onCancel ? " · esc to cancel" : ""}
         </span>
         <button
           type="button"

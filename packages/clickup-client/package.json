@@ -5,7 +5,8 @@
     "zod": "^4.4.3"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./mentions": "./src/mentions.ts"
   },
   "private": true,
   "scripts": {

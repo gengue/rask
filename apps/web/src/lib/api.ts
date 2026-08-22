@@ -11,6 +11,8 @@ export interface Assignee {
   initials: string | null;
   color: string | null;
   avatar: string | null;
+  /** Only the workspace directory carries this; task assignees do not. */
+  email?: string | null;
 }
 
 export interface Tag {

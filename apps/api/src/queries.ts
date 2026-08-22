@@ -295,6 +295,12 @@ export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
       .orderBy(asc(lists.orderindex), asc(lists.name)),
   ]);
 
+  // A list whose folder is not in the tree — hidden, archived, or simply not
+  // mirrored yet — belongs at the space level. Without this it belongs nowhere
+  // and disappears from the sidebar, which is how three lists in the AI space
+  // went missing.
+  const knownFolders = new Set(allFolders.map((folder) => folder.id));
+
   return allSpaces.map((space) => ({
     id: space.id,
     name: space.name,
@@ -308,7 +314,7 @@ export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
           .map((l) => ({ id: l.id, name: l.name })),
       })),
     lists: allLists
-      .filter((l) => l.spaceId === space.id && !l.folderId)
+      .filter((l) => l.spaceId === space.id && (!l.folderId || !knownFolders.has(l.folderId)))
       .map((l) => ({ id: l.id, name: l.name })),
   }));
 }

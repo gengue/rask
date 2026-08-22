@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type CommentSegment, toCommentSegments } from "./mentions.ts";
 import { RateLimiter } from "./rate-limit.ts";
 import {
   accessTokenResponse,
@@ -412,7 +413,7 @@ export class ClickUpClient {
   ): Promise<{ id: string }> {
     return this.request(createdComment, "POST", `/v2/task/${taskId}/comment`, {
       body: {
-        comment_text: input.text,
+        ...commentBody(input.text),
         assignee: input.assignee,
         notify_all: input.notifyAll ?? false,
       },
@@ -432,7 +433,7 @@ export class ClickUpClient {
   ): Promise<{ id?: string }> {
     return this.request(threadedCommentCreated, "POST", `/v2/comment/${commentId}/reply`, {
       body: {
-        comment_text: input.text,
+        ...commentBody(input.text),
         assignee: input.assignee,
         notify_all: input.notifyAll ?? false,
       },
@@ -451,11 +452,7 @@ export class ClickUpClient {
     input: { text: string; resolved: boolean; assignee?: number },
   ): Promise<void> {
     await this.request(z.unknown(), "PUT", `/v2/comment/${commentId}`, {
-      body: {
-        comment_text: input.text,
-        resolved: input.resolved,
-        assignee: input.assignee,
-      },
+      body: { ...commentBody(input.text), resolved: input.resolved, assignee: input.assignee },
     });
   }
 
@@ -500,6 +497,21 @@ function taskQuery(params: ListTasksParams): Query {
     order_by: params.orderBy,
     reverse: params.reverse,
   };
+}
+
+/**
+ * How a comment's body is carried.
+ *
+ * With no mentions it goes as `comment_text` and ClickUp does its own
+ * formatting. With mentions it has to go as the structured `comment` array, or
+ * the tag posts as literal characters and notifies nobody.
+ *
+ * Only the body: the surrounding fields differ per endpoint. UpdateComment, for
+ * one, takes no `notify_all`.
+ */
+function commentBody(text: string): { comment: CommentSegment[] } | { comment_text: string } {
+  const segments = toCommentSegments(text);
+  return segments ? { comment: segments } : { comment_text: text };
 }
 
 /** Full jitter, capped at 30s. Keeps a fleet of workers from retrying in lockstep. */

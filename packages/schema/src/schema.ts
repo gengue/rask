@@ -50,7 +50,24 @@ const jsonb = <T>(name: string) =>
   customType<{ data: T; driverData: T }>({
     dataType: () => "jsonb",
     toDriver: (value) => value,
-    fromDriver: (value) => value,
+    /*
+     * Unwrap a double-encoded value on the way out.
+     *
+     * Every column using this holds an object or an array, so a plain string
+     * coming back means the row was written by the pre-fix code path (or by
+     * something we have not found) and is JSON inside JSON. Parsing it here
+     * keeps one bad row from reaching the UI as `tags.slice(...).map is not a
+     * function`, which is how this surfaced. Rows are repaired in place when
+     * found; this is the seatbelt, not the fix.
+     */
+    fromDriver: (value) => {
+      if (typeof value !== "string") return value;
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        return value as T;
+      }
+    },
   })(name);
 
 /**

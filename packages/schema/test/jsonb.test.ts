@@ -137,3 +137,26 @@ describe("jsonb columns", () => {
     expect(claimed[0]?.payload.listId).toBe("L1");
   });
 });
+
+describe("reading a double-encoded row", () => {
+  test("unwraps it rather than handing a string to the UI", async () => {
+    // Exactly what the pre-fix writer left behind: JSON inside JSON.
+    await db.insert(tasks).values({ id: `${TASK}-legacy`, listId: "L", name: "legacy" });
+    await db.execute(
+      sql`update ${tasks} set tags = to_jsonb(${'[{"name":"perf"}]'}::text) where id = ${`${TASK}-legacy`}`,
+    );
+
+    const stored = (await db.execute(
+      sql`select jsonb_typeof(tags) t from ${tasks} where id = ${`${TASK}-legacy`}`,
+    )) as unknown as Array<{ t: string }>;
+    expect(stored[0]?.t).toBe("string");
+
+    const [row] = await db
+      .select({ tags: tasks.tags })
+      .from(tasks)
+      .where(sql`id = ${`${TASK}-legacy`}`);
+
+    expect(row?.tags).toEqual([{ name: "perf" }]);
+    await db.delete(tasks).where(sql`id = ${`${TASK}-legacy`}`);
+  });
+});
