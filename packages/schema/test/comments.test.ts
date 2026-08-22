@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { asc, eq } from "drizzle-orm";
-import { createDb } from "../src/db.ts";
 import { ingestComments, ingestReplies } from "../src/ingest.ts";
 import { comments, tasks } from "../src/schema.ts";
+import { createTestDb } from "../src/test-db.ts";
 
 /**
  * Comment ingest against a real database.
@@ -14,9 +14,7 @@ import { comments, tasks } from "../src/schema.ts";
  * replies forever or silently deletes the comments we did not fetch.
  */
 
-const db = createDb(process.env.DATABASE_URL ?? "postgres://rask:rask@localhost:5432/rask", {
-  max: 1,
-});
+const db = createTestDb();
 
 const TASK = "comments-test-task";
 

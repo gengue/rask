@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { createDb } from "../src/db.ts";
 import { customFieldDefs, outbox, spaces, taskCustomValues, tasks } from "../src/schema.ts";
+import { createTestDb } from "../src/test-db.ts";
 
 /**
  * jsonb columns must land in Postgres as objects and arrays, not as JSON
@@ -15,7 +15,7 @@ import { customFieldDefs, outbox, spaces, taskCustomValues, tasks } from "../src
  */
 
 const url = process.env.DATABASE_URL;
-const db = createDb(url ?? "postgres://rask:rask@localhost:5432/rask", { max: 1 });
+const db = createTestDb();
 
 const SPACE = "jsonb-test-space";
 const TASK = "jsonb-test-task";

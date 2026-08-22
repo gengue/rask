@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { comments, createDb, outbox, taskAssignees, tasks, users } from "@rask/schema";
+import { comments, createTestDb, outbox, taskAssignees, tasks, users } from "@rask/schema";
 import { asc, eq, inArray } from "drizzle-orm";
 import {
   applyCommentPatch,
@@ -22,9 +22,7 @@ import {
  * first time this was written.
  */
 
-const db = createDb(process.env.DATABASE_URL ?? "postgres://rask:rask@localhost:5432/rask", {
-  max: 1,
-});
+const db = createTestDb();
 
 const TASK = "writes-test-task";
 const AUTHOR = "9001";

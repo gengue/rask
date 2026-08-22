@@ -55,6 +55,11 @@ Playwright specs, which need running servers. Some tests talk to the local
 Postgres on purpose — a jsonb column that round-trips through the ORM while
 being stored wrong is not catchable any other way.
 
+Those tests write to `rask_test`, never to `rask`. Run `bun run db:test` once to
+create it. The default is deliberate: the tests insert and delete real rows, and
+pointing them at the database you are actually looking at is a mistake worth
+making impossible rather than remembering not to make.
+
 ### Things the original plan called for that are not here
 
 Each of these was dropped for a reason, and each has a way back in.
