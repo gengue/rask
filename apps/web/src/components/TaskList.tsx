@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { setUi, ui } from "../lib/ui.ts";
-import { flatItems } from "../lib/view.ts";
+import { flatItems, viewListId, viewLoading } from "../lib/view.ts";
 import { StatusIcon } from "./StatusIcon.tsx";
 import { TaskRow } from "./TaskRow.tsx";
 
@@ -111,12 +111,14 @@ export function TaskList(props: {
       <Show
         when={items().length > 0}
         fallback={
-          <div class="flex h-full flex-col items-center justify-center gap-1 text-ink-3">
-            <div class="text-[13px]">{ui.search ? "No matches" : "Nothing here"}</div>
-            <div class="text-ink-4 text-xs">
-              {ui.search ? "Try a different search" : "Press c to create a task"}
+          <Show when={!viewLoading()} fallback={<SkeletonRows />}>
+            <div class="flex h-full flex-col items-center justify-center gap-1 text-ink-3">
+              <div class="text-[13px]">{ui.search ? "No matches" : "Nothing here"}</div>
+              <div class="text-ink-3 text-xs">
+                {ui.search ? "Try a different search" : "Press c to create a task"}
+              </div>
             </div>
-          </div>
+          </Show>
         }
       >
         {/* biome-ignore lint/a11y/useAriaActivedescendantWithTabindex: the rule
@@ -173,6 +175,7 @@ export function TaskList(props: {
             {(row) => (
               <TaskRow
                 task={row().task}
+                showList={viewListId() === null}
                 active={rowIndices()[ui.cursor] === index}
                 selected={props.openTaskId === row().task.id}
                 onOpen={() => {
@@ -189,6 +192,30 @@ export function TaskList(props: {
 
     return nodes;
   }
+}
+
+/**
+ * Placeholder rows at the real row height.
+ *
+ * The point is that nothing moves when the data lands: same 36px rhythm, same
+ * columns. A spinner would be less work and would make every list load feel
+ * like a page transition.
+ */
+function SkeletonRows(): JSX.Element {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: 14 }, (_, i) => (
+        <div class="flex h-9 items-center gap-3 border-line/45 border-b px-5">
+          <span class="size-3.5 shrink-0 rounded-full bg-white/[0.045]" />
+          <span class="h-2 w-[52px] shrink-0 rounded bg-white/[0.035]" />
+          <span
+            class="h-2 rounded bg-white/[0.035]"
+            style={{ width: `${28 + ((i * 37) % 42)}%` }}
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Largest index whose offset is <= `pixel`. Offsets ascend, so binary search. */

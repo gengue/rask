@@ -1,5 +1,7 @@
 import { createCollection } from "@tanstack/solid-db";
 import { api, type Task, type TaskQuery } from "./api.ts";
+import { pushToast } from "./toast.ts";
+import { setViewLoading } from "./view.ts";
 
 /**
  * One collection holds every task the session has loaded, from any view.
@@ -22,7 +24,8 @@ type SyncApi = {
 };
 
 let syncApi: SyncApi | null = null;
-let markReadyOnce: (() => void) | null = null;
+/** Rows that arrived before the collection started syncing. */
+let buffered: Task[] = [];
 
 export const tasks = createCollection<Task, string>({
   id: "tasks",
@@ -30,21 +33,32 @@ export const tasks = createCollection<Task, string>({
   sync: {
     // The API always sends whole rows, never patches.
     rowUpdateMode: "full",
-    sync: ({ begin, write, commit, markReady, markError }) => {
+    sync: ({ begin, write, commit, markReady }) => {
       syncApi = { begin, write, commit } as SyncApi;
-      markReadyOnce = markReady;
 
-      void api
-        .tasks({ assignee: "me", limit: 500 })
-        .then((page) => {
-          merge(page.tasks);
-          markReady();
-        })
-        .catch(markError);
+      if (buffered.length > 0) {
+        const rows = buffered;
+        buffered = [];
+        merge(rows);
+      }
+
+      /*
+       * Ready immediately, with nothing in it.
+       *
+       * The route that mounts decides what to load; fetching My Tasks here as
+       * well meant every cold boot of the default view issued the same 500-row
+       * query twice. But readiness cannot wait for that fetch: live queries
+       * suspend until the collection is ready, and the read is also what starts
+       * this sync, so deferring markReady deadlocks the two against each other
+       * and the view renders nothing at all.
+       *
+       * An empty ready collection is honest. `viewLoading` is what stops the
+       * first frame from claiming the list is empty.
+       */
+      markReady();
 
       return () => {
         syncApi = null;
-        markReadyOnce = null;
       };
     },
   },
@@ -77,7 +91,11 @@ export const tasks = createCollection<Task, string>({
 
 /** Folds server rows into the collection: insert, update, or drop if deleted. */
 export function merge(rows: Task[]): void {
-  if (!syncApi || rows.length === 0) return;
+  if (rows.length === 0) return;
+  if (!syncApi) {
+    buffered.push(...rows);
+    return;
+  }
   syncApi.begin();
   for (const row of rows) {
     if (row.deletedAt) {
@@ -97,10 +115,22 @@ export function merge(rows: Task[]): void {
  * left a list stays visible until the next SSE frame corrects it.
  */
 export async function load(query: TaskQuery): Promise<boolean> {
-  const page = await api.tasks({ limit: 500, ...query });
-  merge(page.tasks);
-  markReadyOnce?.();
-  return page.truncated;
+  setViewLoading(true);
+  try {
+    const page = await api.tasks({ limit: 500, ...query });
+    merge(page.tasks);
+    return page.truncated;
+  } catch (error) {
+    // Silently showing an empty list is how a failed fetch reads as "no tasks".
+    pushToast({
+      tone: "error",
+      title: "Could not load tasks",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  } finally {
+    setViewLoading(false);
+  }
 }
 
 function toApiPatch(changes: Partial<Task>): Record<string, unknown> {

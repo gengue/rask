@@ -19,10 +19,24 @@
   --color-line: #232427;
   --color-line-strong: #303237;
 
+  /*
+   * Four inks, and the bottom one is not for text.
+   *
+   * Contrast against --color-panel: ink 18.5:1, ink-2 7.4:1, ink-3 4.7:1,
+   * ink-4 3.8:1. Anything a person has to read gets ink-3 or better; ink-4 is
+   * for icon strokes, dividers, and the dashed unassigned ring. The previous
+   * ink-4 was #4a4e55 at 2.3:1 and it carried every property label and every
+   * keyboard hint, which put the text explaining the interface among the least
+   * legible pixels in it.
+   */
   --color-ink: #f7f8f8;
   --color-ink-2: #9ca1a9;
-  --color-ink-3: #6b6f76;
-  --color-ink-4: #4a4e55;
+  --color-ink-3: #797e85;
+  --color-ink-4: #6b6f76;
+
+  /* Long-form body text: descriptions and comments. Brighter than ink-2,
+     because the description is the thing you opened the task to read. */
+  --color-ink-prose: #cfd3d8;
 
   --color-accent: #6e79d6;
   --color-accent-soft: #6e79d629;
@@ -160,11 +174,12 @@
 /* Markdown, rendered inside task descriptions and comments. Deliberately close
    to the surrounding UI rather than a document: same size, tighter spacing. */
 .prose-rask {
-  color: var(--color-ink-2);
+  color: var(--color-ink-prose);
   line-height: 1.65;
 }
+/* Wider than the 1.65 line-height, or paragraphs merge into one block. */
 .prose-rask > * + * {
-  margin-top: 0.75em;
+  margin-top: 1.1em;
 }
 .prose-rask h1,
 .prose-rask h2,
@@ -238,6 +253,9 @@
 .prose-rask table {
   border-collapse: collapse;
   font-size: 12px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .prose-rask th,
 .prose-rask td {

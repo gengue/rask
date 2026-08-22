@@ -22,6 +22,8 @@ export function TaskRow(props: {
   task: Task;
   active: boolean;
   selected: boolean;
+  /** Cross-list views show which list a row came from; a list view does not. */
+  showList: boolean;
   onOpen: () => void;
   onStatusClick: (event: MouseEvent) => void;
 }): JSX.Element {
@@ -57,7 +59,9 @@ export function TaskRow(props: {
       <PriorityIcon priority={props.task.priority} class="shrink-0" />
 
       <Show when={props.task.customId}>
-        <span class="w-[62px] shrink-0 truncate font-mono text-[11px] text-ink-4 tabular-nums">
+        {/* The one string a developer copies out of here, into a branch name
+            or a commit message, so it opts back in to text selection. */}
+        <span class="selectable w-[62px] shrink-0 truncate font-mono text-[11px] text-ink-3 tabular-nums">
           {props.task.customId}
         </span>
       </Show>
@@ -74,9 +78,24 @@ export function TaskRow(props: {
         <StatusIcon type={props.task.statusType} color={props.task.statusColor} />
       </button>
 
+      <Show when={props.task.parentId}>
+        {/* A subtask is otherwise indistinguishable from a top-level task. */}
+        <span class="-ml-1.5 shrink-0 text-[11px] text-ink-4" title="Subtask">
+          &#8618;
+        </span>
+      </Show>
+
       <span class="flex-1 truncate text-[13px] text-ink" classList={{ "text-white": props.active }}>
         {props.task.name}
       </span>
+
+      <Show when={props.showList && props.task.listName}>
+        {/* My Tasks spans 243 lists. Without this a row gives no clue which
+            project it belongs to, and grouping by status does not help. */}
+        <span class="max-w-[120px] shrink-0 truncate text-[11px] text-ink-3">
+          {props.task.listName}
+        </span>
+      </Show>
 
       <Show when={props.task.tags.length > 0}>
         <div class="flex shrink-0 items-center gap-1">

@@ -73,6 +73,15 @@ function groupKey(
   task: Task,
   groupBy: GroupBy,
 ): { id: string; label: string; color: string | null; type: string | null } {
+  if (groupBy === "list") {
+    return {
+      id: task.listId,
+      label: task.listName ?? "Unknown list",
+      color: null,
+      type: null,
+    };
+  }
+
   if (groupBy === "assignee") {
     const first = task.assignees[0];
     return {

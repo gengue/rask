@@ -15,6 +15,13 @@ export const [viewTitle, setViewTitle] = createSignal("Tasks");
 export const [viewListId, setViewListId] = createSignal<string | null>(null);
 /** True when the server had more rows than it was willing to send. */
 export const [viewTruncated, setViewTruncated] = createSignal(false);
+/**
+ * True while a view is fetching.
+ *
+ * Starts true: before the first load there is nothing to show and "Nothing
+ * here / Press c to create a task" would be a lie on a list with 400 tasks.
+ */
+export const [viewLoading, setViewLoading] = createSignal(true);
 
 /** Search, facet filters and grouping, shared by the list and the keyboard. */
 export const flatItems = createMemo<FlatItem[]>(() => {
@@ -22,6 +29,11 @@ export const flatItems = createMemo<FlatItem[]>(() => {
   const { status, assignee, tag } = ui.filters;
 
   const filtered = viewTasks().filter((task) => {
+    // The collection is additive on purpose, so turning "show closed" back off
+    // has to filter here. Without this, closed tasks load once and never leave.
+    if (!ui.showClosed && (task.statusType === "closed" || task.statusType === "done")) {
+      return false;
+    }
     if (status && task.status !== status) return false;
     if (assignee && !task.assignees.some((user) => user.id === assignee)) return false;
     if (tag && !task.tags.some((t) => t.name === tag)) return false;

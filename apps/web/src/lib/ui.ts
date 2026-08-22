@@ -1,6 +1,6 @@
 import { createStore } from "solid-js/store";
 
-export type GroupBy = "status" | "due" | "assignee" | "none";
+export type GroupBy = "status" | "due" | "assignee" | "list" | "none";
 
 /**
  * View state that the URL does not own.
