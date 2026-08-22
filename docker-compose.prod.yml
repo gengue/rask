@@ -1,0 +1,54 @@
+# Deployment target: Coolify. Three services from one image.
+#
+# `migrate` runs to completion before anything else starts, so neither the API
+# nor the worker can come up against a schema they do not understand. That is
+# also why migrations are not run at API boot: a rolling deploy would race them.
+
+name: rask
+
+services:
+  migrate:
+    build: .
+    command: ["bun", "packages/schema/src/migrate.ts"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    restart: "no"
+
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      SESSION_SECRET: ${SESSION_SECRET}
+      CLICKUP_CLIENT_ID: ${CLICKUP_CLIENT_ID}
+      CLICKUP_CLIENT_SECRET: ${CLICKUP_CLIENT_SECRET}
+      CLICKUP_REDIRECT_URI: ${CLICKUP_REDIRECT_URI}
+      WEB_ORIGIN: ${WEB_ORIGIN}
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["bun", "apps/worker/src/index.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-120000}
+    # One worker. The outbox claim uses FOR UPDATE SKIP LOCKED so more would be
+    # safe, but nothing here needs the throughput yet.
+    deploy:
+      replicas: 1
+    restart: unless-stopped

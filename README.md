@@ -41,51 +41,54 @@ Browser (SPA) <-- SSE --> API <-- REST + webhooks --> ClickUp
 
 | Workspace | What |
 |---|---|
-| `apps/web` | SolidJS, Vite, TanStack Router/DB/Virtual, Tailwind v4, CodeMirror 6. Local cache in wa-sqlite over OPFS with FTS5 for offline search. |
-| `apps/api` | Bun + Hono, Drizzle over Postgres, Zod at the edges, per-user SSE fan-out. ClickUp OAuth, tokens encrypted at rest, session in an httpOnly cookie. |
-| `apps/worker` | Ingest (webhooks, polling, reconciliation) and the outbox drain. Queues on pg-boss, same Postgres, no Redis. |
-| `packages/schema` | Drizzle schema and shared Zod types. |
-| `packages/clickup-client` | Typed client generated from ClickUp's OpenAPI spec, with a token-bucket rate limiter per token. |
+| `apps/web` | SolidJS, Vite, TanStack Router, TanStack DB, Tailwind v4, CodeMirror 6 for markdown. |
+| `apps/api` | Bun + Hono, Drizzle over Bun's native Postgres client, Zod at the edges, per-user SSE fan-out. ClickUp OAuth, tokens encrypted at rest, session in an httpOnly cookie. In production it also serves the built SPA, so the whole app is one origin. |
+| `apps/worker` | Ingest (polling, reconciliation) and the outbox drain. |
+| `packages/schema` | The mirror: Drizzle tables, token encryption, and the mapping from ClickUp payloads to rows. |
+| `packages/clickup-client` | Typed client for the ten ClickUp endpoints Rask uses, with a token-bucket rate limiter per token. The v2 OpenAPI spec is vendored under `openapi/` so endpoint and parameter names get checked rather than guessed. |
 
-Tooling: Biome (lint + format), Vitest for web, `bun test` for api/worker,
-Playwright for one critical flow, Docker Compose for local Postgres.
+Tooling: Biome, `bun test`, Playwright for the critical flow, Docker Compose for
+local Postgres.
 
-Package management is Bun workspaces. No pnpm, no Turborepo: internal packages
-export TypeScript source with no build step, so there is no build graph to order.
-`bun run --filter '*' <script>` covers the rest. Turborepo goes in the day CI
-typecheck time actually hurts.
+### Things the original plan called for that are not here
 
-## MVP scope
+Each of these was dropped for a reason, and each has a way back in.
 
-1. My Tasks, grouped by status or due date
-2. List view with basic filters (status, assignee, tag)
-3. Task detail: markdown description, status, assignee, due date, custom fields, comments
-4. Quick add, and inline status changes without opening the task
-5. Command palette and vim-style keyboard navigation (`j`/`k`, `/`, `gg`, `:`)
+- **pnpm and Turborepo.** The API and worker already require Bun, so pnpm would
+  be a second package manager for no gain. Internal packages export TypeScript
+  source with no build step, which leaves no build graph for Turborepo to order.
+  `bun run --filter '*' <script>` covers the rest. Turborepo goes in the day CI
+  typecheck time hurts.
+- **pg-boss.** The `outbox` table is the queue; the worker claims rows with
+  `FOR UPDATE SKIP LOCKED`. pg-boss would put a second queue on top of a queue.
+  Add it if cron, priorities, or fan-out are ever needed.
+- **TanStack Virtual.** Its Solid adapter resolves the scroll element while the
+  component body runs, before any ref exists, and on the path where the detail
+  panel mounts first it binds to a 0x0 rect and never re-measures. Rows are
+  fixed height, so the list is windowed by hand in thirty lines. A virtualizer
+  earns its place back when rows need measuring rather than assuming.
+- **Webhook ingestion.** Polling covers it, and the endpoint needs a public URL
+  that does not exist in dev. `createWebhook` and the payload schema are in
+  place; what is missing is the receiving route and signature check.
+- **wa-sqlite over OPFS with FTS5.** The in-memory collection is enough for the
+  MVP. This buys offline and instant cross-list search, and it is a real piece
+  of work, not a flag.
+- **OpenTelemetry.** Not wired. Half-instrumenting is worse than not starting.
 
-Explicitly out of scope: docs, gantt, dashboards, time tracking, whiteboards,
-chat, multi-workspace, creating views.
+## Deployment
 
-## Getting started
-
-Requires [Bun](https://bun.sh) >= 1.3, Node >= 22 (Vite runs on it), and Docker.
+One image, three commands: the API (which also serves the SPA), the worker, and
+a one-shot migrator that both depend on. Migrations run as their own service
+rather than at API boot, because a rolling deploy would race them.
 
 ```bash
-bun install
-cp .env.example .env    # then fill in the ClickUp OAuth credentials
-bun run db:up           # Postgres on localhost:5432
-bun run dev
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Useful scripts:
-
-| Command | What |
-|---|---|
-| `bun run check` | Lint and format check across the repo |
-| `bun run check:fix` | Same, but writes fixes |
-| `bun run typecheck` | Typecheck every workspace |
-| `bun test` | Run tests |
-| `bun run db:reset` | Drop the Postgres volume and start clean |
+On Coolify, point the app at `docker-compose.prod.yml` and set the variables
+from `.env.example`. `CLICKUP_REDIRECT_URI` has to match the redirect URL
+registered on the ClickUp OAuth app exactly, or the callback fails with no
+useful error.
 
 ## Conventions
 

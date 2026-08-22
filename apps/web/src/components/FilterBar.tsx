@@ -90,6 +90,7 @@ function FacetButton(props: {
     >
       <button
         type="button"
+        aria-label={`Filter by ${props.facet}`}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           props.onOpen({ x: rect.left, y: rect.bottom + 6 });

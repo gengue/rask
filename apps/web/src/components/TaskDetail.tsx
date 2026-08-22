@@ -57,7 +57,10 @@ export function TaskDetail(props: {
   });
 
   return (
-    <aside class="flex w-[420px] shrink-0 flex-col border-line border-l bg-panel">
+    <aside
+      aria-label="Task detail"
+      class="flex w-[420px] shrink-0 flex-col border-line border-l bg-panel"
+    >
       <header class="flex h-12 shrink-0 items-center gap-2 border-line/70 border-b px-4">
         <Show when={task()?.customId}>
           <span class="font-mono text-ink-3 text-xs">{task()?.customId}</span>
@@ -122,6 +125,7 @@ export function TaskDetail(props: {
               <Property label="Status">
                 <button
                   type="button"
+                  aria-label={`Status: ${task().status ?? "none"}`}
                   onClick={props.onStatusClick}
                   class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-white/[0.06]"
                 >

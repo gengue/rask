@@ -221,10 +221,16 @@ app.route("/api", api);
 
 if (config.WEB_DIST) {
   // Production: one process serves the SPA and the API from one origin, which
-  // is what keeps the session cookie SameSite=Lax and CSRF-safe.
+  // is what keeps the session cookie SameSite=Lax with no CORS layer to get
+  // wrong. WEB_DIST is relative to the working directory, because that is what
+  // Hono's static handler resolves against.
   const { serveStatic } = await import("hono/bun");
   app.use("*", serveStatic({ root: config.WEB_DIST }));
-  app.get("*", serveStatic({ path: `${config.WEB_DIST}/index.html` }));
+
+  // Deep links are client-side routes, so anything the static handler did not
+  // match falls back to the shell. Read once at boot rather than per request.
+  const shell = await Bun.file(`${config.WEB_DIST}/index.html`).text();
+  app.get("*", (c) => c.html(shell));
 }
 
 async function refreshTask(userId: string, taskId: string): Promise<void> {
