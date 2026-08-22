@@ -8,6 +8,7 @@ import {
   type ClickUpFolder,
   type ClickUpList,
   type ClickUpSpace,
+  type ClickUpTag,
   type ClickUpTask,
   type ClickUpTeam,
   type ClickUpUser,
@@ -17,6 +18,7 @@ import {
   clickUpFolder,
   clickUpList,
   clickUpSpace,
+  clickUpTag,
   clickUpTask,
   clickUpTeam,
   clickUpUser,
@@ -354,6 +356,38 @@ export class ClickUpClient {
     await this.request(z.unknown(), "POST", `/v2/task/${taskId}/field/${fieldId}`, {
       body: { value },
     });
+  }
+
+  // --- Tags ---------------------------------------------------------------
+
+  /** Every tag defined on a Space. Tags are per-Space, not per-workspace. */
+  getSpaceTags(spaceId: string): Promise<ClickUpTag[]> {
+    return this.request(
+      z.looseObject({ tags: z.array(clickUpTag) }),
+      "GET",
+      `/v2/space/${spaceId}/tag`,
+    ).then((r) => r.tags);
+  }
+
+  /**
+   * Tags are added and removed one at a time, by name, and the endpoints have
+   * no body. There is no "set the tags to this list" call, so the caller has to
+   * work out the difference itself.
+   */
+  async addTag(taskId: string, tagName: string): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "POST",
+      `/v2/task/${taskId}/tag/${encodeURIComponent(tagName)}`,
+    );
+  }
+
+  async removeTag(taskId: string, tagName: string): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "DELETE",
+      `/v2/task/${taskId}/tag/${encodeURIComponent(tagName)}`,
+    );
   }
 
   // --- Comments -----------------------------------------------------------

@@ -59,6 +59,8 @@ export const clickUpTag = z.looseObject({
 });
 
 /** A Custom Field definition plus, when it comes back on a task, its value. */
+export type ClickUpTag = z.infer<typeof clickUpTag>;
+
 export const clickUpCustomField = z.looseObject({
   id: z.string(),
   name: z.string(),

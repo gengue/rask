@@ -9,6 +9,7 @@ import {
   deleteComment,
   discardPendingComment,
   findComment,
+  setTaskTags,
 } from "../src/writes.ts";
 
 /**
@@ -270,5 +271,67 @@ describe("comments", () => {
     expect(after?.replyCount).toBe(0);
     // ClickUp never heard about it, so nothing is left to tell it about.
     expect(await queued()).toHaveLength(0);
+  });
+});
+
+describe("setTaskTags", () => {
+  test("queues one operation per tag added and removed", async () => {
+    await db
+      .update(tasks)
+      .set({ tags: [{ name: "infra" }, { name: "flaky" }] })
+      .where(eq(tasks.id, TASK));
+
+    await setTaskTags(db, { taskId: TASK, userId: AUTHOR, tags: ["infra", "billing"] });
+
+    const rows = await queued();
+    expect(rows.map((r) => [r.op, (r.payload as { tag: string }).tag]).sort()).toEqual([
+      ["add_tag", "billing"],
+      ["remove_tag", "flaky"],
+    ]);
+  });
+
+  test("writes the new set locally, keeping colours we already had", async () => {
+    await db
+      .update(tasks)
+      .set({ tags: [{ name: "infra", fg: "#fff", bg: "#0ab4ff" }] })
+      .where(eq(tasks.id, TASK));
+
+    await setTaskTags(db, { taskId: TASK, userId: AUTHOR, tags: ["infra", "new"] });
+
+    const [task] = await db.select({ tags: tasks.tags }).from(tasks).where(eq(tasks.id, TASK));
+    expect(task?.tags).toEqual([
+      { name: "infra", fg: "#fff", bg: "#0ab4ff" },
+      { name: "new", fg: null, bg: null },
+    ]);
+  });
+
+  test("queues nothing when the set is unchanged", async () => {
+    await db
+      .update(tasks)
+      .set({ tags: [{ name: "infra" }] })
+      .where(eq(tasks.id, TASK));
+
+    await setTaskTags(db, { taskId: TASK, userId: AUTHOR, tags: ["infra"] });
+    expect(await queued()).toHaveLength(0);
+  });
+
+  test("removes every tag when given an empty list", async () => {
+    await db
+      .update(tasks)
+      .set({ tags: [{ name: "infra" }, { name: "ios" }] })
+      .where(eq(tasks.id, TASK));
+
+    await setTaskTags(db, { taskId: TASK, userId: AUTHOR, tags: [] });
+
+    const rows = await queued();
+    expect(rows.every((r) => r.op === "remove_tag")).toBe(true);
+    expect(rows).toHaveLength(2);
+  });
+
+  test("ignores duplicates rather than queueing the same tag twice", async () => {
+    await db.update(tasks).set({ tags: [] }).where(eq(tasks.id, TASK));
+
+    await setTaskTags(db, { taskId: TASK, userId: AUTHOR, tags: ["dup", "dup"] });
+    expect(await queued()).toHaveLength(1);
   });
 });

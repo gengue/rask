@@ -38,7 +38,9 @@ import {
   newCommentInput,
   newTaskInput,
   setCustomField,
+  setTaskTags,
   taskPatchInput,
+  taskTagsInput,
 } from "./writes.ts";
 
 const config = loadConfig();
@@ -255,6 +257,32 @@ api.delete("/comments/:id", async (c) => {
   else await deleteComment(db, { comment, userId });
 
   return c.json(await getTaskDetail(db, comment.taskId));
+});
+
+api.put("/tasks/:id/tags", async (c) => {
+  const body = taskTagsInput.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  await setTaskTags(db, {
+    taskId: c.req.param("id"),
+    userId: c.get("user").id,
+    tags: body.data.tags,
+  });
+  return c.json(await getTaskDetail(db, c.req.param("id")));
+});
+
+/**
+ * The tags defined on a Space, straight from ClickUp.
+ *
+ * Not mirrored: the picker needs the full set including tags nobody has used
+ * yet, and one request when someone opens the menu is cheaper than another
+ * table to keep in sync.
+ */
+api.get("/spaces/:id/tags", async (c) => {
+  const client = await clientFor(c.get("user").id);
+  if (!client) return c.json({ error: "no ClickUp token" }, 409);
+  const tags = await client.getSpaceTags(c.req.param("id")).catch(() => []);
+  return c.json(tags.map((tag) => ({ name: tag.name, fg: tag.tag_fg, bg: tag.tag_bg })));
 });
 
 const customFieldInput = z.object({ value: z.unknown() });

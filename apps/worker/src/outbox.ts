@@ -154,6 +154,17 @@ async function execute(
       return;
     }
 
+    case "add_tag":
+    case "remove_tag": {
+      const { taskId, tag } = payload as { taskId: string; tag: string };
+      if (row.op === "add_tag") await client.addTag(taskId, tag);
+      else await client.removeTag(taskId, tag);
+      // ClickUp returns nothing useful, and its own colour for a new tag only
+      // shows up on the task itself.
+      await ingestTasks(db, [await client.getTask(taskId)]);
+      return;
+    }
+
     case "set_custom_field": {
       const { taskId, fieldId, value } = payload as {
         taskId: string;

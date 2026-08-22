@@ -361,6 +361,8 @@ export const comments = pgTable(
 // --- Write path -----------------------------------------------------------
 
 export type OutboxOp =
+  | "add_tag"
+  | "remove_tag"
   | "update_task"
   | "create_task"
   | "create_comment"

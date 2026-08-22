@@ -326,6 +326,66 @@ export async function discardPendingComment(
   });
 }
 
+export const taskTagsInput = z.object({ tags: z.array(z.string().min(1).max(120)).max(50) });
+
+/**
+ * Replaces a task's tags.
+ *
+ * ClickUp has no "set the tags to this list" call — tags go on and off one at a
+ * time, by name — so the difference is worked out here and queued as individual
+ * operations. Each one can fail on its own, which is honest: a tag that does
+ * not exist in the Space is rejected while the others still land.
+ */
+export async function setTaskTags(
+  db: Db,
+  input: { taskId: string; userId: string; tags: string[] },
+): Promise<void> {
+  const { taskId, userId } = input;
+  const wanted = [...new Set(input.tags)];
+
+  await db.transaction(async (tx) => {
+    const [task] = await tx
+      .select({ tags: tasks.tags })
+      .from(tasks)
+      .where(eq(tasks.id, taskId))
+      .limit(1);
+
+    const before = task?.tags ?? [];
+    const beforeNames = new Set(before.map((tag) => tag.name));
+    const afterNames = new Set(wanted);
+
+    const added = wanted.filter((name) => !beforeNames.has(name));
+    const removed = [...beforeNames].filter((name) => !afterNames.has(name));
+    if (added.length === 0 && removed.length === 0) return;
+
+    // Keep the colour of a tag we already had; a new one renders neutral until
+    // the next sync brings ClickUp's own colours back.
+    await tx
+      .update(tasks)
+      .set({
+        tags: wanted.map(
+          (name) => before.find((tag) => tag.name === name) ?? { name, fg: null, bg: null },
+        ),
+        syncedAt: new Date(),
+      })
+      .where(eq(tasks.id, taskId));
+
+    const rows = [
+      ...added.map((name) => ({ op: "add_tag" as const, name })),
+      ...removed.map((name) => ({ op: "remove_tag" as const, name })),
+    ];
+
+    await tx.insert(outbox).values(
+      rows.map((row) => ({
+        userId,
+        op: row.op,
+        entityId: taskId,
+        payload: { taskId, tag: row.name },
+      })),
+    );
+  });
+}
+
 export async function setCustomField(
   db: Db,
   input: { taskId: string; userId: string; fieldId: string; value: unknown },
