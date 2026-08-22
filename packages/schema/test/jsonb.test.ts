@@ -14,7 +14,6 @@ import { createTestDb } from "../src/test-db.ts";
  * reads, which is exactly why it needs a test that looks at the stored type.
  */
 
-const url = process.env.DATABASE_URL;
 const db = createTestDb();
 
 const SPACE = "jsonb-test-space";

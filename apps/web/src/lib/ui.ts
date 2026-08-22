@@ -19,6 +19,8 @@ export const [ui, setUi] = createStore({
   palette: false,
   quickAdd: false,
   shortcuts: false,
+  /** Task detail fills the main area instead of sitting in a 420px rail. */
+  taskExpanded: false,
   /** Set while a keystroke-driven menu is open, so j/k stop moving the cursor. */
   menu: null as null | "status" | "assignee" | "priority",
   /**

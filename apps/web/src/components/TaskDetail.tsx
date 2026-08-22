@@ -22,7 +22,7 @@ import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
 import { tasks } from "../lib/store.ts";
 import { pushToast } from "../lib/toast.ts";
-import { setStatusRequest } from "../lib/view.ts";
+import { setUi, ui } from "../lib/ui.ts";
 import { Avatar } from "./Avatar.tsx";
 import { MarkdownEditor } from "./MarkdownEditor.tsx";
 import { Menu } from "./Menu.tsx";
@@ -99,13 +99,40 @@ export function TaskDetail(props: {
   return (
     <aside
       aria-label="Task detail"
-      class="flex w-[420px] shrink-0 flex-col border-line border-l bg-panel"
+      class="flex flex-col bg-panel"
+      classList={{
+        "w-[420px] shrink-0 border-line border-l": !ui.taskExpanded,
+        "flex-1 min-w-0": ui.taskExpanded,
+      }}
     >
       <header class="flex h-12 shrink-0 items-center gap-2 border-line/70 border-b px-4">
         <Show when={task()?.customId}>
           <span class="font-mono text-ink-3 text-xs">{task()?.customId}</span>
         </Show>
         <div class="flex-1" />
+        <button
+          type="button"
+          onClick={() => setUi("taskExpanded", !ui.taskExpanded)}
+          title={ui.taskExpanded ? "Collapse  f" : "Expand  f"}
+          aria-label={ui.taskExpanded ? "Collapse task" : "Expand task"}
+          class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
+        >
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <g
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <Show
+                when={ui.taskExpanded}
+                fallback={<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" />}
+              >
+                <path d="M13 3 9.5 6.5M9.5 6.5V3m0 3.5H13M3 13l3.5-3.5M6.5 9.5V13m0-3.5H3" />
+              </Show>
+            </g>
+          </svg>
+        </button>
         <Show when={task()?.url}>
           {(url) => (
             <a
@@ -147,9 +174,24 @@ export function TaskDetail(props: {
       </header>
 
       <Show when={task()} fallback={<div class="p-5 text-ink-4 text-xs">Loading…</div>}>
+        {/*
+         * Expanded, this becomes the two columns the panel always claimed to
+         * have: the task on the left at a readable measure, its properties on
+         * the right. Placement is grid columns rather than a wrapper, so the
+         * children keep their order and the collapsed panel is untouched.
+         */}
         {(task) => (
-          <div class="flex-1 overflow-y-auto">
-            <div class="px-5 pt-5 pb-4">
+          <div
+            class="flex-1 overflow-y-auto"
+            classList={{
+              // Three explicit rows — title, description, comments — so the
+              // properties rail can span all of them. Without that, the rail
+              // sizes row one and leaves a hole under the title.
+              "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24":
+                ui.taskExpanded,
+            }}
+          >
+            <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": ui.taskExpanded }}>
               <TitleField
                 value={task().name}
                 onCommit={(name) => {
@@ -161,7 +203,12 @@ export function TaskDetail(props: {
               />
             </div>
 
-            <div class="space-y-px px-3 pb-4">
+            <div
+              class="space-y-px px-3 pb-4"
+              classList={{
+                "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8": ui.taskExpanded,
+              }}
+            >
               <Property label="Status">
                 <button
                   type="button"
@@ -225,18 +272,13 @@ export function TaskDetail(props: {
                 </span>
               </Property>
 
-              <For each={task().customFields}>
-                {(field) => (
-                  <Property label={field.name}>
-                    <span class="flex h-6 items-center truncate text-[13px] text-ink-2">
-                      {formatFieldValue(field.type, field.typeConfig, field.value)}
-                    </span>
-                  </Property>
-                )}
-              </For>
+              <CustomFields fields={task().customFields} />
             </div>
 
-            <section class="border-line/70 border-t px-5 py-4">
+            <section
+              class="border-line/70 border-t px-5 py-4"
+              classList={{ "col-start-1 border-t-0 px-0 pt-0": ui.taskExpanded }}
+            >
               <Show
                 when={editingDescription()}
                 fallback={
@@ -276,11 +318,13 @@ export function TaskDetail(props: {
               </Show>
             </section>
 
-            <Comments
-              taskId={props.taskId}
-              threads={task().comments}
-              onDetail={(next) => mutate(next)}
-            />
+            <div classList={{ "col-start-1": ui.taskExpanded }}>
+              <Comments
+                taskId={props.taskId}
+                threads={task().comments}
+                onDetail={(next) => mutate(next)}
+              />
+            </div>
           </div>
         )}
       </Show>
@@ -363,10 +407,65 @@ function DueField(props: {
   );
 }
 
+/**
+ * Custom fields, minus the noise.
+ *
+ * A real ClickUp list carries a dozen of them and most are empty on any given
+ * task, so rendering every one with an em dash buries the description under
+ * several hundred pixels of nothing. Empty fields are dropped, and past four
+ * the rest go behind a disclosure: the point of this panel is the task, not its
+ * metadata.
+ */
+const VISIBLE_FIELDS = 4;
+
+function CustomFields(props: { fields: TaskDetailData["customFields"] }): JSX.Element {
+  const [expanded, setExpanded] = createSignal(false);
+
+  const filled = () =>
+    props.fields
+      .map((field) => ({
+        ...field,
+        display: formatFieldValue(field.type, field.typeConfig, field.value),
+      }))
+      .filter((field) => field.display !== "—");
+
+  const shown = () => (expanded() ? filled() : filled().slice(0, VISIBLE_FIELDS));
+  const hidden = () => filled().length - shown().length;
+
+  return (
+    <>
+      <For each={shown()}>
+        {(field) => (
+          <Property label={field.name}>
+            <span
+              class="flex h-6 items-center truncate text-[13px] text-ink-2"
+              title={field.display}
+            >
+              {field.display}
+            </span>
+          </Property>
+        )}
+      </For>
+
+      <Show when={hidden() > 0 || expanded()}>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          class="flex h-6 items-center px-2 text-[12px] text-ink-3 hover:text-ink-2"
+        >
+          {expanded() ? "Show less" : `Show ${hidden()} more`}
+        </button>
+      </Show>
+    </>
+  );
+}
+
 function Property(props: { label: string; children: JSX.Element }): JSX.Element {
   return (
     <div class="flex items-center gap-3 px-2">
-      <span class="w-[76px] shrink-0 text-[12px] text-ink-4">{props.label}</span>
+      <span class="w-[104px] shrink-0 truncate text-[12px] text-ink-3" title={props.label}>
+        {props.label}
+      </span>
       <div class="min-w-0 flex-1">{props.children}</div>
     </div>
   );
@@ -746,6 +845,8 @@ function formatFieldValue(type: string, config: unknown, value: unknown): string
   if (type === "users" && Array.isArray(value)) {
     return value.map((user: { username?: string }) => user.username ?? "?").join(", ");
   }
-  if (typeof value === "object") return JSON.stringify(value);
+  // location, formula, attachment and whatever ClickUp adds next. Printing raw
+  // JSON at a person is worse than admitting we do not render this one.
+  if (typeof value === "object") return "—";
   return String(value);
 }

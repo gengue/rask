@@ -26,6 +26,7 @@ const GROUPS: Array<{ title: string; items: Array<[keys: string[], label: string
       [["s"], "Change status"],
       [["p"], "Set priority"],
       [["/"], "Filter this view"],
+      [["f"], "Expand the open task"],
     ],
   },
   {

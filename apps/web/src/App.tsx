@@ -137,6 +137,9 @@ export function AppShell(): JSX.Element {
       } else if (searching()) {
         setSearching(false);
         setUi("search", "");
+      } else if (ui.taskExpanded) {
+        // Collapse before closing: Escape should undo one step, not two.
+        setUi("taskExpanded", false);
       } else if (openTaskId()) {
         closeTask();
       } else {
@@ -208,6 +211,12 @@ export function AppShell(): JSX.Element {
           event.preventDefault();
           setMenu({ kind: "priority", task, statuses: [], anchor: anchorForCursor() });
           setUi("menu", "priority");
+        }
+        break;
+      case "f":
+        if (openTaskId()) {
+          event.preventDefault();
+          setUi("taskExpanded", !ui.taskExpanded);
         }
         break;
       case "?":
@@ -369,7 +378,9 @@ export function AppShell(): JSX.Element {
       />
 
       <main class="mt-2 mr-2 mb-2 flex min-w-0 flex-1 overflow-hidden rounded-[10px] border border-line bg-panel">
-        <div class="flex min-w-0 flex-1 flex-col">
+        {/* The expanded task takes the whole panel; the list is still there,
+            one Escape away. */}
+        <div class="flex min-w-0 flex-1 flex-col" classList={{ hidden: ui.taskExpanded }}>
           <header class="flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5">
             <Show
               when={searching()}
