@@ -1,9 +1,13 @@
 import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
-import { api } from "../lib/api.ts";
+import { type Assignee, api, type Task } from "../lib/api.ts";
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
+import { members } from "../lib/session.ts";
 import { tasks } from "../lib/store.ts";
+import { setStatusRequest } from "../lib/view.ts";
 import { Avatar } from "./Avatar.tsx";
+import { MarkdownEditor } from "./MarkdownEditor.tsx";
+import { Menu } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
 
 /**
@@ -38,6 +42,12 @@ export function TaskDetail(props: {
     const live = tasks.get(props.taskId);
     return live ? { ...fetched, ...live } : fetched;
   };
+
+  const [assigneeMenu, setAssigneeMenu] = createSignal<{ x: number; y: number } | null>(null);
+  const [editingDescription, setEditingDescription] = createSignal(false);
+
+  /** Optimistic edit of the open task. The collection rolls it back on failure. */
+  const patch = (apply: (draft: Task) => void) => tasks.update(props.taskId, apply);
 
   // The SSE feed writes refreshed rows into the collection. When the open task
   // is one of them, pull the fuller detail again so comments stay live.
@@ -130,7 +140,14 @@ export function TaskDetail(props: {
               </Property>
 
               <Property label="Assignees">
-                <div class="flex h-6 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setAssigneeMenu({ x: rect.left, y: rect.bottom + 6 });
+                  }}
+                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-white/[0.06]"
+                >
                   <Show
                     when={task().assignees.length > 0}
                     fallback={<span class="text-[13px] text-ink-4">Unassigned</span>}
@@ -144,19 +161,18 @@ export function TaskDetail(props: {
                       )}
                     </For>
                   </Show>
-                </div>
+                </button>
               </Property>
 
               <Property label="Due">
-                <span
-                  class="flex h-6 items-center text-[13px]"
-                  classList={{
-                    "text-urgent": formatDue(task().dueDate)?.tone === "overdue",
-                    "text-ink-2": formatDue(task().dueDate)?.tone !== "overdue",
-                  }}
-                >
-                  {formatDue(task().dueDate)?.text ?? "No due date"}
-                </span>
+                <DueField
+                  value={task().dueDate}
+                  onChange={(iso) =>
+                    patch((draft) => {
+                      draft.dueDate = iso;
+                    })
+                  }
+                />
               </Property>
 
               <Property label="List">
@@ -176,16 +192,45 @@ export function TaskDetail(props: {
               </For>
             </div>
 
-            <Show when={task().description}>
-              <section class="border-line/70 border-t px-5 py-4">
-                <div
-                  class="prose-rask selectable text-[13px]"
-                  // Sanitized in renderMarkdown. ClickUp descriptions are other
-                  // people's input and never reach the DOM unfiltered.
-                  innerHTML={renderMarkdown(task().description)}
+            <section class="border-line/70 border-t px-5 py-4">
+              <Show
+                when={editingDescription()}
+                fallback={
+                  <button
+                    type="button"
+                    onClick={() => setEditingDescription(true)}
+                    class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-white/[0.025]"
+                  >
+                    <Show
+                      when={task().description}
+                      fallback={<span class="text-[13px] text-ink-4">Add a description…</span>}
+                    >
+                      {/* Sanitized in renderMarkdown. ClickUp descriptions are
+                          other people's input and never reach the DOM raw. */}
+                      <div
+                        class="prose-rask selectable text-[13px]"
+                        innerHTML={renderMarkdown(task().description)}
+                      />
+                    </Show>
+                  </button>
+                }
+              >
+                <MarkdownEditor
+                  value={task().description ?? ""}
+                  autofocus
+                  onCancel={() => setEditingDescription(false)}
+                  onCommit={(description) => {
+                    setEditingDescription(false);
+                    // The description is not in the task collection: carrying
+                    // it would mean fetching every body for a 500-row list.
+                    // Show it locally and send it straight to the API.
+                    mutate((current) => (current ? { ...current, description } : current));
+                    void api.patchTask(props.taskId, { description });
+                  }}
                 />
-              </section>
-            </Show>
+                <div class="pt-2 text-[11px] text-ink-4">⌘↵ to save · esc to cancel</div>
+              </Show>
+            </section>
 
             <section class="border-line/70 border-t px-5 py-4">
               <h3 class="pb-3 font-medium text-[11px] text-ink-4 uppercase tracking-[0.04em]">
@@ -263,7 +308,82 @@ export function TaskDetail(props: {
           </div>
         )}
       </Show>
+
+      <Show when={assigneeMenu()}>
+        {(anchor) => (
+          <Menu
+            anchor={anchor()}
+            placeholder="Assign to…"
+            items={[
+              { id: "", label: "Unassigned" },
+              ...members().map((user) => ({
+                id: user.id,
+                label: user.username ?? user.id,
+                icon: <Avatar user={user} size={16} />,
+              })),
+            ]}
+            onSelect={(id) => {
+              setAssigneeMenu(null);
+              const picked = id ? members().find((user) => user.id === id) : null;
+              patch((draft) => {
+                draft.assignees = picked ? [toAssignee(picked)] : [];
+              });
+            }}
+            onClose={() => setAssigneeMenu(null)}
+          />
+        )}
+      </Show>
     </aside>
+  );
+}
+
+function toAssignee(user: Assignee): Assignee {
+  return {
+    id: user.id,
+    username: user.username,
+    initials: user.initials,
+    color: user.color,
+    avatar: user.avatar,
+  };
+}
+
+/**
+ * Native date input. `<input type="date">` already knows the user's locale,
+ * their keyboard, and how to open a calendar; a picker component would be a
+ * few hundred lines that knows less.
+ */
+function DueField(props: {
+  value: string | null;
+  onChange: (iso: string | null) => void;
+}): JSX.Element {
+  const asInput = () => (props.value ? new Date(props.value).toISOString().slice(0, 10) : "");
+  const label = () => formatDue(props.value);
+
+  return (
+    <label class="-mx-1.5 relative flex h-6 cursor-default items-center rounded-[5px] px-1.5 hover:bg-white/[0.06]">
+      <span
+        class="text-[13px]"
+        classList={{
+          "text-urgent": label()?.tone === "overdue",
+          "text-ink-2": label() != null && label()?.tone !== "overdue",
+          "text-ink-4": label() == null,
+        }}
+      >
+        {label()?.text ?? "No due date"}
+      </span>
+      <input
+        type="date"
+        value={asInput()}
+        onChange={(event) => {
+          const raw = event.currentTarget.value;
+          // Noon local keeps the date from sliding a day either way once
+          // ClickUp stores it as an instant and someone reads it elsewhere.
+          props.onChange(raw ? new Date(`${raw}T12:00:00`).toISOString() : null);
+        }}
+        class="absolute inset-0 cursor-default opacity-0"
+        aria-label="Due date"
+      />
+    </label>
   );
 }
 

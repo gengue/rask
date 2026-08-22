@@ -5,6 +5,7 @@ import {
   type Command,
   CommandPalette,
 } from "./components/CommandPalette.tsx";
+import { FilterBar } from "./components/FilterBar.tsx";
 import { Menu, type MenuItem } from "./components/Menu.tsx";
 import { QuickAdd } from "./components/QuickAdd.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
@@ -15,7 +16,7 @@ import { PRIORITY_LABELS } from "./lib/format.ts";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { connect } from "./lib/sse.ts";
 import { tasks } from "./lib/store.ts";
-import { closeOverlays, setUi, ui } from "./lib/ui.ts";
+import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
   cursorTask,
   rowTasks,
@@ -121,6 +122,8 @@ export function AppShell(): JSX.Element {
         setUi("search", "");
       } else if (openTaskId()) {
         closeTask();
+      } else {
+        clearFilters();
       }
       return;
     }
@@ -228,6 +231,12 @@ export function AppShell(): JSX.Element {
       run: () => setUi("groupBy", groupBy),
     })),
     {
+      id: "view:clear-filters",
+      label: "Clear all filters",
+      section: "View",
+      run: clearFilters,
+    },
+    {
       id: "view:closed",
       label: ui.showClosed ? "Hide closed tasks" : "Show closed tasks",
       section: "View",
@@ -300,6 +309,8 @@ export function AppShell(): JSX.Element {
                     {rowTasks().length}
                   </span>
                   <div class="flex-1" />
+                  <FilterBar />
+                  <span class="h-3.5 w-px bg-line-strong" />
                   <GroupPicker />
                 </>
               }
@@ -404,25 +415,51 @@ export function AppShell(): JSX.Element {
   );
 }
 
+/** One button, one menu. Four always-visible chips said "Status" twice next to
+ *  the status filter, which is the kind of thing that reads as clutter. */
 function GroupPicker(): JSX.Element {
+  const [anchor, setAnchor] = createSignal<{ x: number; y: number } | null>(null);
   const options = ["status", "due", "assignee", "none"] as const;
 
   return (
-    <div class="flex items-center gap-0.5">
-      <span class="pr-1 text-[11px] text-ink-4">Group</span>
-      {options.map((option) => (
-        <button
-          type="button"
-          onClick={() => setUi("groupBy", option)}
-          class="h-[21px] rounded-[5px] px-1.5 text-[11.5px] capitalize transition-colors"
-          classList={{
-            "bg-white/[0.08] text-ink": ui.groupBy === option,
-            "text-ink-4 hover:bg-white/[0.04] hover:text-ink-2": ui.groupBy !== option,
-          }}
-        >
-          {option}
-        </button>
-      ))}
-    </div>
+    <>
+      <button
+        type="button"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setAnchor({ x: rect.right - 180, y: rect.bottom + 6 });
+        }}
+        class="flex h-[22px] items-center gap-1 rounded-[5px] px-1.5 text-[11.5px] text-ink-4 transition-colors hover:bg-white/[0.04] hover:text-ink-2"
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M2.5 4h11M2.5 8h11M2.5 12h6"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span class="capitalize">{ui.groupBy === "none" ? "No grouping" : ui.groupBy}</span>
+      </button>
+
+      <Show when={anchor()}>
+        {(at) => (
+          <Menu
+            anchor={at()}
+            width={180}
+            placeholder="Group by…"
+            items={options.map((option) => ({
+              id: option,
+              label: option === "none" ? "No grouping" : `By ${option}`,
+            }))}
+            onSelect={(id) => {
+              setUi("groupBy", id as (typeof options)[number]);
+              setAnchor(null);
+            }}
+            onClose={() => setAnchor(null)}
+          />
+        )}
+      </Show>
+    </>
   );
 }

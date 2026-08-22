@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { api, type Me, type Space } from "./api.ts";
+import { type Assignee, api, type Me, type Space } from "./api.ts";
 
 /**
  * Who is signed in and what the workspace looks like.
@@ -11,11 +11,13 @@ import { api, type Me, type Space } from "./api.ts";
  */
 export const [me, setMe] = createSignal<Me | null>(null);
 export const [spaces, setSpaces] = createSignal<Space[]>([]);
+export const [members, setMembers] = createSignal<Assignee[]>([]);
 
 export async function loadSession(): Promise<void> {
-  const [user, tree] = await Promise.all([api.me(), api.hierarchy()]);
+  const [user, tree, directory] = await Promise.all([api.me(), api.hierarchy(), api.members()]);
   setMe(user);
   setSpaces(tree);
+  setMembers(directory);
 }
 
 export async function reloadHierarchy(): Promise<void> {

@@ -11,6 +11,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.9",
+    "@lezer/highlight": "^1.2.3",
     "@tanstack/solid-db": "^0.2.37",
     "@tanstack/solid-router": "^1.170.29",
     "dompurify": "^3.4.14",
