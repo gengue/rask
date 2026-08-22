@@ -236,6 +236,99 @@ describe("writes", () => {
   });
 });
 
+/** Newest first, so the cursor for the next page is the *last* one you got. */
+function comment(id: string, date: number, extra: Record<string, unknown> = {}) {
+  return { id, comment_text: `c${id}`, date, ...extra };
+}
+
+describe("comments", () => {
+  test("walks pages with the oldest comment as the cursor", async () => {
+    const { client, calls } = makeClient([
+      { body: { comments: [comment("30", 300), comment("20", 200)] } },
+      { body: { comments: [comment("10", 100)] } },
+      { body: { comments: [] } },
+    ]);
+
+    const ids: string[] = [];
+    for await (const page of client.iterateComments("9hz")) ids.push(...page.map((c) => c.id));
+
+    expect(ids).toEqual(["30", "20", "10"]);
+
+    const first = new URL(calls[0]?.url ?? "");
+    expect(first.searchParams.get("start")).toBeNull();
+    expect(first.searchParams.get("start_id")).toBeNull();
+
+    // Page two resumes from the oldest of page one, not the newest.
+    const second = new URL(calls[1]?.url ?? "");
+    expect(second.searchParams.get("start")).toBe("200");
+    expect(second.searchParams.get("start_id")).toBe("20");
+  });
+
+  test("stops at maxPages rather than walking a thousand-comment task", async () => {
+    const { client, calls } = makeClient([
+      { body: { comments: [comment("30", 300)] } },
+      { body: { comments: [comment("20", 200)] } },
+      { body: { comments: [comment("10", 100)] } },
+    ]);
+
+    const pages: number[] = [];
+    for await (const page of client.iterateComments("9hz", { maxPages: 2 })) {
+      pages.push(page.length);
+    }
+
+    expect(pages).toEqual([1, 1]);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("reads a thread from the reply endpoint", async () => {
+    const { client, calls } = makeClient([{ body: { comments: [comment("41", 410)] } }]);
+    const replies = await client.getThreadedComments("40");
+
+    expect(replies.map((r) => r.id)).toEqual(["41"]);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toContain("/v2/comment/40/reply");
+  });
+
+  test("posts a reply to the parent comment, not the task", async () => {
+    // The spec documents an empty object here, so parsing must not require an id.
+    const { client, calls } = makeClient([{ body: {} }]);
+    const created = await client.createThreadedComment("40", { text: "on it" });
+
+    expect(created.id).toBeUndefined();
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toContain("/v2/comment/40/reply");
+    expect(calls[0]?.body).toEqual({
+      comment_text: "on it",
+      assignee: undefined,
+      notify_all: false,
+    });
+  });
+
+  test("updateComment always sends text and resolved together", async () => {
+    // ClickUp treats both as required and blanks whatever is left out, so
+    // resolving a comment has to carry its body back unchanged.
+    const { client, calls } = makeClient([{ body: {} }]);
+    await client.updateComment("40", { text: "unchanged", resolved: true });
+
+    expect(calls[0]?.method).toBe("PUT");
+    expect(calls[0]?.url).toContain("/v2/comment/40");
+    expect(calls[0]?.body).toEqual({
+      comment_text: "unchanged",
+      resolved: true,
+      assignee: undefined,
+    });
+  });
+
+  test("deleteComment sends a DELETE with no body", async () => {
+    const { client, calls } = makeClient([{ body: {} }]);
+    await client.deleteComment("40");
+
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toContain("/v2/comment/40");
+    expect(calls[0]?.body).toBeUndefined();
+  });
+});
+
 describe("getWorkspaceHierarchy", () => {
   test("returns each space with its folders and folderless lists", async () => {
     const { client } = makeClient([

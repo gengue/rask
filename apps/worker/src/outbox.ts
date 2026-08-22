@@ -1,5 +1,14 @@
 import { ClickUpError } from "@rask/clickup-client";
-import { type Db, ingestTasks, type OutboxOp, outbox, tasks } from "@rask/schema";
+import {
+  comments,
+  type Db,
+  ingestComments,
+  ingestReplies,
+  ingestTasks,
+  type OutboxOp,
+  outbox,
+  tasks,
+} from "@rask/schema";
 import { eq, sql } from "drizzle-orm";
 
 import type { TokenPool } from "./tokens.ts";
@@ -105,8 +114,43 @@ async function execute(
     }
 
     case "create_comment": {
-      const { taskId, text } = payload as { taskId: string; text: string };
-      await client.createComment(taskId, { text });
+      const { taskId, text, parentId } = payload as {
+        taskId: string;
+        text: string;
+        parentId: string | null;
+      };
+
+      if (parentId) await client.createThreadedComment(parentId, { text });
+      else await client.createComment(taskId, { text });
+
+      // Past this line the comment exists in ClickUp, so nothing may throw:
+      // a retry would post it a second time. ClickUp's reply endpoint answers
+      // with an empty body and even the task version only returns an id, so the
+      // comment is read back rather than reconstructed — that read is what gives
+      // the row its real id, author and reply count. If the read fails anyway,
+      // the next task refresh picks it up.
+      if (row.client_id) {
+        await db.delete(comments).where(eq(comments.id, placeholderId(row.client_id)));
+      }
+      await readBackComments(db, client, taskId, parentId).catch(() => {});
+      return;
+    }
+
+    case "update_comment": {
+      const { commentId, text, resolved } = payload as {
+        commentId: string;
+        text: string;
+        resolved: boolean;
+      };
+      // The mirror already holds this exact state, and ClickUp answers with an
+      // empty body, so there is nothing to ingest on success.
+      await client.updateComment(commentId, { text, resolved });
+      return;
+    }
+
+    case "delete_comment": {
+      const { commentId } = payload as { commentId: string };
+      await client.deleteComment(commentId);
       return;
     }
 
@@ -127,9 +171,10 @@ async function execute(
 /**
  * Puts the mirror back to what ClickUp actually has.
  *
- * For an update that means refetching the task: ClickUp wins, and whatever the
- * user optimistically saw gets overwritten. For a create it means deleting the
- * placeholder, since ClickUp has nothing to refetch.
+ * For an update that means refetching the task, or the conversation when the
+ * write was a comment: ClickUp wins, and whatever the user optimistically saw
+ * gets overwritten. For a create it means deleting the placeholder, since
+ * ClickUp has nothing to refetch.
  */
 async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
   try {
@@ -138,11 +183,34 @@ async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
       return;
     }
 
-    const taskId = row.entity_id ?? (row.payload as { taskId?: string } | null)?.taskId ?? null;
+    const payload = row.payload as { taskId?: string; parentId?: string | null } | null;
+    const taskId = row.entity_id ?? payload?.taskId ?? null;
     if (!taskId) return;
+
+    if (row.op === "create_comment") {
+      // Nothing to read back: the comment never existed upstream. Undoing the
+      // optimistic reply count locally is both cheaper and more reliable than
+      // refetching the thread, which is what left counts stranded when the
+      // token that failed the write was also the token that would repair it.
+      if (row.client_id) {
+        await db.delete(comments).where(eq(comments.id, placeholderId(row.client_id)));
+      }
+      if (payload?.parentId) {
+        await db
+          .update(comments)
+          .set({ replyCount: sql`greatest(${comments.replyCount} - 1, 0)` })
+          .where(eq(comments.id, payload.parentId));
+      }
+      return;
+    }
 
     const client = await pool.for(row.user_id);
     if (!client) return;
+
+    if (row.op === "update_comment" || row.op === "delete_comment") {
+      await readBackComments(db, client, taskId, payload?.parentId ?? null);
+      return;
+    }
 
     const truth = await client.getTask(taskId);
     await ingestTasks(db, [truth]);
@@ -150,6 +218,26 @@ async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
     // The revert is best-effort. The nightly reconciliation is the backstop,
     // and leaving the row marked failed is what tells the user something broke.
   }
+}
+
+/**
+ * Re-reads one conversation from ClickUp. One request either way.
+ *
+ * A thread is read whole, so `ingestReplies` can prune and recount from it; a
+ * top-level read only gets the newest page, which is enough to correct or
+ * restore a comment somebody just touched.
+ */
+async function readBackComments(
+  db: Db,
+  client: NonNullable<Awaited<ReturnType<TokenPool["for"]>>>,
+  taskId: string,
+  parentId: string | null,
+): Promise<void> {
+  if (parentId) {
+    await ingestReplies(db, taskId, parentId, await client.getThreadedComments(parentId));
+    return;
+  }
+  await ingestComments(db, taskId, await client.getComments(taskId));
 }
 
 export function placeholderId(clientId: string): string {
