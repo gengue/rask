@@ -67,7 +67,8 @@ describe("mapTask", () => {
 
   test("records an explicitly cleared field as null", () => {
     const cleared = structuredClone(taskFixture) as Record<string, unknown>;
-    (cleared.custom_fields as Array<Record<string, unknown>>)[0]!.value = null;
+    const [field] = cleared.custom_fields as Array<Record<string, unknown>>;
+    if (field) field.value = null;
 
     expect(mapTask(clickUpTask.parse(cleared)).customValues).toEqual([
       { fieldId: "0a52c486-5f05-403b-b4fd-c512ff05131c", value: null },

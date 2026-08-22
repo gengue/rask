@@ -80,13 +80,9 @@ export function PriorityIcon(props: { priority: number | null; class?: string })
     <svg width="14" height="14" viewBox="0 0 14 14" class={props.class} aria-hidden="true">
       <Show
         when={props.priority !== null}
-        fallback={
-          <>
-            {[3, 7, 11].map((x) => (
-              <circle cx={x} cy="7" r="1" fill="var(--color-ink-4)" opacity="0.5" />
-            ))}
-          </>
-        }
+        fallback={[3, 7, 11].map((x) => (
+          <circle cx={x} cy="7" r="1" fill="var(--color-ink-4)" opacity="0.5" />
+        ))}
       >
         {[0, 1, 2].map((i) => (
           <rect

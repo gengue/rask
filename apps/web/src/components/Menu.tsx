@@ -78,19 +78,19 @@ export function Menu(props: {
         data-menu
         class="floating fixed z-50 overflow-hidden rounded-lg"
         style={{ left: `${left()}px`, top: `${top()}px`, width: `${width()}px` }}
-        onKeyDown={onKeyDown}
       >
         <div class="border-line/80 border-b px-3">
           <input
             ref={input}
             value={query()}
             onInput={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={onKeyDown}
             placeholder={props.placeholder ?? "Search..."}
             class="h-9 w-full text-[13px] text-ink"
           />
         </div>
 
-        <div class="max-h-[280px] overflow-y-auto p-1">
+        <div role="listbox" class="max-h-[280px] overflow-y-auto p-1">
           <For
             each={filtered()}
             fallback={<div class="px-3 py-4 text-center text-ink-4 text-xs">No matches</div>}
@@ -98,6 +98,8 @@ export function Menu(props: {
             {(item, index) => (
               <button
                 type="button"
+                role="option"
+                aria-selected={active() === index()}
                 onMouseEnter={() => setActive(index())}
                 onClick={() => props.onSelect(item.id)}
                 class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-[13px]"

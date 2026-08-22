@@ -50,8 +50,20 @@ export function QuickAdd(props: {
   };
 
   return (
-    <div class="fixed inset-0 z-40 flex items-start justify-center bg-black/40 pt-[18vh]">
-      <div class="floating w-[560px] rounded-xl" onClick={(event) => event.stopPropagation()}>
+    <div class="fixed inset-0 z-40 flex items-start justify-center pt-[18vh]">
+      <button
+        type="button"
+        aria-label="Cancel"
+        class="absolute inset-0 bg-black/40"
+        onClick={props.onClose}
+      />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="New task"
+        class="floating relative w-[560px] rounded-xl"
+      >
         <input
           ref={input}
           value={name()}

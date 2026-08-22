@@ -45,6 +45,13 @@ export function TaskList(props: {
 
   const totalHeight = () => offsets()[items().length] ?? 0;
 
+  /** The row the keyboard cursor is on, announced via aria-activedescendant. */
+  const activeId = () => {
+    const index = rowIndices()[ui.cursor];
+    const item = index === undefined ? null : items()[index];
+    return item?.kind === "row" ? `task-${item.task.id}` : undefined;
+  };
+
   const range = createMemo(() => {
     const tops = offsets();
     const count = items().length;
@@ -112,7 +119,16 @@ export function TaskList(props: {
           </div>
         }
       >
-        <div class="relative w-full" style={{ height: `${totalHeight()}px` }}>
+        {/* biome-ignore lint/a11y/useAriaActivedescendantWithTabindex: the rule
+            looks for React's `tabIndex`; Solid uses the DOM attribute name. */}
+        <div
+          role="listbox"
+          aria-label="Tasks"
+          tabindex="0"
+          aria-activedescendant={activeId()}
+          class="relative w-full outline-none"
+          style={{ height: `${totalHeight()}px` }}
+        >
           {renderWindow()}
         </div>
       </Show>

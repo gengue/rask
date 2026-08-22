@@ -1,5 +1,5 @@
 import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
-import { api, type TaskDetail as Detail } from "../lib/api.ts";
+import { api } from "../lib/api.ts";
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { tasks } from "../lib/store.ts";
@@ -62,7 +62,8 @@ export function TaskDetail(props: {
               title="Open in ClickUp"
               class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
             >
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" role="img">
+                <title>Open in ClickUp</title>
                 <g
                   stroke="currentColor"
                   stroke-width="1.4"
@@ -81,7 +82,7 @@ export function TaskDetail(props: {
           title="Close  Esc"
           class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
         >
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path
               d="m4 4 8 8M12 4l-8 8"
               stroke="currentColor"

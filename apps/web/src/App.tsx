@@ -310,6 +310,7 @@ export function AppShell(): JSX.Element {
                 viewBox="0 0 16 16"
                 fill="none"
                 class="shrink-0 text-ink-3"
+                aria-hidden="true"
               >
                 <path
                   d="M11.5 11.5 14 14M13 7.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Z"

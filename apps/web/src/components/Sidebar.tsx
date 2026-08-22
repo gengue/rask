@@ -121,7 +121,14 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
         "text-ink-2 hover:bg-white/[0.045] hover:text-ink": !active(),
       }}
     >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" class="shrink-0 text-ink-4">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        fill="none"
+        class="shrink-0 text-ink-4"
+        aria-hidden="true"
+      >
         <path
           d="M3 4.5h10M3 8h10M3 11.5h6"
           stroke="currentColor"
@@ -147,7 +154,14 @@ function NavItem(props: { to: string; label: string; children: JSX.Element }): J
         "text-ink-2 hover:bg-white/[0.045] hover:text-ink": !active(),
       }}
     >
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" class="shrink-0">
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 16 16"
+        fill="none"
+        class="shrink-0"
+        aria-hidden="true"
+      >
         <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
           {props.children}
         </g>
@@ -170,7 +184,7 @@ function IconButton(props: {
       onClick={props.onClick}
       class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
           {props.children}
         </g>
@@ -188,6 +202,7 @@ function Chevron(props: { open: boolean; muted: boolean }): JSX.Element {
       fill="none"
       class="shrink-0 transition-transform duration-100"
       classList={{ "rotate-90": props.open, "opacity-35": props.muted }}
+      aria-hidden="true"
     >
       <path
         d="M6.5 4.5 10 8l-3.5 3.5"

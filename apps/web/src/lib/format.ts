@@ -59,13 +59,13 @@ export function formatRelative(value: string | null, now = new Date()): string {
 export function initialsOf(name: string | null, fallback: string | null): string {
   if (fallback) return fallback.slice(0, 2).toUpperCase();
   if (!name) return "?";
-  const parts = name
+  const [first, second] = name
     .trim()
     .split(/[\s@._-]+/)
     .filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+  if (!first) return "?";
+  if (!second) return first.slice(0, 2).toUpperCase();
+  return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
 }
 
 export const PRIORITY_LABELS: Record<number, string> = {

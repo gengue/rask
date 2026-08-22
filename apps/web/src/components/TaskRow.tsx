@@ -29,9 +29,16 @@ export function TaskRow(props: {
   const pending = () => props.task.id.startsWith("tmp_");
 
   return (
+    // Rows stay out of the tab order on purpose. The listbox holds focus and
+    // points at the current row with aria-activedescendant, which is the ARIA
+    // pattern for a keyboard-driven list and keeps 500 rows from becoming 500
+    // tab stops. Key handling lives in the app shell for the same reason.
+    // biome-ignore lint/a11y/useFocusableInteractive: listbox owns focus
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keys handled in the shell
     <div
-      role="row"
-      tabindex={-1}
+      id={`task-${props.task.id}`}
+      role="option"
+      aria-selected={props.selected}
       onClick={props.onOpen}
       class="group relative flex h-9 cursor-default items-center gap-3 border-line/45 border-b pr-5 pl-5 transition-colors duration-75"
       classList={{

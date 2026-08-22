@@ -56,20 +56,26 @@ export function CommandPalette(props: { commands: Command[]; onClose: () => void
   };
 
   return (
-    <div
-      class="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[14vh]"
-      onClick={props.onClose}
-    >
+    <div class="fixed inset-0 z-50 flex items-start justify-center pt-[14vh]">
+      <button
+        type="button"
+        aria-label="Close"
+        class="absolute inset-0 bg-black/45"
+        onClick={props.onClose}
+      />
+
       <div
-        class="floating w-[620px] overflow-hidden rounded-xl"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={onKeyDown}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        class="floating relative w-[620px] overflow-hidden rounded-xl"
       >
         <div class="border-line/80 border-b px-4">
           <input
             ref={input}
             value={query()}
             onInput={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={onKeyDown}
             placeholder="Search lists and commands…"
             class="h-12 w-full text-[15px] text-ink"
           />
