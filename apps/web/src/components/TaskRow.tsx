@@ -17,6 +17,33 @@ const DUE_TONE: Record<string, string> = {
  * Everything on the row is glanceable and nothing wraps: an overflowing title
  * is truncated rather than pushing the due date and avatars out of alignment.
  * Vertical rhythm is the whole point of a list you scan a hundred rows of.
+ *
+ * As the row narrows it gives up columns rather than squeezing all of them,
+ * and the title is the last thing to give up space — it is the only column
+ * that says which task this is. The order, widest and least load-bearing
+ * first:
+ *
+ *  1. Tags, below --container-row-full. They are the only column whose width
+ *     is unbounded by anything (two chips of arbitrary label, 0-130px), the
+ *     only one already reachable another way — the tag facet in the header
+ *     filters by exactly this — and the only one that answers no question you
+ *     ask while scanning. What, when, who and what state are the other four.
+ *  2. The list name, below --container-row-tight. It only appears in
+ *     cross-list views at all, and where it appears "group by list" is one
+ *     keystroke away and puts the same information in the group header
+ *     instead, once per group rather than once per row.
+ *  3. The custom id would be next, at about 550px: it is a copy target rather
+ *     than a scan target, read on the way to pasting it into a branch name,
+ *     and by then the task is open. Not implemented, because 550px of row is
+ *     a window narrower than any this app claims to support.
+ *
+ * Priority, status, due and avatars never shed. They are 152px between them,
+ * and they are the four questions a list gets scanned to answer.
+ *
+ * The queries are against the list's container rather than the viewport
+ * because the row narrows for two unrelated reasons: the window shrinks, or
+ * the detail panel opens beside it. At 1440 with a task open the row is 764px
+ * and has to shed, and no media query can tell.
  */
 export function TaskRow(props: {
   task: Task;
@@ -93,13 +120,13 @@ export function TaskRow(props: {
       <Show when={props.showList && props.task.listName}>
         {/* My Tasks spans 243 lists. Without this a row gives no clue which
             project it belongs to, and grouping by status does not help. */}
-        <span class="max-w-[120px] shrink-0 truncate text-xs text-ink-3">
+        <span class="max-w-[120px] shrink-0 truncate text-xs text-ink-3 @max-row-tight:hidden">
           {props.task.listName}
         </span>
       </Show>
 
       <Show when={props.task.tags.length > 0}>
-        <div class="flex shrink-0 items-center gap-1">
+        <div class="flex shrink-0 items-center gap-1 @max-row-full:hidden">
           {props.task.tags.slice(0, 2).map((tag) => {
             /*
              * The tag colour paints the border and a wash behind it; the label

@@ -144,6 +144,54 @@
   --text-lg--line-height: inherit;
 
   --radius-panel: 10px;
+
+  /*
+   * Two viewport breakpoints, both sums rather than a framework's round
+   * numbers, and both rounded the same way: up to the next ten, so that above
+   * the breakpoint every constraint that produced it is satisfied with room
+   * to spare. Tailwind's own sm/md/lg/xl are still defined and still unused;
+   * nothing in the app should reach for them.
+   *
+   * The measurements they are built on, taken in the browser rather than
+   * derived from the markup. With the sidebar docked and no detail panel, a
+   * row gets `W - 256` of usable width. With the 420px panel beside it as a
+   * flex sibling, `W - 676`. With the sidebar a drawer, `W - 28`.
+   *
+   * `split` — wide enough for the detail panel to sit beside the list instead
+   * of over it, and for the expanded task to keep its rail. Two constraints.
+   * The expanded task is a 680px measure plus a 300px rail, and with the 48px
+   * gap and 80px of page padding it needs 1108px inside the main panel, which
+   * is 1354px of window. Separately, a docked panel leaves `W - 676`, and at
+   * 690px of that (see --container-row-tight) the row has to start dropping
+   * columns purely because the panel is open — 1366px of window. 1370 clears
+   * both. Below it the panel is a sheet and the expanded task is one column.
+   *
+   * `dock` — wide enough to keep the sidebar in the layout. It costs 236px,
+   * leaving `W - 256`, and a fully dressed row needs 830px (see
+   * --container-row-full), so below 1086px of window the sidebar is what
+   * pushes the row past its first shed. 1090. Below it the sidebar is a
+   * drawer, not a column.
+   */
+  --breakpoint-dock: 1090px;
+  --breakpoint-split: 1370px;
+
+  /*
+   * The row is measured against its own container, not the viewport, because
+   * it narrows for two unrelated reasons and a media query only sees one of
+   * them. At 1440 with a task open the row is 764px wide — a window no media
+   * query would call narrow, holding a row that has to shed anyway.
+   *
+   * --container-row-full is what a fully dressed row costs: 40px of padding,
+   * the 14px priority glyph, a 62px custom id, the 22px status button, up to
+   * 130px of tags, up to 120px of list name, a 72px due date, 44px of avatars
+   * and seven 12px gaps — 588px — plus 240px of title. 240px is 39 characters
+   * at the row's measured 6.08px average, which is the 90th percentile of
+   * task title length in the mirror. 828, rounded to 830.
+   *
+   * --container-row-tight is the same sum with the tags and their gap gone.
+   */
+  --container-row-full: 830px;
+  --container-row-tight: 690px;
 }
 
 /*
@@ -355,6 +403,13 @@ html.light {
 .prose-rask {
   color: var(--color-ink-prose);
   line-height: 1.65;
+  /* `pre`, `table` and `img` below each handle their own overflow. A bare URL
+     in a paragraph had nothing handling it, and one pasted link was enough to
+     push the whole column sideways once the column stopped being 680px.
+     `break-word` rather than `anywhere`: `anywhere` also shrinks min-content,
+     which makes the table below collapse its headers a letter per line instead
+     of scrolling. */
+  overflow-wrap: break-word;
 }
 /* Wider than the 1.65 line-height, or paragraphs merge into one block. */
 .prose-rask > * + * {

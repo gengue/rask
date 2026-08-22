@@ -149,6 +149,10 @@ export function AppShell(): JSX.Element {
       if (ui.palette || ui.quickAdd || ui.shortcuts || menu()) {
         closeOverlays();
         closeMenu();
+      } else if (ui.sidebarOpen) {
+        // The drawer is the topmost thing on screen when it is up, so it backs
+        // out before the detail sheet underneath it.
+        setUi("sidebarOpen", false);
       } else if (searching()) {
         setSearching(false);
         setUi("search", "");
@@ -246,11 +250,11 @@ export function AppShell(): JSX.Element {
   window.addEventListener("keydown", onKeyDown);
   onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
-  // Reset the cursor when the view changes; row 4 of the old list means nothing
-  // in the new one.
+  // Reset per-view state when the view changes; row 4 of the old list means
+  // nothing in the new one, and picking a list is the drawer's whole job.
   createEffect(() => {
     viewTitle();
-    setUi("cursor", 0);
+    setUi({ cursor: 0, sidebarOpen: false });
   });
 
   const commands = (): Command[] => [
@@ -393,10 +397,13 @@ export function AppShell(): JSX.Element {
   };
 
   return (
-    <div class="flex h-full overflow-hidden">
+    // `relative` is what the two narrow-window overlays are positioned
+    // against: the sidebar drawer below `dock` and its scrim.
+    <div class="relative flex h-full overflow-hidden">
       <Sidebar
         me={me()}
         spaces={spaces()}
+        open={ui.sidebarOpen}
         onSearch={() => {
           setSearching(true);
           queueMicrotask(() => searchInput?.focus());
@@ -404,11 +411,40 @@ export function AppShell(): JSX.Element {
         onQuickAdd={() => setUi("quickAdd", true)}
       />
 
-      <main class="mt-2 mr-2 mb-2 flex min-w-0 flex-1 overflow-hidden rounded-[10px] border border-line bg-panel">
+      <Show when={ui.sidebarOpen}>
+        <button
+          type="button"
+          aria-label="Close"
+          class="absolute inset-0 z-30 bg-scrim dock:hidden"
+          onClick={() => setUi("sidebarOpen", false)}
+        />
+      </Show>
+
+      {/* `relative` for the detail sheet below `split`; `ml-2` because below
+          `dock` the sidebar is no longer providing the left gutter. */}
+      <main class="relative mt-2 mr-2 mb-2 flex min-w-0 flex-1 overflow-hidden rounded-[10px] border border-line bg-panel max-dock:ml-2">
         {/* The expanded task takes the whole panel; the list is still there,
             one Escape away. */}
         <div class="flex min-w-0 flex-1 flex-col" classList={{ hidden: ui.taskExpanded }}>
           <header class="flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5">
+            {/* The only way back to the workspace tree for a mouse below
+                `dock`, where the sidebar is a drawer. */}
+            <button
+              type="button"
+              title="Navigation"
+              aria-label="Show navigation"
+              aria-expanded={ui.sidebarOpen}
+              onClick={() => setUi("sidebarOpen", true)}
+              class="-ml-1 flex size-6 shrink-0 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink dock:hidden"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <g stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+                  <rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.8" />
+                  <path d="M6.4 3.2v9.6" />
+                </g>
+              </svg>
+            </button>
+
             <Show
               when={searching()}
               fallback={
@@ -478,20 +514,43 @@ export function AppShell(): JSX.Element {
 
         <Show when={openTaskId()}>
           {(taskId) => (
-            <TaskDetail
-              taskId={taskId()}
-              onClose={closeTask}
-              onStatusClick={(event) => {
-                const task = tasks.get(taskId());
-                const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
-                if (task) {
-                  void openStatusMenu(task, {
-                    x: rect?.left ?? event.clientX,
-                    y: (rect?.bottom ?? event.clientY) + 6,
-                  });
-                }
-              }}
-            />
+            <>
+              {/* Below `split` the panel is a sheet over the list rather than a
+                  sibling that takes 420px off it, so it needs a scrim. Not when
+                  expanded: the list is display:none behind it and there is
+                  nothing to dim.
+
+                  It starts below the header — the same 48px the header is tall
+                  — rather than at inset-0. The header is chrome, not content:
+                  dimming it also puts the sidebar toggle under a click target
+                  that closes the task, which leaves a window under `dock` with
+                  a task open and no way to the workspace tree but the keyboard.
+                  Covering only the list also keeps this out of the header's
+                  stacking context, where the filter and grouping menus live. */}
+              <Show when={!ui.taskExpanded}>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  class="absolute inset-x-0 top-12 bottom-0 z-10 bg-scrim split:hidden"
+                  onClick={closeTask}
+                />
+              </Show>
+
+              <TaskDetail
+                taskId={taskId()}
+                onClose={closeTask}
+                onStatusClick={(event) => {
+                  const task = tasks.get(taskId());
+                  const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+                  if (task) {
+                    void openStatusMenu(task, {
+                      x: rect?.left ?? event.clientX,
+                      y: (rect?.bottom ?? event.clientY) + 6,
+                    });
+                  }
+                }}
+              />
+            </>
           )}
         </Show>
       </main>

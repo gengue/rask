@@ -106,7 +106,14 @@ export function TaskList(props: {
     <div
       ref={setScroller}
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-      class="relative flex-1 overflow-y-auto overflow-x-hidden"
+      /* The size query context for TaskRow. It goes on the scroller rather
+         than on the column above it because `container-type: inline-size`
+         also makes the element a containing block for `position: fixed`
+         descendants, and the header up there renders the filter and grouping
+         menus, which are fixed and positioned in viewport coordinates. The
+         queried size is the scroller's content box, so it is the width a row
+         actually gets — scrollbar already subtracted. */
+      class="@container relative flex-1 overflow-y-auto overflow-x-hidden"
     >
       <Show
         when={items().length > 0}
