@@ -1,5 +1,6 @@
-import { createEffect, createSignal, For, type JSX, onMount } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, onMount } from "solid-js";
 import type { Space } from "../lib/api.ts";
+import { rankCommands } from "../lib/rank.ts";
 
 export interface Command {
   id: string;
@@ -16,7 +17,12 @@ export interface Command {
  * and how contiguously the query appears, so "eng" finds "Engineering" above
  * "Marketing Team Tasks".
  */
-export function CommandPalette(props: { commands: Command[]; onClose: () => void }): JSX.Element {
+export function CommandPalette(props: {
+  commands: Command[];
+  /** Optional async source, queried as you type. Backs task search. */
+  search?: (query: string) => Promise<Command[]>;
+  onClose: () => void;
+}): JSX.Element {
   const [query, setQuery] = createSignal("");
   const [active, setActive] = createSignal(0);
   let input!: HTMLInputElement;
@@ -24,7 +30,39 @@ export function CommandPalette(props: { commands: Command[]; onClose: () => void
 
   onMount(() => input.focus());
 
-  const results = () => rank(props.commands, query());
+  const [found, setFound] = createSignal<Command[]>([]);
+
+  /*
+   * Debounced, because this one goes to the server.
+   *
+   * Two characters is where a substring match stops returning half the
+   * workspace. 140ms is about one keystroke at a normal typing speed, so a word
+   * typed straight through costs one request rather than seven.
+   */
+  createEffect(() => {
+    const q = query().trim();
+    const search = props.search;
+    if (!search || q.length < 2) {
+      setFound([]);
+      return;
+    }
+
+    let live = true;
+    const timer = setTimeout(() => {
+      void search(q)
+        .then((hits: Command[]) => live && setFound(hits))
+        .catch(() => live && setFound([]));
+    }, 140);
+
+    onCleanup(() => {
+      live = false;
+      clearTimeout(timer);
+    });
+  });
+
+  // Local commands are already ranked against the query; task hits arrive
+  // ranked by the server, so they append rather than re-sort.
+  const results = () => [...rankCommands(props.commands, query()), ...found()];
 
   createEffect(() => {
     query();
@@ -113,37 +151,6 @@ export function CommandPalette(props: { commands: Command[]; onClose: () => void
       </div>
     </div>
   );
-}
-
-/** Subsequence match, scored by contiguity and how early the match starts. */
-function rank(commands: Command[], query: string): Command[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return commands;
-
-  const scored: Array<{ command: Command; score: number }> = [];
-
-  for (const command of commands) {
-    const haystack = `${command.label} ${command.section}`.toLowerCase();
-    let index = 0;
-    let score = 0;
-    let previous = -1;
-
-    for (const char of q) {
-      const found = haystack.indexOf(char, index);
-      if (found === -1) {
-        score = -1;
-        break;
-      }
-      score += found === previous + 1 ? 3 : 1;
-      if (found === 0 || haystack[found - 1] === " ") score += 2;
-      previous = found;
-      index = found + 1;
-    }
-
-    if (score > 0) scored.push({ command, score: score - haystack.length * 0.01 });
-  }
-
-  return scored.sort((a, b) => b.score - a.score).map((entry) => entry.command);
 }
 
 export function buildNavigationCommands(spaces: Space[], go: (listId: string) => void): Command[] {

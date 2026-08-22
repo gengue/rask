@@ -83,6 +83,18 @@ export interface TaskDetail extends Task {
   statuses: StatusDef[];
 }
 
+/** A task match from the palette's workspace-wide search. */
+export interface SearchHit {
+  id: string;
+  customId: string | null;
+  name: string;
+  status: string | null;
+  statusColor: string | null;
+  statusType: string | null;
+  listId: string;
+  listName: string | null;
+}
+
 export interface Me {
   id: string;
   username: string | null;
@@ -184,6 +196,8 @@ export const api = {
   },
 
   task: (id: string) => request<TaskDetail>(`/api/tasks/${id}`),
+
+  search: (query: string) => request<SearchHit[]>(`/api/search?q=${encodeURIComponent(query)}`),
 
   /** Candidates go most-specific first; the server answers with the first hit. */
   resolve(ids: string[], remote: boolean): Promise<ResolvedRef> {

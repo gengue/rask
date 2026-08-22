@@ -320,6 +320,23 @@ export function AppShell(): JSX.Element {
       : []),
   ];
 
+  /** Workspace-wide task search, folded into the palette. */
+  const searchTasks = async (query: string): Promise<Command[]> => {
+    const hits = await api.search(query);
+    return hits.map((hit) => ({
+      id: `task:${hit.id}`,
+      label: hit.name,
+      section: hit.listName ?? "Task",
+      hint: hit.customId ?? "",
+      run: () =>
+        navigate({
+          to: "/list/$listId",
+          params: { listId: hit.listId },
+          search: { task: hit.id },
+        }),
+    }));
+  };
+
   const menuItems = (): MenuItem[] => {
     const current = menu();
     if (!current) return [];
@@ -442,7 +459,11 @@ export function AppShell(): JSX.Element {
       </main>
 
       <Show when={ui.palette}>
-        <CommandPalette commands={commands()} onClose={() => setUi("palette", false)} />
+        <CommandPalette
+          commands={commands()}
+          search={searchTasks}
+          onClose={() => setUi("palette", false)}
+        />
       </Show>
 
       <Show when={ui.shortcuts}>

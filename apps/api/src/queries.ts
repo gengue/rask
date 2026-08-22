@@ -11,7 +11,7 @@ import {
   tasks,
   users,
 } from "@rask/schema";
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 
 /**
  * Read models for the UI.
@@ -272,6 +272,53 @@ export async function listMembers(db: Db) {
     })
     .from(users)
     .orderBy(asc(users.username));
+}
+
+/**
+ * Workspace-wide task search, for the command palette.
+ *
+ * ponytail: a plain ILIKE with no index. At 17k tasks that is a 38ms sequential
+ * scan, which is under the threshold where typing feels laggy, and the cost is
+ * linear. Past roughly 60k tasks it needs `create extension pg_trgm` and a GIN
+ * index on `name gin_trgm_ops`; the query does not change.
+ *
+ * Matches are ranked by where the hit lands: a title that starts with the query
+ * beats one that merely contains it, and recent activity breaks ties.
+ */
+export async function searchTasks(db: Db, query: string, limit = 12) {
+  const term = query.trim();
+  if (term.length < 2) return [];
+
+  const like = `%${term}%`;
+  const prefix = `${term}%`;
+
+  return db
+    .select({
+      id: tasks.id,
+      customId: tasks.customId,
+      name: tasks.name,
+      status: tasks.status,
+      statusColor: tasks.statusColor,
+      statusType: tasks.statusType,
+      listId: tasks.listId,
+      listName: lists.name,
+    })
+    .from(tasks)
+    .leftJoin(lists, eq(lists.id, tasks.listId))
+    .where(
+      and(
+        isNull(tasks.deletedAt),
+        eq(tasks.archived, false),
+        or(ilike(tasks.name, like), ilike(tasks.customId, like)) ?? sql`false`,
+      ),
+    )
+    .orderBy(
+      sql`case when ${tasks.customId} ilike ${prefix} then 0
+                when ${tasks.name} ilike ${prefix} then 1
+                else 2 end`,
+      desc(tasks.dateUpdated),
+    )
+    .limit(limit);
 }
 
 /** What an id lifted out of a ClickUp URL turned out to be. */

@@ -14,6 +14,7 @@ import {
   listMembers,
   listTasks,
   resolveRefs,
+  searchTasks,
   statusesForList,
 } from "./queries.ts";
 import {
@@ -78,6 +79,9 @@ api.get("/me", (c) => c.json(c.get("user")));
 api.get("/hierarchy", async (c) => c.json(await getHierarchy(db)));
 
 api.get("/members", async (c) => c.json(await listMembers(db)));
+
+/** Task search across every list the mirror knows about. Backs the palette. */
+api.get("/search", async (c) => c.json(await searchTasks(db, c.req.query("q") ?? "")));
 
 /**
  * Identifies ids lifted out of a ClickUp URL, so a pasted ClickUp link can be
