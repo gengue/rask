@@ -576,7 +576,6 @@ export function AppShell(): JSX.Element {
       </Show>
 
       <Toasts />
-      <Lightbox />
 
       <Show when={menu()}>
         {(current) => (

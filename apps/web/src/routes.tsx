@@ -8,6 +8,7 @@ import {
 } from "@tanstack/solid-router";
 import { createEffect, createMemo, createResource, type JSX, Match, Switch } from "solid-js";
 import { AppShell } from "./App.tsx";
+import { RouteError } from "./components/RouteError.tsx";
 import { TaskList } from "./components/TaskList.tsx";
 import { ListPicker, NotFound } from "./components/Unresolved.tsx";
 import { api, type ResolvedRef, type Task } from "./lib/api.ts";
@@ -39,6 +40,9 @@ interface AppSearch {
 
 const rootRoute = createRootRoute({
   component: AppShell,
+  // A throw during render otherwise unmounts the entire tree and leaves a white
+  // window until someone reloads.
+  errorComponent: (props) => <RouteError error={props.error} reset={props.reset} />,
   validateSearch: (search: Record<string, unknown>): AppSearch => ({
     task: typeof search.task === "string" ? search.task : undefined,
   }),

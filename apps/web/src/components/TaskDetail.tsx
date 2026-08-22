@@ -102,11 +102,33 @@ export function TaskDetail(props: {
     return before;
   };
 
-  // The SSE feed writes refreshed rows into the collection. When the open task
-  // is one of them, pull the fuller detail again so comments stay live.
+  /*
+   * The SSE feed writes refreshed rows into the collection. When the open task
+   * is one of them, pull the fuller detail again so comments stay live.
+   *
+   * Guarded against re-firing on the same value. `GET /tasks/:id` starts a
+   * background ClickUp refresh that pushes over SSE, the push lands in the
+   * collection, this effect refetches, and that refetch starts another
+   * background refresh. Comparing against the last value we acted on breaks the
+   * loop; without it, a task whose refresh fails upstream spins for as long as
+   * the panel is open.
+   */
+  let lastSeenUpdate: string | null | undefined;
+
   createEffect(() => {
     const row = tasks.get(props.taskId);
-    if (row && detail() && row.dateUpdated !== detail()?.dateUpdated) void refetch();
+    const fetched = detail();
+    if (!row || !fetched) return;
+    if (row.dateUpdated === fetched.dateUpdated) return;
+    if (row.dateUpdated === lastSeenUpdate) return;
+    lastSeenUpdate = row.dateUpdated;
+    void refetch();
+  });
+
+  // A different task means a different history.
+  createEffect(() => {
+    props.taskId;
+    lastSeenUpdate = undefined;
   });
 
   // `GET /tasks/:id` refreshes from ClickUp in the background and pushes the

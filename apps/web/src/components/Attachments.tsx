@@ -31,7 +31,7 @@ export function Attachments(props: { items: Attachment[] }): JSX.Element {
   return (
     <Show when={props.items.length > 0}>
       <section class="border-line/70 border-t px-5 py-4">
-        <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-[11px] text-ink-4 uppercase tracking-[0.04em]">
+        <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
           Attachments
           <span class="tabular-nums lowercase">{props.items.length}</span>
         </h3>
@@ -77,15 +77,13 @@ export function Attachments(props: { items: Attachment[] }): JSX.Element {
                     href={file.urlWithQuery ?? file.url ?? "#"}
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="-mx-1.5 flex h-8 items-center gap-2.5 rounded-[5px] px-1.5 hover:bg-white/[0.04]"
+                    class="-mx-1.5 flex h-8 items-center gap-2.5 rounded-[5px] px-1.5 hover:bg-hover"
                   >
-                    <span class="shrink-0 rounded bg-white/[0.05] px-1.5 py-px font-medium text-[10px] text-ink-3 uppercase tracking-[0.04em]">
+                    <span class="shrink-0 rounded bg-chip px-1.5 py-px font-medium text-xs text-ink-3 uppercase tracking-[0.04em]">
                       {file.extension || "file"}
                     </span>
-                    <span class="min-w-0 flex-1 truncate text-[13px] text-ink-2">
-                      {nameOf(file)}
-                    </span>
-                    <span class="shrink-0 text-[11px] text-ink-4 tabular-nums">
+                    <span class="min-w-0 flex-1 truncate text-base text-ink-2">{nameOf(file)}</span>
+                    <span class="shrink-0 text-xs text-ink-4 tabular-nums">
                       {formatBytes(file.size)}
                     </span>
                   </a>
