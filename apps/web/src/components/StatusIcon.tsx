@@ -15,7 +15,7 @@ export function StatusIcon(props: {
   class?: string;
 }): JSX.Element {
   const size = () => props.size ?? 14;
-  const color = () => props.color ?? "#6b6f76";
+  const color = () => props.color ?? "var(--color-low)";
   const done = () => props.type === "done" || props.type === "closed";
   const open = () => props.type === "open" || props.type === null;
 
@@ -49,6 +49,10 @@ export function StatusIcon(props: {
         }
       >
         <circle cx="7" cy="7" r="6" fill={color()} />
+        {/* Not a theme token, deliberately. The check is drawn on top of the
+            status colour ClickUp gave the workspace, not on a Rask surface, so
+            it stays dark in both themes — those colours are saturated
+            mid-tones and a dark stroke reads on all of them. */}
         <path
           d="M4.4 7.2 L6.2 9 L9.7 5.2"
           stroke="#0b0c0d"

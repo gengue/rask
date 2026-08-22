@@ -45,7 +45,7 @@ export function Shortcuts(props: { onClose: () => void }): JSX.Element {
       <button
         type="button"
         aria-label="Close"
-        class="absolute inset-0 bg-black/45"
+        class="absolute inset-0 bg-scrim"
         onClick={props.onClose}
       />
 
@@ -55,24 +55,24 @@ export function Shortcuts(props: { onClose: () => void }): JSX.Element {
         aria-label="Keyboard shortcuts"
         class="floating relative w-[560px] rounded-xl px-6 py-5"
       >
-        <h2 class="pb-4 font-medium text-[13px] text-ink">Keyboard shortcuts</h2>
+        <h2 class="pb-4 font-medium text-base text-ink">Keyboard shortcuts</h2>
 
         <div class="grid grid-cols-2 gap-x-8 gap-y-5">
           <For each={GROUPS}>
             {(group) => (
               <section>
-                <h3 class="pb-2 font-medium text-[11px] text-ink-3 uppercase tracking-[0.04em]">
+                <h3 class="pb-2 font-medium text-xs text-ink-3 uppercase tracking-[0.04em]">
                   {group.title}
                 </h3>
                 <ul class="space-y-1.5">
                   <For each={group.items}>
                     {([keys, label]) => (
                       <li class="flex items-center justify-between gap-4">
-                        <span class="text-[12.5px] text-ink-2">{label}</span>
+                        <span class="text-sm text-ink-2">{label}</span>
                         <span class="flex shrink-0 items-center gap-1">
                           <For each={keys}>
                             {(key) => (
-                              <kbd class="rounded-[4px] bg-white/[0.07] px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
+                              <kbd class="rounded-[4px] bg-chip px-1.5 py-0.5 font-mono text-xs text-ink-2">
                                 {key}
                               </kbd>
                             )}
@@ -87,7 +87,7 @@ export function Shortcuts(props: { onClose: () => void }): JSX.Element {
           </For>
         </div>
 
-        <p class="pt-5 text-[11px] text-ink-3">esc to close</p>
+        <p class="pt-5 text-xs text-ink-3">esc to close</p>
       </div>
     </div>
   );

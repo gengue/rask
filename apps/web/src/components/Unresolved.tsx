@@ -12,7 +12,7 @@ function Screen(props: { title: string; children: JSX.Element }): JSX.Element {
   return (
     <div class="flex flex-1 items-start justify-center overflow-y-auto px-6 pt-[18vh] pb-8">
       <div class="w-full max-w-[380px]">
-        <h2 class="font-medium text-[13.5px] text-ink tracking-[-0.005em]">{props.title}</h2>
+        <h2 class="font-medium text-base text-ink tracking-[-0.005em]">{props.title}</h2>
         {props.children}
       </div>
     </div>
@@ -21,7 +21,7 @@ function Screen(props: { title: string; children: JSX.Element }): JSX.Element {
 
 function BackLink(): JSX.Element {
   return (
-    <A to="/" class="mt-4 inline-block text-[12.5px] text-accent hover:underline">
+    <A to="/" class="mt-4 inline-block text-sm text-accent hover:underline">
       Go to My Tasks
     </A>
   );
@@ -30,11 +30,11 @@ function BackLink(): JSX.Element {
 export function NotFound(props: { path: string }): JSX.Element {
   return (
     <Screen title="Not found in this workspace">
-      <p class="mt-1.5 text-[12.5px] text-ink-3 leading-relaxed">
+      <p class="mt-1.5 text-sm text-ink-3 leading-relaxed">
         Nothing in the mirror matches this address. If it is a ClickUp link, the task or list may
         live in a workspace Rask is not signed in to.
       </p>
-      <p class="selectable mt-3 truncate font-mono text-[11.5px] text-ink-4">{props.path}</p>
+      <p class="selectable mt-3 truncate font-mono text-xs text-ink-4">{props.path}</p>
       <BackLink />
     </Screen>
   );
@@ -56,13 +56,13 @@ export function ListPicker(props: {
 
   return (
     <Screen title={props.name}>
-      <p class="mt-1.5 text-[12.5px] text-ink-3 leading-relaxed">
+      <p class="mt-1.5 text-sm text-ink-3 leading-relaxed">
         That is a {props.kind}, and Rask only shows lists. Pick one:
       </p>
 
       <Show
         when={lists().length > 0}
-        fallback={<p class="mt-3 text-[12.5px] text-ink-4">No lists in it yet.</p>}
+        fallback={<p class="mt-3 text-sm text-ink-4">No lists in it yet.</p>}
       >
         <div class="mt-3 flex flex-col gap-px">
           <For each={lists()}>
@@ -70,7 +70,7 @@ export function ListPicker(props: {
               <A
                 to="/list/$listId"
                 params={{ listId: list.id }}
-                class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-[13px] text-ink-2 hover:bg-white/[0.045] hover:text-ink"
+                class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-base text-ink-2 hover:bg-hover hover:text-ink"
               >
                 <svg
                   width="14"

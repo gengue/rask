@@ -98,7 +98,7 @@ export function CommandPalette(props: {
       <button
         type="button"
         aria-label="Close"
-        class="absolute inset-0 bg-black/45"
+        class="absolute inset-0 bg-scrim"
         onClick={props.onClose}
       />
 
@@ -115,7 +115,7 @@ export function CommandPalette(props: {
             onInput={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={onKeyDown}
             placeholder="Search lists and commands…"
-            class="h-12 w-full text-[15px] text-ink"
+            class="h-12 w-full text-md text-ink"
           />
         </div>
 
@@ -133,17 +133,17 @@ export function CommandPalette(props: {
                   command.run();
                   props.onClose();
                 }}
-                class="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-[13px]"
+                class="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-base"
                 classList={{
-                  "bg-white/[0.08] text-ink": active() === index(),
+                  "row-selected text-ink": active() === index(),
                   "text-ink-2": active() !== index(),
                 }}
               >
-                <span class="w-[92px] shrink-0 truncate text-left text-[11px] text-ink-4">
+                <span class="w-[92px] shrink-0 truncate text-left text-xs text-ink-4">
                   {command.section}
                 </span>
                 <span class="flex-1 truncate text-left">{command.label}</span>
-                <span class="font-mono text-[11px] text-ink-4">{command.hint}</span>
+                <span class="font-mono text-xs text-ink-4">{command.hint}</span>
               </button>
             )}
           </For>

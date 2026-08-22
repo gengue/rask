@@ -86,7 +86,7 @@ export function Menu(props: {
             onInput={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={onKeyDown}
             placeholder={props.placeholder ?? "Search..."}
-            class="h-9 w-full text-[13px] text-ink"
+            class="h-9 w-full text-base text-ink"
           />
         </div>
 
@@ -102,16 +102,16 @@ export function Menu(props: {
                 aria-selected={active() === index()}
                 onMouseEnter={() => setActive(index())}
                 onClick={() => props.onSelect(item.id)}
-                class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-[13px]"
+                class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-base"
                 classList={{
-                  "bg-white/[0.08] text-ink": active() === index(),
+                  "row-selected text-ink": active() === index(),
                   "text-ink-2": active() !== index(),
                 }}
               >
                 <Show when={item.icon}>{item.icon}</Show>
                 <span class="flex-1 truncate text-left">{item.label}</span>
                 <Show when={item.hint}>
-                  <span class="font-mono text-[11px] text-ink-4">{item.hint}</span>
+                  <span class="font-mono text-xs text-ink-4">{item.hint}</span>
                 </Show>
               </button>
             )}

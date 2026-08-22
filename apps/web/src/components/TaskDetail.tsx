@@ -118,7 +118,7 @@ export function TaskDetail(props: {
           onClick={() => setUi("taskExpanded", !ui.taskExpanded)}
           title={ui.taskExpanded ? "Collapse  f" : "Expand  f"}
           aria-label={ui.taskExpanded ? "Collapse task" : "Expand task"}
-          class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
+          class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink"
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <g
@@ -143,7 +143,7 @@ export function TaskDetail(props: {
               target="_blank"
               rel="noreferrer"
               title="Open in ClickUp"
-              class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
+              class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink"
             >
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" role="img">
                 <title>Open in ClickUp</title>
@@ -163,7 +163,7 @@ export function TaskDetail(props: {
           type="button"
           onClick={props.onClose}
           title="Close  Esc"
-          class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-white/[0.06] hover:text-ink"
+          class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink"
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path
@@ -217,17 +217,17 @@ export function TaskDetail(props: {
                   type="button"
                   aria-label={`Status: ${task().status ?? "none"}`}
                   onClick={props.onStatusClick}
-                  class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-white/[0.06]"
+                  class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-hover"
                 >
                   <StatusIcon type={task().statusType} color={task().statusColor} />
-                  <span class="text-[13px] text-ink capitalize">{task().status ?? "None"}</span>
+                  <span class="text-base text-ink capitalize">{task().status ?? "None"}</span>
                 </button>
               </Property>
 
               <Property label="Priority">
                 <div class="flex h-6 items-center gap-2">
                   <PriorityIcon priority={task().priority} />
-                  <span class="text-[13px] text-ink-2">
+                  <span class="text-base text-ink-2">
                     {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
                   </span>
                 </div>
@@ -240,17 +240,17 @@ export function TaskDetail(props: {
                     const rect = event.currentTarget.getBoundingClientRect();
                     setAssigneeMenu({ x: rect.left, y: rect.bottom + 6 });
                   }}
-                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-white/[0.06]"
+                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
                 >
                   <Show
                     when={task().assignees.length > 0}
-                    fallback={<span class="text-[13px] text-ink-4">Unassigned</span>}
+                    fallback={<span class="text-base text-ink-4">Unassigned</span>}
                   >
                     <For each={task().assignees}>
                       {(user) => (
                         <span class="flex items-center gap-1.5">
                           <Avatar user={user} size={17} />
-                          <span class="text-[13px] text-ink-2">{user.username}</span>
+                          <span class="text-base text-ink-2">{user.username}</span>
                         </span>
                       )}
                     </For>
@@ -270,7 +270,7 @@ export function TaskDetail(props: {
               </Property>
 
               <Property label="List">
-                <span class="flex h-6 items-center truncate text-[13px] text-ink-2">
+                <span class="flex h-6 items-center truncate text-base text-ink-2">
                   {task().listName ?? "—"}
                 </span>
               </Property>
@@ -288,16 +288,16 @@ export function TaskDetail(props: {
                   <button
                     type="button"
                     onClick={() => setEditingDescription(true)}
-                    class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-white/[0.025]"
+                    class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
                   >
                     <Show
                       when={task().description}
-                      fallback={<span class="text-[13px] text-ink-4">Add a description…</span>}
+                      fallback={<span class="text-base text-ink-4">Add a description…</span>}
                     >
                       {/* Sanitized in renderMarkdown. ClickUp descriptions are
                           other people's input and never reach the DOM raw. */}
                       <div
-                        class="prose-rask selectable text-[13px]"
+                        class="prose-rask selectable text-base"
                         innerHTML={renderMarkdown(task().description)}
                       />
                     </Show>
@@ -317,7 +317,7 @@ export function TaskDetail(props: {
                     void api.patchTask(props.taskId, { description });
                   }}
                 />
-                <div class="pt-2 text-[11px] text-ink-4">⌘↵ to save · esc to cancel</div>
+                <div class="pt-2 text-xs text-ink-4">⌘↵ to save · esc to cancel</div>
               </Show>
             </section>
 
@@ -389,9 +389,9 @@ function DueField(props: {
   const label = () => formatDue(props.value);
 
   return (
-    <label class="-mx-1.5 relative flex h-6 cursor-default items-center rounded-[5px] px-1.5 hover:bg-white/[0.06]">
+    <label class="-mx-1.5 relative flex h-6 cursor-default items-center rounded-[5px] px-1.5 hover:bg-hover">
       <span
-        class="text-[13px]"
+        class="text-base"
         classList={{
           "text-urgent": label()?.tone === "overdue",
           "text-ink-2": label() != null && label()?.tone !== "overdue",
@@ -446,10 +446,7 @@ function CustomFields(props: { fields: TaskDetailData["customFields"] }): JSX.El
       <For each={shown()}>
         {(field) => (
           <Property label={field.name}>
-            <span
-              class="flex h-6 items-center truncate text-[13px] text-ink-2"
-              title={field.display}
-            >
+            <span class="flex h-6 items-center truncate text-base text-ink-2" title={field.display}>
               {field.display}
             </span>
           </Property>
@@ -460,7 +457,7 @@ function CustomFields(props: { fields: TaskDetailData["customFields"] }): JSX.El
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          class="flex h-6 items-center px-2 text-[12px] text-ink-3 hover:text-ink-2"
+          class="flex h-6 items-center px-2 text-sm text-ink-3 hover:text-ink-2"
         >
           {expanded() ? "Show less" : `Show ${hidden()} more`}
         </button>
@@ -472,7 +469,7 @@ function CustomFields(props: { fields: TaskDetailData["customFields"] }): JSX.El
 function Property(props: { label: string; children: JSX.Element }): JSX.Element {
   return (
     <div class="flex items-center gap-3 px-2">
-      <span class="w-[104px] shrink-0 truncate text-[12px] text-ink-3" title={props.label}>
+      <span class="w-[104px] shrink-0 truncate text-sm text-ink-3" title={props.label}>
         {props.label}
       </span>
       <div class="min-w-0 flex-1">{props.children}</div>
@@ -489,7 +486,7 @@ function TitleField(props: { value: string; onCommit: (value: string) => void })
       when={editing()}
       fallback={
         <h1
-          class="selectable cursor-text font-semibold text-[19px] text-ink leading-tight tracking-[-0.02em]"
+          class="selectable cursor-text font-semibold text-lg text-ink leading-tight tracking-[-0.02em]"
           onDblClick={() => setEditing(true)}
         >
           {props.value}
@@ -517,7 +514,7 @@ function TitleField(props: { value: string; onCommit: (value: string) => void })
           }
           event.stopPropagation();
         }}
-        class="w-full resize-none font-semibold text-[19px] text-ink leading-tight tracking-[-0.02em]"
+        class="w-full resize-none font-semibold text-lg text-ink leading-tight tracking-[-0.02em]"
       />
     </Show>
   );
@@ -553,7 +550,7 @@ function Comments(props: {
 
   return (
     <section class="border-line/70 border-t px-5 py-4">
-      <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-[11px] text-ink-4 uppercase tracking-[0.04em]">
+      <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
         Comments
         <Show when={total() > 0}>
           <span class="tabular-nums lowercase">{total()}</span>
@@ -608,7 +605,7 @@ function Comments(props: {
                     a count before it is a conversation. Say so rather than
                     render an empty thread that looks complete. */}
                 <Show when={thread.replyCount > thread.replies.length}>
-                  <p class="mt-2 ml-6 text-[11px] text-ink-4">
+                  <p class="mt-2 ml-6 text-xs text-ink-4">
                     Syncing {thread.replyCount - thread.replies.length} more{" "}
                     {thread.replyCount - thread.replies.length === 1 ? "reply" : "replies"}…
                   </p>
@@ -664,19 +661,17 @@ function CommentItem(props: {
 
       <div class="min-w-0 flex-1">
         <div class="flex items-baseline gap-2">
-          <span class="font-medium text-[13px] text-ink">
-            {props.comment.username ?? "Someone"}
-          </span>
-          <span class="text-[11px] text-ink-4">
+          <span class="font-medium text-base text-ink">{props.comment.username ?? "Someone"}</span>
+          <span class="text-xs text-ink-4">
             {pending() ? "Sending…" : formatRelative(props.comment.date)}
           </span>
           <Show when={props.comment.editedAt}>
-            <span class="text-[11px] text-ink-4" title="Edited in Rask">
+            <span class="text-xs text-ink-4" title="Edited in Rask">
               edited
             </span>
           </Show>
           <Show when={props.comment.resolved}>
-            <span class="rounded bg-white/[0.05] px-1.5 text-[10px] text-ink-3 uppercase tracking-[0.04em]">
+            <span class="rounded bg-chip px-1.5 text-xs text-ink-3 uppercase tracking-[0.04em]">
               Resolved
             </span>
           </Show>
@@ -689,7 +684,7 @@ function CommentItem(props: {
               {/* Sanitized in renderMarkdown. Comment bodies are other
                   people's input and never reach the DOM raw. */}
               <div
-                class="prose-rask selectable text-[13px]"
+                class="prose-rask selectable text-base"
                 classList={{ "opacity-60": props.comment.resolved }}
                 innerHTML={renderMarkdown(props.comment.text)}
               />
@@ -749,7 +744,7 @@ function CommentAction(props: { label: string; onClick: () => void }): JSX.Eleme
     <button
       type="button"
       onClick={props.onClick}
-      class="rounded-[4px] px-1 py-0.5 text-[11px] text-ink-4 hover:bg-white/[0.06] hover:text-ink-2"
+      class="rounded-[4px] px-1 py-0.5 text-xs text-ink-4 hover:bg-hover hover:text-ink-2"
     >
       {props.label}
     </button>
@@ -850,9 +845,9 @@ function Composer(props: {
                   insert(user);
                 }}
                 onMouseEnter={() => setPicked(index())}
-                class="flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[13px]"
+                class="flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left text-base"
                 classList={{
-                  "bg-white/[0.08] text-ink": picked() === index(),
+                  "row-selected text-ink": picked() === index(),
                   "text-ink-2": picked() !== index(),
                 }}
               >
@@ -917,17 +912,17 @@ function Composer(props: {
           event.stopPropagation();
         }}
         placeholder={props.placeholder}
-        class="w-full resize-none px-3 py-2 text-[13px]"
+        class="w-full resize-none px-3 py-2 text-base"
       />
       <div class="flex items-center justify-between px-3 pb-2">
-        <span class="text-[11px] text-ink-3">
+        <span class="text-xs text-ink-3">
           @ to mention · ⌘↵ to send{props.onCancel ? " · esc to cancel" : ""}
         </span>
         <button
           type="button"
           disabled={!text().trim()}
           onClick={submit}
-          class="rounded-[5px] bg-accent px-2.5 py-1 font-medium text-[12px] text-white disabled:opacity-30"
+          class="rounded-[5px] bg-accent px-2.5 py-1 font-medium text-on-accent text-sm disabled:opacity-30"
         >
           {props.submitLabel}
         </button>

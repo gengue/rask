@@ -183,7 +183,7 @@ function ClickUpView(): JSX.Element {
   };
 
   return (
-    <Switch fallback={<div class="flex-1 px-6 pt-[18vh] text-[12.5px] text-ink-4">Opening…</div>}>
+    <Switch fallback={<div class="flex-1 px-6 pt-[18vh] text-sm text-ink-4">Opening…</div>}>
       <Match when={picker()}>
         {(chosen) => <ListPicker kind={chosen().kind} id={chosen().id} name={chosen().name} />}
       </Match>

@@ -113,7 +113,7 @@ export function TaskList(props: {
         fallback={
           <Show when={!viewLoading()} fallback={<SkeletonRows />}>
             <div class="flex h-full flex-col items-center justify-center gap-1 text-ink-3">
-              <div class="text-[13px]">{ui.search ? "No matches" : "Nothing here"}</div>
+              <div class="text-base">{ui.search ? "No matches" : "Nothing here"}</div>
               <div class="text-ink-3 text-xs">
                 {ui.search ? "Try a different search" : "Press c to create a task"}
               </div>
@@ -157,14 +157,14 @@ export function TaskList(props: {
             fallback={
               <Show when={item.kind === "header" ? item : null}>
                 {(header) => (
-                  <div class="flex h-[34px] items-center gap-2 border-line/45 border-b bg-white/[0.018] px-5">
+                  <div class="flex h-[34px] items-center gap-2 border-line/45 border-b bg-wash px-5">
                     <Show when={ui.groupBy === "status"}>
                       <StatusIcon type={header().statusType} color={header().color} size={13} />
                     </Show>
-                    <span class="font-medium text-[12.5px] text-ink capitalize tracking-[-0.005em]">
+                    <span class="font-medium text-sm text-ink capitalize tracking-[-0.005em]">
                       {header().label}
                     </span>
-                    <span class="rounded bg-white/[0.06] px-1.5 text-[11px] text-ink-3 tabular-nums">
+                    <span class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums">
                       {header().count}
                     </span>
                   </div>
@@ -206,12 +206,9 @@ function SkeletonRows(): JSX.Element {
     <div aria-hidden="true">
       {Array.from({ length: 14 }, (_, i) => (
         <div class="flex h-9 items-center gap-3 border-line/45 border-b px-5">
-          <span class="size-3.5 shrink-0 rounded-full bg-white/[0.045]" />
-          <span class="h-2 w-[52px] shrink-0 rounded bg-white/[0.035]" />
-          <span
-            class="h-2 rounded bg-white/[0.035]"
-            style={{ width: `${28 + ((i * 37) % 42)}%` }}
-          />
+          <span class="size-3.5 shrink-0 rounded-full bg-chip" />
+          <span class="h-2 w-[52px] shrink-0 rounded bg-wash" />
+          <span class="h-2 rounded bg-wash" style={{ width: `${28 + ((i * 37) % 42)}%` }} />
         </div>
       ))}
     </div>

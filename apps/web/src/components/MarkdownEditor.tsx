@@ -14,40 +14,63 @@ import { type JSX, onCleanup, onMount } from "solid-js";
  * headings that look like headings — are exactly what a textarea cannot do.
  * The theme is deliberately quiet: this should read like the rest of the panel,
  * not like an IDE dropped into it.
+ *
+ * Every colour is a `var()` rather than a literal, which is not only tidier:
+ * it is what lets the editor follow a theme switch. The alternative is tearing
+ * the view down and rebuilding it, and rebuilding drops whatever the user has
+ * typed since the last commit. CSS variables re-resolve on their own and the
+ * document is never touched.
+ *
+ * The syntax marks (`#`, `*`, the backticks) sit at ink-3 rather than the
+ * dimmest ink. They are characters the user typed and has to be able to read
+ * back; they used to be #4a4e55, which was 2.3:1 against the panel.
  */
 
 const highlight = HighlightStyle.define([
-  { tag: tags.heading, color: "#f7f8f8", fontWeight: "600" },
-  { tag: tags.strong, color: "#f7f8f8", fontWeight: "600" },
-  { tag: tags.emphasis, color: "#d6d9de", fontStyle: "italic" },
-  { tag: tags.link, color: "#6e79d6" },
-  { tag: tags.url, color: "#6b6f76" },
-  { tag: tags.monospace, color: "#8fd4c1" },
-  { tag: tags.quote, color: "#6b6f76" },
-  { tag: tags.list, color: "#6b6f76" },
-  { tag: tags.processingInstruction, color: "#4a4e55" },
+  { tag: tags.heading, color: "var(--color-ink)", fontWeight: "600" },
+  { tag: tags.strong, color: "var(--color-ink)", fontWeight: "600" },
+  { tag: tags.emphasis, color: "var(--color-ink-prose)", fontStyle: "italic" },
+  { tag: tags.link, color: "var(--color-accent)" },
+  { tag: tags.url, color: "var(--color-ink-3)" },
+  { tag: tags.monospace, color: "var(--color-code)" },
+  { tag: tags.quote, color: "var(--color-ink-3)" },
+  { tag: tags.list, color: "var(--color-ink-3)" },
+  { tag: tags.processingInstruction, color: "var(--color-ink-3)" },
 ]);
 
-const theme = EditorView.theme(
-  {
-    "&": { color: "#9ca1a9", fontSize: "13px", backgroundColor: "transparent" },
-    "&.cm-focused": { outline: "none" },
-    ".cm-content": {
-      padding: "0",
-      fontFamily: "var(--font-sans)",
-      lineHeight: "1.65",
-      caretColor: "#f7f8f8",
-    },
-    ".cm-line": { padding: "0" },
-    ".cm-scroller": { fontFamily: "var(--font-sans)", lineHeight: "1.65" },
-    ".cm-placeholder": { color: "#4a4e55" },
-    "&.cm-editor .cm-cursor": { borderLeftColor: "#f7f8f8" },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-      backgroundColor: "#2c3057",
-    },
+/*
+ * `.cm-editor` is repeated into the selectors on purpose.
+ *
+ * CodeMirror's base theme carries its own light/dark fallbacks, and some of
+ * them are written with five classes — more specific than the two a plain
+ * theme rule gets, so they win no matter which order the stylesheets mount in.
+ * That is why the previous selection colour here never actually rendered.
+ * Repeating the class buys the specificity to override them deterministically,
+ * and makes the `{ dark: true }` flag that used to be on this theme
+ * unnecessary: nothing CodeMirror would pick from it survives.
+ *
+ * Selection is styled through `::selection` because this editor does not load
+ * `drawSelection`, so there is no `.cm-selectionBackground` element to colour —
+ * the browser draws the selection natively.
+ */
+const theme = EditorView.theme({
+  "&": {
+    color: "var(--color-ink-2)",
+    fontSize: "var(--text-base)",
+    backgroundColor: "transparent",
   },
-  { dark: true },
-);
+  "&.cm-focused": { outline: "none" },
+  "&.cm-editor .cm-content": {
+    padding: "0",
+    fontFamily: "var(--font-sans)",
+    lineHeight: "1.65",
+    caretColor: "var(--color-ink)",
+  },
+  ".cm-line": { padding: "0" },
+  ".cm-scroller": { fontFamily: "var(--font-sans)", lineHeight: "1.65" },
+  ".cm-placeholder": { color: "var(--color-ink-4)" },
+  "& ::selection": { backgroundColor: "var(--color-selection)" },
+});
 
 export function MarkdownEditor(props: {
   value: string;

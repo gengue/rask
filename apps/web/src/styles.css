@@ -8,9 +8,26 @@
  * separated by 1px hairlines instead of shadows, and one accent colour used
  * sparingly. Everything is flat. A drop shadow appears exactly once, on the
  * command palette, because that is the only surface that genuinely floats.
+ *
+ * Two themes, one set of names. `@theme` below is the dark one and is what
+ * `:root` gets; `html.light` further down re-points the same tokens at light
+ * values. Nothing outside this file knows which theme is on — components name
+ * roles (`bg-panel`, `text-ink-3`, `hover:bg-hover`) and never colours. A
+ * component that reaches for `bg-white/[0.05]` is a component that will be
+ * wrong in one of the two themes, which is why none of them do any more.
+ *
+ * The class on <html> is set by an inline script in index.html, before this
+ * stylesheet or the bundle loads, so the first paint is never the wrong colour.
  */
 
 @theme {
+  /*
+   * Four surfaces, ordered by how much they float. In dark each step is
+   * lighter than the last; in light the panel goes near-white and `elevated`
+   * steps down into grey instead of up. `app` is the window background and the
+   * sidebar sits directly on it, so in light it is the darkest surface any
+   * text has to work against and the one the inks are solved for.
+   */
   --color-app: #060708;
   --color-panel: #0e0f11;
   --color-elevated: #17181b;
@@ -20,43 +37,186 @@
   --color-line-strong: #303237;
 
   /*
-   * Four inks, and the bottom one is not for text.
+   * Four inks, and every one of them is legible.
    *
-   * Contrast against --color-panel: ink 18.5:1, ink-2 7.4:1, ink-3 4.7:1,
-   * ink-4 3.8:1. Anything a person has to read gets ink-3 or better; ink-4 is
-   * for icon strokes, dividers, and the dashed unassigned ring. The previous
-   * ink-4 was #4a4e55 at 2.3:1 and it carried every property label and every
-   * keyboard hint, which put the text explaining the interface among the least
-   * legible pixels in it.
+   * Contrast against --color-panel: ink 18.0:1, ink-prose 12.8:1, ink-2 7.4:1,
+   * ink-3 5.7:1, ink-4 5.1:1 — all clear WCAG AA for body text, and they still
+   * clear it on --color-overlay (16.2 / 11.5 / 6.6 / 5.1 / 4.6), which is the
+   * lightest surface in dark mode and therefore the tightest one.
+   *
+   * The ladder is compressed at the bottom on purpose. ink-3 and ink-4 used to
+   * be #797e85 and #6b6f76, at 4.2:1 and 3.4:1 on a floating panel, and ink-4
+   * carried every property label and every keyboard hint — the text explaining
+   * the interface was among the least legible pixels in it. AA is the floor, so
+   * the bottom two rungs end up closer together than a purely visual reading
+   * would put them. That is the cost, and it is worth paying.
    */
   --color-ink: #f7f8f8;
   --color-ink-2: #9ca1a9;
-  --color-ink-3: #797e85;
-  --color-ink-4: #6b6f76;
+  --color-ink-3: #878c94;
+  --color-ink-4: #7f8489;
 
   /* Long-form body text: descriptions and comments. Brighter than ink-2,
      because the description is the thing you opened the task to read. */
   --color-ink-prose: #cfd3d8;
 
-  --color-accent: #6e79d6;
-  --color-accent-soft: #6e79d629;
+  /*
+   * The accent does three jobs — link text, the cursor hairline, and the fill
+   * of the one solid button — and text is the one with the strict floor. It is
+   * also the mention chip's foreground sitting on a 16% wash of itself, at
+   * 4.7:1 — one of the two tightest pairings in the app. It was #6e79d6, which
+   * made that pairing 4.1:1; this is the same indigo a step lighter.
+   *
+   * --color-on-accent is whatever reads on top of the fill. In dark that is
+   * near-black, because white on this indigo is 3.4:1 and fails; in light the
+   * accent is dark enough that white is right.
+   */
+  --color-accent: #7a85dd;
+  --color-accent-soft: #7a85dd29;
+  --color-on-accent: #0d0e11;
 
   --color-urgent: #f2606a;
   --color-high: #f2994a;
-  --color-normal: #4ea7f2;
   --color-low: #6b6f76;
+  /* The live-connection dot in the sidebar footer. */
+  --color-ok: #2ecd6f;
+
+  /*
+   * Interaction tints, and the reason light mode is not a colour-swap job.
+   *
+   * "Slightly lighter" is how you show hover and selection on a near-black
+   * surface, and it was spelled nine different ways — bg-white/[0.018] through
+   * bg-white/10, values nobody could tell apart. On a near-white surface the
+   * same states have to go *darker*, so the direction itself is a theme
+   * decision and cannot live in a component. Four roles, one token each.
+   */
+  --color-hover: rgb(255 255 255 / 0.045);
+  --color-selected: rgb(255 255 255 / 0.065);
+  --color-chip: rgb(255 255 255 / 0.06);
+  --color-wash: rgb(255 255 255 / 0.025);
+  /* Behind a modal. One value, not the 45%/55% pair that used to be here. */
+  --color-scrim: rgb(0 0 0 / 0.5);
+
+  --color-scrollbar: #2b2d31;
+  --color-scrollbar-hover: #3a3d42;
+
+  /*
+   * Markdown editor: the inline-code tint and the text selection. Both are
+   * read by CodeMirror through var(), so the editor follows the theme without
+   * being torn down and rebuilt.
+   *
+   * The selection is pinned between two limits and has almost no room: light
+   * enough to see against the panel (1.26:1) and dark enough that the dimmest
+   * ink drawn on top of it still clears AA (4.5:1). It is the other tight
+   * pairing in the palette.
+   */
+  --color-code: #8fd4c1;
+  --color-selection: #20243c;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
+  /*
+   * Five sizes, no half pixels.
+   *
+   * There were eleven, three of them fractional (13.5, 12.5, 11.5). Half-pixel
+   * type renders soft on any display that is not retina, and 13px next to
+   * 13.5px is a difference nobody can see but every stylesheet has to carry.
+   * The rounding is deliberate in both directions: 13.5 and 12.5 both fall to
+   * their nearest whole size rather than all going up, so no row, header or
+   * chip changes height and the list still fits exactly as many rows.
+   *
+   * The line-heights are set to `inherit` so `text-base` behaves exactly like
+   * the `text-[13px]` it replaces. Tailwind ships a line-height with each of
+   * its own steps, which would have quietly re-flowed everything it touched —
+   * including prose, which sets 1.65 on the container and expects to keep it.
+   */
   --text-xs: 11px;
+  --text-xs--line-height: inherit;
   --text-sm: 12px;
+  --text-sm--line-height: inherit;
   --text-base: 13px;
-  --text-md: 14px;
-  --text-lg: 15px;
+  --text-base--line-height: inherit;
+  --text-md: 15px;
+  --text-md--line-height: inherit;
+  --text-lg: 19px;
+  --text-lg--line-height: inherit;
 
   --radius-panel: 10px;
+}
+
+/*
+ * Light.
+ *
+ * Unlayered on purpose: `@theme` emits its variables into Tailwind's `theme`
+ * layer, and an unlayered rule beats every layered one no matter how the
+ * cascade is ordered. The class comes from the inline script in index.html.
+ *
+ * Every value here was solved against `--color-app`, not against the panel.
+ * The sidebar has no background of its own, so `app` is the darkest thing text
+ * sits on in light mode and anything that clears AA there clears it elsewhere.
+ */
+html.light {
+  --color-app: #e7e9ed;
+  --color-panel: #fbfbfc;
+  --color-elevated: #eef0f3;
+  --color-overlay: #ffffff;
+
+  --color-line: #dcdfe4;
+  --color-line-strong: #c5cad2;
+
+  --color-ink: #14161a;
+  --color-ink-2: #4b5058;
+  --color-ink-3: #5b616a;
+  --color-ink-4: #636972;
+  --color-ink-prose: #2f333a;
+
+  --color-accent: #4f57a0;
+  --color-accent-soft: #4f57a029;
+  --color-on-accent: #ffffff;
+
+  /*
+   * The status tones are the one place light mode cannot simply mirror dark.
+   * On a near-black panel #f2994a is 8.6:1; on a near-white one it is 2.2:1,
+   * so "due today" has to become a dark amber that no longer reads as orange.
+   * Hue is what gets sacrificed, because the alternative is a due date nobody
+   * can read at 11px.
+   */
+  --color-urgent: #ae454c;
+  --color-high: #8f5a19;
+  --color-low: #6b7079;
+  --color-ok: #1b7640;
+
+  --color-hover: rgb(0 0 0 / 0.045);
+  --color-selected: rgb(0 0 0 / 0.065);
+  --color-chip: rgb(0 0 0 / 0.06);
+  --color-wash: rgb(0 0 0 / 0.025);
+  --color-scrim: rgb(0 0 0 / 0.35);
+
+  --color-scrollbar: #c6cad1;
+  --color-scrollbar-hover: #adb2bb;
+
+  --color-code: #1d6b57;
+  --color-selection: #dde0f6;
+}
+
+/*
+ * Tells the browser which way round everything native goes: form controls, the
+ * canvas before our CSS lands, and the scrollbars we do not style. The inline
+ * script sets the same thing on the element so it applies on the first paint,
+ * before this file exists.
+ */
+:root {
+  color-scheme: dark;
+  /* Only the command palette floats, and only in dark does it need a shadow
+     heavy enough to separate two near-black surfaces. */
+  --floating-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.6), 0 16px 48px -8px rgb(0 0 0 / 0.7);
+}
+
+html.light {
+  color-scheme: light;
+  --floating-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 12px 32px -8px rgb(15 23 42 / 0.18);
 }
 
 @layer base {
@@ -81,6 +241,13 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overscroll-behavior: none;
+  }
+
+  /* Antialiasing that suits near-white text on near-black does not suit the
+     other way round: on a light background it thins the strokes and the same
+     13px type reads washed out. Light mode gets the browser's default. */
+  html.light body {
+    -webkit-font-smoothing: auto;
   }
 
   /* Nothing in a task manager should be selectable by accident. Text that is
@@ -127,14 +294,14 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #2b2d31;
+    background: var(--color-scrollbar);
     border: 3px solid transparent;
     background-clip: padding-box;
     border-radius: 999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #3a3d42;
+    background: var(--color-scrollbar-hover);
     background-clip: padding-box;
   }
 
@@ -161,13 +328,25 @@
   .floating {
     background: var(--color-overlay);
     border: 1px solid var(--color-line-strong);
-    box-shadow:
-      0 0 0 0.5px rgb(0 0 0 / 0.6),
-      0 16px 48px -8px rgb(0 0 0 / 0.7);
+    box-shadow: var(--floating-shadow);
   }
 
-  .row-hover {
-    background: color-mix(in oklab, white 4%, transparent);
+  /*
+   * The current row: the list cursor, the highlighted command, the sidebar's
+   * open list.
+   *
+   * It also re-points ink-4 at ink-2, and that is the point of the class
+   * rather than a bare `bg-selected`. A selected row lightens its own
+   * background in dark mode, which drags every ink on it down — the palette's
+   * section label and keyboard hint are both ink-4 and land at 3.7:1 on a
+   * highlighted row. Re-pointing the token inside the row fixes all of them at
+   * once, without every component having to thread a second colour through its
+   * markup. It goes to ink-2 rather than ink-3 because ink-3 on a highlighted
+   * floating row is 4.24:1, which is still short.
+   */
+  .row-selected {
+    background: var(--color-selected);
+    --color-ink-4: var(--color-ink-2);
   }
 }
 
@@ -190,13 +369,13 @@
   margin-top: 1.4em;
 }
 .prose-rask h1 {
-  font-size: 17px;
+  font-size: var(--text-lg);
 }
 .prose-rask h2 {
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 .prose-rask h3 {
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .prose-rask a {
   color: var(--color-accent);
@@ -207,7 +386,7 @@
 }
 .prose-rask code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   background: var(--color-elevated);
   border: 1px solid var(--color-line);
   border-radius: 4px;
@@ -266,7 +445,7 @@
 }
 .prose-rask table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
   display: block;
   overflow-x: auto;
   max-width: 100%;
