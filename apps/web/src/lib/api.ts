@@ -55,7 +55,13 @@ export interface Task {
 export interface Comment {
   id: string;
   parentCommentId: string | null;
+  /** ClickUp's flat body. What the composer edits and what goes back upstream. */
   text: string | null;
+  /**
+   * The rich body — images, files, mentions, lists — rendered to markdown at
+   * ingest. Null until ClickUp has answered, so render `markdown ?? text`.
+   */
+  markdown: string | null;
   date: string | null;
   /** Set only when Rask rewrote the body; ClickUp has no edit timestamp. */
   editedAt: string | null;

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { clickUpTask } from "@rask/clickup-client";
+import { clickUpComment, clickUpTask } from "@rask/clickup-client";
+import commentFixture from "../../clickup-client/test/fixtures/comment-with-image.json" with {
+  type: "json",
+};
 import taskFixture from "../../clickup-client/test/fixtures/task.json" with { type: "json" };
-import { mapTask } from "../src/map.ts";
+import { mapComment, mapTask } from "../src/map.ts";
 
 const parse = (overrides: Record<string, unknown> = {}) =>
   clickUpTask.parse({ ...taskFixture, ...overrides });
@@ -87,5 +90,35 @@ describe("mapTask", () => {
     expect(task.dueDate).toEqual(new Date(1508369194377));
     expect(task.dateUpdated).toEqual(new Date(1567780450202));
     expect(task.dateDone).toBeNull();
+  });
+});
+
+describe("mapComment", () => {
+  const comment = clickUpComment.parse(commentFixture);
+
+  test("keeps ClickUp's flat text untouched, because that is what goes back out", () => {
+    // The write path resends this on an edit or a resolve. If it ever held the
+    // rendered body, resolving a comment would post markdown into it.
+    expect(mapComment(comment, "t1").text).toBe(
+      "@Soledad Cruz I created a new version\nimage.png\n",
+    );
+  });
+
+  test("renders the rich body alongside it", () => {
+    expect(mapComment(comment, "t1").markdown).toBe(
+      "@[Soledad Cruz](clickup://user/2465931) I created a new version\n" +
+        "![image.png](https://t529.p.clickup-attachments.com/t529/" +
+        "0ed173fb-2acb-4479-a3b9-24610aa6b60a/image.png?view=open)",
+    );
+  });
+
+  test("leaves markdown null when ClickUp sent no segments", () => {
+    // The UI reads `markdown ?? text`, so null means the flat text is all there is.
+    const plain = clickUpComment.parse({ id: "c1", comment_text: "plain", reply_count: 0 });
+    expect(mapComment(plain, "t1").markdown).toBeNull();
+  });
+
+  test("takes the parent from the caller, since a reply does not carry one", () => {
+    expect(mapComment(comment, "t1", "c0").parentCommentId).toBe("c0");
   });
 });

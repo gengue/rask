@@ -337,8 +337,25 @@ export const comments = pgTable(
     parentCommentId: text("parent_comment_id"),
     /** Who wrote it. This is what decides who may edit or delete it. */
     userId: text("user_id"),
-    /** Flattened `comment_text`. Rich-text segments are not mirrored. */
+    /**
+     * ClickUp's flattened `comment_text`, byte for byte.
+     *
+     * This is what the write path sends back on an edit or a resolve, so it
+     * must stay exactly what ClickUp would have sent us. Never the rendered
+     * body: posting markdown into someone else's comment is not an edit, it is
+     * vandalism.
+     */
     text: text("text"),
+    /**
+     * The rich `comment` array, rendered to markdown at ingest.
+     *
+     * Null when ClickUp sent no segments and on a comment Rask has not heard
+     * back about yet, which is why the UI reads `markdown ?? text` — a locally
+     * authored comment is already written in this dialect. Text, not jsonb:
+     * nothing queries inside it, and there is no container to make jsonb worth
+     * the risk described above `jsonText`.
+     */
+    markdown: text("markdown"),
     resolved: boolean("resolved").notNull().default(false),
     replyCount: integer("reply_count").notNull().default(0),
     date: ts("date"),

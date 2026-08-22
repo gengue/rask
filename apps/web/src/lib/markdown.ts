@@ -8,6 +8,22 @@ import { marked } from "marked";
  */
 marked.setOptions({ gfm: true, breaks: true });
 
+/**
+ * Links inside a mirrored body leave for a new tab.
+ *
+ * A description is not a web page you navigated to: following a link in one
+ * should not throw away the task you were reading. `rel` rides along because
+ * `target="_blank"` alone hands the opened page a handle on this one, and this
+ * tab is holding a live session cookie. Both attributes are already in
+ * ADD_ATTR; this only fills them in, and the hook runs after sanitizing, so it
+ * cannot be used to smuggle anything past it.
+ */
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName !== "A") return;
+  node.setAttribute("target", "_blank");
+  node.setAttribute("rel", "noreferrer");
+});
+
 /** `@[Name](clickup://user/123)` → a chip, before markdown sees it as a link. */
 const MENTION = /@\[([^\]]+)\]\(clickup:\/\/user\/(\d+)\)/g;
 

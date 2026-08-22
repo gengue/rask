@@ -6,6 +6,7 @@ import {
   CommandPalette,
 } from "./components/CommandPalette.tsx";
 import { FilterBar } from "./components/FilterBar.tsx";
+import { Lightbox } from "./components/Lightbox.tsx";
 import { Menu, type MenuItem } from "./components/Menu.tsx";
 import { QuickAdd } from "./components/QuickAdd.tsx";
 import { Shortcuts } from "./components/Shortcuts.tsx";
@@ -490,6 +491,7 @@ export function AppShell(): JSX.Element {
       </Show>
 
       <Toasts />
+      <Lightbox />
 
       <Show when={menu()}>
         {(current) => (

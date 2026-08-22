@@ -7,6 +7,7 @@ import type {
   ClickUpTask,
   ClickUpUser,
 } from "@rask/clickup-client";
+import { renderCommentBody } from "@rask/clickup-client";
 import type { StatusDef, TaskTag } from "./schema.ts";
 
 /**
@@ -200,6 +201,9 @@ export function mapComment(comment: ClickUpComment, taskId: string, parentCommen
     parentCommentId: parentCommentId ?? null,
     userId: comment.user ? String(comment.user.id) : null,
     text: comment.comment_text ?? comment.comment?.map((c) => c.text ?? "").join("") ?? null,
+    // What the flat text threw away: images, files, links, lists, emphasis, and
+    // the ids behind the @mentions. See renderCommentBody for why markdown.
+    markdown: renderCommentBody(comment.comment),
     resolved: comment.resolved ?? false,
     replyCount: comment.reply_count,
     date: comment.date ?? null,

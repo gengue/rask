@@ -123,10 +123,117 @@ export const taskPage = z.looseObject({
   last_page: z.boolean().nullish(),
 });
 
+/**
+ * Inline and block formatting on a comment run.
+ *
+ * This is a Quill delta wearing ClickUp's clothes: the inline keys style the
+ * run's own text, and the block keys (`list`, `indent`) belong to the line that
+ * the run *ends*, which is why they only ever turn up on a run whose text is
+ * "\n". `block-id` is ClickUp's editor bookkeeping and means nothing to us.
+ */
+const commentAttributes = z.looseObject({
+  bold: z.boolean().nullish(),
+  italic: z.boolean().nullish(),
+  strike: z.boolean().nullish(),
+  code: z.boolean().nullish(),
+  link: z.string().nullish(),
+  /**
+   * "bullet" | "ordered" | "checked" | "unchecked" | "toggled" | "none",
+   * sometimes wrapped in an object of the same name. Both shapes occur in the
+   * Ventura workspace, on adjacent lines of the same comment.
+   */
+  list: z.union([z.string(), z.looseObject({ list: z.string().nullish() })]).nullish(),
+  indent: z.number().nullish(),
+});
+export type ClickUpCommentAttributes = z.infer<typeof commentAttributes>;
+
+/**
+ * A file carried inside a comment: `image` on a pasted screenshot, `frame` on a
+ * screen recording, `attachment` on anything uploaded (which is what older
+ * comments use even for images).
+ *
+ * `url` points at t{team}.p.clickup-attachments.com, which is public and
+ * unsigned but sends no CORS headers, so an `<img src>` works and a `fetch()`
+ * does not. The bare URL is served `Content-Disposition: attachment`; the
+ * `?view=open` variant is served inline. ClickUp precomputes both on
+ * `attachment` as `url` and `url_w_query`, which is where that convention
+ * comes from.
+ */
+const commentFile = z.looseObject({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  title: z.string().nullish(),
+  /** Present on `attachment`. The only reliable way to tell an image from a PDF. */
+  mimetype: z.string().nullish(),
+  url: z.string().nullish(),
+  url_w_query: z.string().nullish(),
+  src: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish(),
+});
+export type ClickUpCommentFile = z.infer<typeof commentFile>;
+
+/**
+ * A table, as Quill stores one: a list of row ids, a list of column ids, and a
+ * `cells` map keyed "row:column", both 1-based. Each cell holds its own little
+ * delta. ClickUp's flattening renders the whole thing as the literal string
+ * "undefined".
+ */
+const commentTable = z.looseObject({
+  rows: z.array(z.unknown()).nullish(),
+  columns: z.array(z.unknown()).nullish(),
+  cells: z
+    .record(
+      z.string(),
+      z.looseObject({
+        content: z
+          .array(z.looseObject({ insert: z.unknown(), attributes: commentAttributes.nullish() }))
+          .nullish(),
+      }),
+    )
+    .nullish(),
+});
+export type ClickUpCommentTable = z.infer<typeof commentTable>;
+
+/**
+ * One run of a comment body.
+ *
+ * The published formatting guide only documents what a client may *send* —
+ * `tag` and `emoticon` — and says nothing about what comes back. These are the
+ * types actually found in the Ventura workspace over ~1,350 comments: plain
+ * text, tag, image, attachment, assignees_tag, people_custom_field_tag,
+ * bookmark, emoticon, link_mention, task_mention, frame, table-embed.
+ *
+ * Loose on purpose, and every renderer falls back to `text`, so a type ClickUp
+ * adds tomorrow degrades to the words it was carrying instead of vanishing.
+ */
+export const clickUpCommentSegment = z.looseObject({
+  /** Absent on a plain run of text. */
+  type: z.string().nullish(),
+  text: z.string().nullish(),
+  /** On `tag`: who was mentioned. ClickUp omits it on roughly one tag in ten. */
+  user: clickUpUser.nullish(),
+  image: commentFile.nullish(),
+  frame: commentFile.nullish(),
+  attachment: commentFile.nullish(),
+  "table-embed": commentTable.nullish(),
+  bookmark: z.looseObject({ url: z.string().nullish() }).nullish(),
+  emoticon: z.looseObject({ code: z.string().nullish(), name: z.string().nullish() }).nullish(),
+  link_mention: z.looseObject({ url: z.string().nullish() }).nullish(),
+  task_mention: z.looseObject({ task_id: z.string().nullish(), team_id: id.nullish() }).nullish(),
+  attributes: commentAttributes.nullish(),
+});
+export type ClickUpCommentSegment = z.infer<typeof clickUpCommentSegment>;
+
 export const clickUpComment = z.looseObject({
   id: z.string(),
-  /** Rich-text segments. `comment_text` is the flattened version we actually store. */
-  comment: z.array(z.looseObject({ text: z.string().nullish() })).nullish(),
+  /**
+   * The rich body. `comment_text` is ClickUp's flattening of it, and the
+   * flattening drops everything that is not a word: an image becomes its file
+   * name and a mention becomes "@Name". `renderCommentBody` turns this into the
+   * markdown the mirror stores alongside the flat text.
+   */
+  comment: z.array(clickUpCommentSegment).nullish(),
   comment_text: z.string().nullish(),
   user: clickUpUser.nullish(),
   assignee: clickUpUser.nullish(),

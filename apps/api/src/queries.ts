@@ -186,6 +186,8 @@ export interface CommentRow {
   id: string;
   parentCommentId: string | null;
   text: string | null;
+  /** The rich body rendered to markdown, or null when ClickUp sent none. */
+  markdown: string | null;
   date: Date | null;
   editedAt: Date | null;
   resolved: boolean;
@@ -219,6 +221,7 @@ export async function listComments(db: Db, taskId: string): Promise<CommentThrea
       id: comments.id,
       parentCommentId: comments.parentCommentId,
       text: comments.text,
+      markdown: comments.markdown,
       date: comments.date,
       editedAt: comments.editedAt,
       resolved: comments.resolved,

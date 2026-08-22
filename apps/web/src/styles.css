@@ -255,9 +255,13 @@
   font-weight: 500;
   white-space: nowrap;
 }
+/* Screenshots come out of ClickUp at whatever the sender's monitor was, so they
+   are capped here and opened full size in the lightbox instead. */
 .prose-rask img {
   border-radius: 6px;
   max-width: 100%;
+  max-height: 340px;
+  cursor: zoom-in;
 }
 .prose-rask table {
   border-collapse: collapse;

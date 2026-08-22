@@ -249,7 +249,11 @@ export async function applyCommentPatch(
         text,
         resolved,
         syncedAt: new Date(),
-        ...(patch.text !== undefined ? { editedAt: new Date() } : {}),
+        // A rewritten body makes the mirrored rich version a description of a
+        // comment that no longer exists. Dropping it falls the UI back to the
+        // text we just wrote; ingest refills it when ClickUp answers. Resolving
+        // alone must leave it, or resolving a screenshot would erase it.
+        ...(patch.text !== undefined ? { editedAt: new Date(), markdown: null } : {}),
       })
       .where(eq(comments.id, comment.id));
 

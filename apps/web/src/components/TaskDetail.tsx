@@ -680,11 +680,13 @@ function CommentItem(props: {
           fallback={
             <>
               {/* Sanitized in renderMarkdown. Comment bodies are other
-                  people's input and never reach the DOM raw. */}
+                  people's input and never reach the DOM raw. The rich body
+                  falls back to the flat text on a comment ClickUp has not
+                  answered about yet. */}
               <div
                 class="prose-rask selectable text-[13px]"
                 classList={{ "opacity-60": props.comment.resolved }}
-                innerHTML={renderMarkdown(props.comment.text)}
+                innerHTML={renderMarkdown(props.comment.markdown ?? props.comment.text)}
               />
 
               <Show when={!pending()}>
