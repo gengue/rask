@@ -184,10 +184,16 @@ export function mapList(
   };
 }
 
-export function mapComment(comment: ClickUpComment, taskId: string) {
+/**
+ * `parentCommentId` comes from the caller, not the payload: replies are read
+ * from `GET /comment/{id}/reply`, and ClickUp does not echo the parent back on
+ * them. The fetch context is the only place that knows.
+ */
+export function mapComment(comment: ClickUpComment, taskId: string, parentCommentId?: string) {
   return {
     id: comment.id,
     taskId,
+    parentCommentId: parentCommentId ?? null,
     userId: comment.user ? String(comment.user.id) : null,
     text: comment.comment_text ?? comment.comment?.map((c) => c.text ?? "").join("") ?? null,
     resolved: comment.resolved ?? false,

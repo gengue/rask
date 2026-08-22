@@ -39,15 +39,21 @@ function devLogin(): Plugin {
   };
 }
 
+// Overridable so several checkouts can run side by side without fighting over
+// ports or over each other's API.
+const WEB_PORT = Number(process.env.WEB_PORT ?? 5173);
+const API_ORIGIN = process.env.API_ORIGIN ?? "http://localhost:3000";
+
 export default defineConfig({
   plugins: [solid(), tailwindcss(), devLogin()],
   server: {
-    port: 5173,
+    port: WEB_PORT,
+    strictPort: true,
     // Same-origin in dev, exactly like production behind Coolify. Keeps the
     // session cookie SameSite=Lax instead of forcing SameSite=None.
     proxy: {
-      "/api": { target: "http://localhost:3000", changeOrigin: true },
-      "/auth": { target: "http://localhost:3000", changeOrigin: true },
+      "/api": { target: API_ORIGIN, changeOrigin: true },
+      "/auth": { target: API_ORIGIN, changeOrigin: true },
     },
   },
   build: { target: "es2022", sourcemap: true },

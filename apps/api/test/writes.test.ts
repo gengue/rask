@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createDb, outbox, taskAssignees, tasks, users } from "@rask/schema";
-import { eq, inArray } from "drizzle-orm";
-import { applyTaskPatch, createTask } from "../src/writes.ts";
+import { comments, createDb, outbox, taskAssignees, tasks, users } from "@rask/schema";
+import { asc, eq, inArray } from "drizzle-orm";
+import {
+  applyCommentPatch,
+  applyTaskPatch,
+  createComment,
+  createTask,
+  deleteComment,
+  discardPendingComment,
+  findComment,
+} from "../src/writes.ts";
 
 /**
  * The write path against a real database.
@@ -124,5 +132,145 @@ describe("createTask", () => {
     expect(rows[0]?.payload).toMatchObject({ listId: "writes-test-list", name: "brand new" });
 
     await db.delete(tasks).where(eq(tasks.id, id));
+  });
+});
+
+/**
+ * Comment writes go through the same mirror-then-queue transaction as tasks,
+ * with two wrinkles Postgres is the only place to check: an optimistic reply
+ * has to move its parent's reply count, and ClickUp's PUT blanks whatever the
+ * body leaves out, so the queued payload has to hold the *resulting* comment
+ * rather than the fields the caller changed.
+ */
+describe("comments", () => {
+  const post = (text: string, clientId: string, parentId?: string) =>
+    createComment(db, {
+      taskId: TASK,
+      userId: AUTHOR,
+      comment: { text, clientId, parentId },
+    });
+
+  async function seedComment(id: string, over: Partial<typeof comments.$inferInsert> = {}) {
+    await db
+      .insert(comments)
+      .values({ id, taskId: TASK, userId: AUTHOR, text: "original", date: new Date(), ...over })
+      .onConflictDoNothing();
+    const found = await findComment(db, id);
+    if (!found) throw new Error(`seed comment ${id} missing`);
+    return found;
+  }
+
+  test("posting inserts a placeholder the browser can already see", async () => {
+    const id = await post("first", "c-1");
+    expect(id).toBe("tmp_c-1");
+
+    const [row] = await db.select().from(comments).where(eq(comments.id, id));
+    expect(row?.text).toBe("first");
+    // Authorship is what later decides who may edit it, so it is set now and
+    // not left for ClickUp to fill in.
+    expect(row?.userId).toBe(AUTHOR);
+    expect(row?.parentCommentId).toBeNull();
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("create_comment");
+    expect(rows[0]?.entityId).toBe(TASK);
+    expect(rows[0]?.clientId).toBe("c-1");
+    expect(rows[0]?.payload).toEqual({ taskId: TASK, text: "first", parentId: null });
+  });
+
+  test("a reply carries its parent and bumps the thread's count", async () => {
+    const parent = await seedComment("parent-1");
+    const id = await post("me too", "c-2", parent.id);
+
+    const [reply] = await db.select().from(comments).where(eq(comments.id, id));
+    expect(reply?.parentCommentId).toBe(parent.id);
+
+    const [after] = await db.select().from(comments).where(eq(comments.id, parent.id));
+    expect(after?.replyCount).toBe(1);
+
+    const rows = await queued();
+    expect(rows[0]?.payload).toMatchObject({ parentId: parent.id });
+  });
+
+  test("resolving queues the body unchanged, because ClickUp would blank it", async () => {
+    const comment = await seedComment("resolve-1");
+    await applyCommentPatch(db, { comment, userId: AUTHOR, patch: { resolved: true } });
+
+    const [row] = await db.select().from(comments).where(eq(comments.id, comment.id));
+    expect(row?.resolved).toBe(true);
+    expect(row?.text).toBe("original");
+    // Resolving is not editing, so it leaves no "edited" mark.
+    expect(row?.editedAt).toBeNull();
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("update_comment");
+    expect(rows[0]?.entityId).toBe(TASK);
+    expect(rows[0]?.payload).toEqual({
+      taskId: TASK,
+      commentId: comment.id,
+      parentId: null,
+      text: "original",
+      resolved: true,
+    });
+  });
+
+  test("editing keeps the resolved flag and marks the body as edited", async () => {
+    const comment = await seedComment("edit-1", { resolved: true });
+    await applyCommentPatch(db, { comment, userId: AUTHOR, patch: { text: "rewritten" } });
+
+    const [row] = await db.select().from(comments).where(eq(comments.id, comment.id));
+    expect(row?.text).toBe("rewritten");
+    expect(row?.resolved).toBe(true);
+    expect(row?.editedAt).not.toBeNull();
+
+    const rows = await queued();
+    expect(rows[0]?.payload).toMatchObject({ text: "rewritten", resolved: true });
+  });
+
+  test("deleting a comment takes its replies with it", async () => {
+    const parent = await seedComment("delete-1");
+    await post("reply a", "c-3", parent.id);
+    await post("reply b", "c-4", parent.id);
+    await db.delete(outbox).where(eq(outbox.userId, AUTHOR));
+
+    await deleteComment(db, { comment: parent, userId: AUTHOR });
+
+    const left = await db
+      .select({ id: comments.id })
+      .from(comments)
+      .where(eq(comments.taskId, TASK))
+      .orderBy(asc(comments.id));
+    expect(left).toHaveLength(0);
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("delete_comment");
+    expect(rows[0]?.payload).toEqual({ taskId: TASK, commentId: parent.id, parentId: null });
+  });
+
+  test("deleting a reply gives the count back", async () => {
+    const parent = await seedComment("delete-2");
+    const replyId = await post("mistake", "c-5", parent.id);
+    const reply = await findComment(db, replyId);
+    if (!reply) throw new Error("reply missing");
+
+    await deleteComment(db, { comment: reply, userId: AUTHOR });
+
+    const [after] = await db.select().from(comments).where(eq(comments.id, parent.id));
+    expect(after?.replyCount).toBe(0);
+  });
+
+  test("discarding an unsent comment withdraws the queued write instead of queueing another", async () => {
+    const parent = await seedComment("discard-1");
+    const id = await post("never mind", "c-6", parent.id);
+    const pending = await findComment(db, id);
+    if (!pending) throw new Error("placeholder missing");
+
+    await discardPendingComment(db, { comment: pending, userId: AUTHOR });
+
+    expect(await findComment(db, id)).toBeNull();
+    const [after] = await db.select().from(comments).where(eq(comments.id, parent.id));
+    expect(after?.replyCount).toBe(0);
+    // ClickUp never heard about it, so nothing is left to tell it about.
+    expect(await queued()).toHaveLength(0);
   });
 });

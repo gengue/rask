@@ -296,6 +296,19 @@ export const taskCustomValues = pgTable(
 
 // --- Comments -------------------------------------------------------------
 
+/**
+ * Task comments and their replies, in one table.
+ *
+ * ClickUp threads are exactly one level deep: a comment has replies, a reply
+ * has none. Storing both here with a self-reference keeps the ingest path,
+ * the write path and the detail query single-shaped, and the "one level"
+ * rule lives in the UI where it is visible rather than in two tables.
+ *
+ * `parentCommentId` is deliberately not a foreign key onto this table's own
+ * id. Replies arrive from `GET /comment/{id}/reply`, which can land before the
+ * parent's page of `GET /task/{id}/comment` does, and a partial resync must
+ * never be blocked by arrival order.
+ */
 export const comments = pgTable(
   "comments",
   {
@@ -303,20 +316,40 @@ export const comments = pgTable(
     taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
+    /** Null for a top-level comment, the parent's id for a threaded reply. */
+    parentCommentId: text("parent_comment_id"),
+    /** Who wrote it. This is what decides who may edit or delete it. */
     userId: text("user_id"),
     /** Flattened `comment_text`. Rich-text segments are not mirrored. */
     text: text("text"),
     resolved: boolean("resolved").notNull().default(false),
     replyCount: integer("reply_count").notNull().default(0),
     date: ts("date"),
+    /**
+     * When we last rewrote the body. Local knowledge: ClickUp's v2 comment
+     * payload has no edit timestamp, so this is only ever set by our own write
+     * path and never overwritten by ingest. It exists so a body that no longer
+     * matches what people replied to says so.
+     */
+    editedAt: ts("edited_at"),
     syncedAt: ts("synced_at").notNull().defaultNow(),
   },
-  (t) => [index("comments_task_idx").on(t.taskId, t.date)],
+  (t) => [
+    index("comments_task_idx").on(t.taskId, t.date),
+    // The detail query splits a task's comments into threads by this column.
+    index("comments_parent_idx").on(t.parentCommentId, t.date),
+  ],
 );
 
 // --- Write path -----------------------------------------------------------
 
-export type OutboxOp = "update_task" | "create_task" | "create_comment" | "set_custom_field";
+export type OutboxOp =
+  | "update_task"
+  | "create_task"
+  | "create_comment"
+  | "update_comment"
+  | "delete_comment"
+  | "set_custom_field";
 
 export type OutboxStatus = "pending" | "sending" | "done" | "failed";
 
@@ -335,7 +368,12 @@ export const outbox = pgTable(
     /** Whose token sends it. ClickUp attributes the change to this person. */
     userId: text("user_id").notNull(),
     op: text("op").$type<OutboxOp>().notNull(),
-    /** The ClickUp id being written to. Null for creates until ClickUp assigns one. */
+    /**
+     * The task this write belongs to. Null for creates until ClickUp assigns
+     * one. Comment ops put the task id here too, not the comment id: the task
+     * is what gets refetched to repair the mirror after a rejection, and it is
+     * what the API needs in order to push the repaired detail to the author.
+     */
     entityId: text("entity_id"),
     payload: jsonb<Record<string, unknown>>("payload").notNull(),
     /**

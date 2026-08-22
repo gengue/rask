@@ -52,8 +52,11 @@ export interface Task {
 
 export interface Comment {
   id: string;
+  parentCommentId: string | null;
   text: string | null;
   date: string | null;
+  /** Set only when Rask rewrote the body; ClickUp has no edit timestamp. */
+  editedAt: string | null;
   resolved: boolean;
   replyCount: number;
   userId: string | null;
@@ -61,6 +64,11 @@ export interface Comment {
   initials: string | null;
   color: string | null;
   avatar: string | null;
+}
+
+/** A top-level comment with its thread. ClickUp threads are one level deep. */
+export interface CommentThread extends Comment {
+  replies: Comment[];
 }
 
 export interface CustomField {
@@ -78,7 +86,7 @@ export interface TaskDetail extends Task {
   timeEstimate: number | null;
   points: number | null;
   dateClosed: string | null;
-  comments: Comment[];
+  comments: CommentThread[];
   customFields: CustomField[];
   statuses: StatusDef[];
 }
@@ -185,11 +193,24 @@ export const api = {
   createTask: (input: Record<string, unknown>) =>
     request<TaskDetail>("/api/tasks", { method: "POST", body: JSON.stringify(input) }),
 
-  comment: (taskId: string, text: string) =>
-    request<{ ok: true }>(`/api/tasks/${taskId}/comments`, {
+  /**
+   * Every comment write answers with the whole task detail, because the task
+   * collection carries no comments and there is nothing to patch into.
+   */
+  comment: (taskId: string, input: { text: string; parentId?: string; clientId: string }) =>
+    request<TaskDetail>(`/api/tasks/${taskId}/comments`, {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(input),
     }),
+
+  patchComment: (commentId: string, patch: { text?: string; resolved?: boolean }) =>
+    request<TaskDetail>(`/api/comments/${commentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  deleteComment: (commentId: string) =>
+    request<TaskDetail>(`/api/comments/${commentId}`, { method: "DELETE" }),
 
   setField: (taskId: string, fieldId: string, value: unknown) =>
     request<{ ok: true }>(`/api/tasks/${taskId}/fields/${fieldId}`, {

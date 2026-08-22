@@ -1,5 +1,5 @@
 import type { ClickUpTask } from "@rask/clickup-client";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "./db.ts";
 import {
   type MappedCustomField,
@@ -258,13 +258,81 @@ async function replaceCustomValues(
   }
 }
 
+type CommentPayload = Parameters<typeof mapComment>[0];
+
+/**
+ * Top-level comments for a task.
+ *
+ * Deliberately does not delete mirrored comments that are missing from the
+ * batch: this endpoint is paginated and the caller decides how many pages to
+ * walk, so "absent" and "older than what we asked for" look identical here.
+ */
 export async function ingestComments(
   db: Db,
   taskId: string,
-  batch: Array<Parameters<typeof mapComment>[0]>,
+  batch: CommentPayload[],
 ): Promise<void> {
   if (batch.length === 0) return;
-  const mapped = batch.map((c) => mapComment(c, taskId));
+  await upsertCommentAuthors(db, batch);
+  await upsertComments(
+    db,
+    batch.map((c) => mapComment(c, taskId)),
+  );
+}
+
+/**
+ * The replies under one comment.
+ *
+ * `GET /comment/{id}/reply` is not paginated, so unlike the task's comment
+ * list this batch is the whole thread. That is what makes it safe to drop
+ * replies that are no longer there and to trust its length as the parent's
+ * reply count, which saves refetching the task's comment list just to learn a
+ * number we already know.
+ */
+export async function ingestReplies(
+  db: Db,
+  taskId: string,
+  parentCommentId: string,
+  batch: CommentPayload[],
+): Promise<void> {
+  await upsertCommentAuthors(db, batch);
+  await upsertComments(
+    db,
+    batch.map((c) => mapComment(c, taskId, parentCommentId)),
+  );
+
+  const keep = batch.map((c) => c.id);
+  await db
+    .delete(comments)
+    .where(
+      and(
+        eq(comments.parentCommentId, parentCommentId),
+        keep.length > 0 ? notInArray(comments.id, keep) : undefined,
+      ),
+    );
+
+  await db
+    .update(comments)
+    .set({ replyCount: batch.length, syncedAt: new Date() })
+    .where(eq(comments.id, parentCommentId));
+}
+
+async function upsertComments(db: Db, rows: ReturnType<typeof mapComment>[]): Promise<void> {
+  if (rows.length === 0) return;
+  await db
+    .insert(comments)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: comments.id,
+      set: {
+        ...pick(["text", "resolved", "replyCount", "date"], { syncedAt: true }),
+        // A reply re-read as part of some other batch must not lose its thread.
+        parentCommentId: sql`coalesce(excluded.parent_comment_id, ${comments.parentCommentId})`,
+      },
+    });
+}
+
+async function upsertCommentAuthors(db: Db, batch: CommentPayload[]): Promise<void> {
   await upsertUsers(
     db,
     batch
@@ -278,13 +346,6 @@ export async function ingestComments(
         profilePicture: c.user?.profilePicture ?? null,
       })),
   );
-  await db
-    .insert(comments)
-    .values(mapped)
-    .onConflictDoUpdate({
-      target: comments.id,
-      set: pick(["text", "resolved", "replyCount", "date"], { syncedAt: true }),
-    });
 }
 
 /** Marks a task gone without dropping the row, so open clients can reconcile. */

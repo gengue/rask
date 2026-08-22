@@ -161,23 +161,7 @@ export async function getTaskDetail(db: Db, taskId: string) {
   if (!task) return null;
 
   const [taskComments, fields, statuses] = await Promise.all([
-    db
-      .select({
-        id: comments.id,
-        text: comments.text,
-        date: comments.date,
-        resolved: comments.resolved,
-        replyCount: comments.replyCount,
-        userId: comments.userId,
-        username: users.username,
-        initials: users.initials,
-        color: users.color,
-        avatar: users.profilePicture,
-      })
-      .from(comments)
-      .leftJoin(users, eq(users.id, comments.userId))
-      .where(eq(comments.taskId, taskId))
-      .orderBy(asc(comments.date)),
+    listComments(db, taskId),
 
     db
       .select({
@@ -196,6 +180,76 @@ export async function getTaskDetail(db: Db, taskId: string) {
   ]);
 
   return { ...task, comments: taskComments, customFields: fields, statuses };
+}
+
+export interface CommentRow {
+  id: string;
+  parentCommentId: string | null;
+  text: string | null;
+  date: Date | null;
+  editedAt: Date | null;
+  resolved: boolean;
+  replyCount: number;
+  userId: string | null;
+  username: string | null;
+  initials: string | null;
+  color: string | null;
+  avatar: string | null;
+}
+
+export interface CommentThread extends CommentRow {
+  replies: CommentRow[];
+}
+
+/**
+ * A task's conversation, threaded.
+ *
+ * One query for the whole tree rather than one per thread: a task has tens of
+ * comments, not thousands, and the nesting is a single level, so grouping in
+ * memory costs less than the round trips would.
+ *
+ * A reply whose parent is not mirrored yet is promoted to the top level rather
+ * than dropped. Comments are paginated and threads are not, so that ordering
+ * is reachable, and a comment that exists but is invisible is worse than one
+ * shown in the wrong place.
+ */
+export async function listComments(db: Db, taskId: string): Promise<CommentThread[]> {
+  const rows = await db
+    .select({
+      id: comments.id,
+      parentCommentId: comments.parentCommentId,
+      text: comments.text,
+      date: comments.date,
+      editedAt: comments.editedAt,
+      resolved: comments.resolved,
+      replyCount: comments.replyCount,
+      userId: comments.userId,
+      username: users.username,
+      initials: users.initials,
+      color: users.color,
+      avatar: users.profilePicture,
+    })
+    .from(comments)
+    .leftJoin(users, eq(users.id, comments.userId))
+    .where(eq(comments.taskId, taskId))
+    .orderBy(asc(comments.date));
+
+  const threads = new Map<string, CommentThread>();
+  for (const row of rows) {
+    if (!row.parentCommentId) threads.set(row.id, { ...row, replies: [] });
+  }
+  for (const row of rows) {
+    if (!row.parentCommentId) continue;
+    const parent = threads.get(row.parentCommentId);
+    if (parent) parent.replies.push(row);
+    else threads.set(row.id, { ...row, replies: [] });
+  }
+
+  return [...threads.values()].sort(byDate);
+}
+
+function byDate(a: { date: Date | null }, b: { date: Date | null }): number {
+  return (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0);
 }
 
 /** A list's own status set if it overrides, otherwise its Space's. */

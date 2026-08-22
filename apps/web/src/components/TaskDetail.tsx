@@ -1,9 +1,27 @@
-import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
-import { type Assignee, api, type Task } from "../lib/api.ts";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import {
+  type Assignee,
+  api,
+  type Comment,
+  type CommentThread,
+  type Task,
+  type TaskDetail as TaskDetailData,
+} from "../lib/api.ts";
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
-import { members } from "../lib/session.ts";
+import { me, members } from "../lib/session.ts";
+import { pushedDetail } from "../lib/sse.ts";
 import { tasks } from "../lib/store.ts";
+import { pushToast } from "../lib/toast.ts";
 import { setStatusRequest } from "../lib/view.ts";
 import { Avatar } from "./Avatar.tsx";
 import { MarkdownEditor } from "./MarkdownEditor.tsx";
@@ -55,6 +73,28 @@ export function TaskDetail(props: {
     const row = tasks.get(props.taskId);
     if (row && detail() && row.dateUpdated !== detail()?.dateUpdated) void refetch();
   });
+
+  // `GET /tasks/:id` refreshes from ClickUp in the background and pushes the
+  // result back over SSE. This is where that push lands.
+  createEffect(() => {
+    const pushed = pushedDetail();
+    if (pushed?.id === props.taskId) mutate(pushed);
+  });
+
+  /**
+   * Keeps the open conversation moving.
+   *
+   * Comments are the one part of a task that changes while someone is staring
+   * at it, and the list poll that carries everything else runs every five
+   * minutes. Asking again costs the viewer's own token two ClickUp requests a
+   * minute out of its own hundred, and it scales with people looking rather
+   * than with the seventeen thousand tasks nobody has open. A hidden tab is
+   * not looking, so it does not ask.
+   */
+  const timer = setInterval(() => {
+    if (document.visibilityState === "visible") void refetch();
+  }, 30_000);
+  onCleanup(() => clearInterval(timer));
 
   return (
     <aside
@@ -236,79 +276,11 @@ export function TaskDetail(props: {
               </Show>
             </section>
 
-            <section class="border-line/70 border-t px-5 py-4">
-              <h3 class="pb-3 font-medium text-[11px] text-ink-4 uppercase tracking-[0.04em]">
-                Comments
-              </h3>
-
-              <Show
-                when={task().comments.length > 0}
-                fallback={<p class="text-ink-4 text-xs">No comments yet.</p>}
-              >
-                <ol class="space-y-3.5">
-                  <For each={task().comments}>
-                    {(comment) => (
-                      <li class="flex gap-2.5">
-                        <Avatar
-                          user={{
-                            id: comment.userId ?? "",
-                            username: comment.username,
-                            initials: comment.initials,
-                            color: comment.color,
-                            avatar: comment.avatar,
-                          }}
-                          size={20}
-                        />
-                        <div class="min-w-0 flex-1">
-                          <div class="flex items-baseline gap-2">
-                            <span class="font-medium text-[13px] text-ink">
-                              {comment.username ?? "Someone"}
-                            </span>
-                            <span class="text-[11px] text-ink-4">
-                              {formatRelative(comment.date)}
-                            </span>
-                          </div>
-                          <div
-                            class="prose-rask selectable text-[13px]"
-                            innerHTML={renderMarkdown(comment.text)}
-                          />
-                        </div>
-                      </li>
-                    )}
-                  </For>
-                </ol>
-              </Show>
-
-              <CommentBox
-                taskId={props.taskId}
-                onSent={(text) => {
-                  // Show it immediately; the worker's next sync replaces this
-                  // with ClickUp's real comment, id and all.
-                  mutate((current) =>
-                    current
-                      ? {
-                          ...current,
-                          comments: [
-                            ...current.comments,
-                            {
-                              id: `tmp_${Date.now()}`,
-                              text,
-                              date: new Date().toISOString(),
-                              resolved: false,
-                              replyCount: 0,
-                              userId: null,
-                              username: "You",
-                              initials: null,
-                              color: null,
-                              avatar: null,
-                            },
-                          ],
-                        }
-                      : current,
-                  );
-                }}
-              />
-            </section>
+            <Comments
+              taskId={props.taskId}
+              threads={task().comments}
+              onDetail={(next) => mutate(next)}
+            />
           </div>
         )}
       </Show>
@@ -443,52 +415,311 @@ function TitleField(props: { value: string; onCommit: (value: string) => void })
   );
 }
 
-function CommentBox(props: { taskId: string; onSent: (text: string) => void }): JSX.Element {
-  const [text, setText] = createSignal("");
-  const [sending, setSending] = createSignal(false);
+/**
+ * The conversation.
+ *
+ * Every write here answers with the whole task detail, so the panel never has
+ * to reconcile a comment list by hand: it hands the response straight back to
+ * the resource. The optimism that matters happens twice below this — the
+ * server writes the mirror before it answers, and the outbox reverts it if
+ * ClickUp says no.
+ */
+function Comments(props: {
+  taskId: string;
+  threads: CommentThread[];
+  onDetail: (detail: TaskDetailData) => void;
+}): JSX.Element {
+  const [replyingTo, setReplyingTo] = createSignal<string | null>(null);
 
-  const send = async () => {
-    const value = text().trim();
-    if (!value || sending()) return;
-    setSending(true);
-    setText("");
-    props.onSent(value);
+  /** Replies are comments. A thread count next to the word "Comments" would lie. */
+  const total = () => props.threads.reduce((n, thread) => n + 1 + thread.replies.length, 0);
+
+  const post = async (text: string, parentId?: string) => {
+    const clientId = crypto.randomUUID();
     try {
-      await api.comment(props.taskId, value);
-    } finally {
-      setSending(false);
+      props.onDetail(await api.comment(props.taskId, { text, parentId, clientId }));
+    } catch (error) {
+      pushToast({ tone: "error", title: "Could not post the comment", detail: message(error) });
     }
   };
 
   return (
-    <div class="mt-4 rounded-lg border border-line bg-elevated/70 focus-within:border-line-strong">
+    <section class="border-line/70 border-t px-5 py-4">
+      <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-[11px] text-ink-4 uppercase tracking-[0.04em]">
+        Comments
+        <Show when={total() > 0}>
+          <span class="tabular-nums lowercase">{total()}</span>
+        </Show>
+      </h3>
+
+      <Show
+        when={props.threads.length > 0}
+        fallback={<p class="text-ink-4 text-xs">No comments yet.</p>}
+      >
+        <ol class="space-y-4">
+          <For each={props.threads}>
+            {(thread) => (
+              <li>
+                <CommentItem
+                  comment={thread}
+                  taskId={props.taskId}
+                  onDetail={props.onDetail}
+                  onReply={() => setReplyingTo(replyingTo() === thread.id ? null : thread.id)}
+                />
+
+                <Show when={thread.replies.length > 0 || replyingTo() === thread.id}>
+                  {/* One indent, ever. A rail carries the eye down the thread
+                      without a staircase forming under a long conversation. */}
+                  <div class="mt-3 ml-2.5 space-y-3 border-line border-l pl-3.5">
+                    <For each={thread.replies}>
+                      {(reply) => (
+                        <CommentItem
+                          comment={reply}
+                          taskId={props.taskId}
+                          onDetail={props.onDetail}
+                        />
+                      )}
+                    </For>
+
+                    <Show when={replyingTo() === thread.id}>
+                      <Composer
+                        placeholder="Reply…"
+                        submitLabel="Reply"
+                        autofocus
+                        onCancel={() => setReplyingTo(null)}
+                        onSubmit={(text) => {
+                          setReplyingTo(null);
+                          void post(text, thread.id);
+                        }}
+                      />
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* Replies live behind their own endpoint, so a fresh thread is
+                    a count before it is a conversation. Say so rather than
+                    render an empty thread that looks complete. */}
+                <Show when={thread.replyCount > thread.replies.length}>
+                  <p class="mt-2 ml-6 text-[11px] text-ink-4">
+                    Syncing {thread.replyCount - thread.replies.length} more{" "}
+                    {thread.replyCount - thread.replies.length === 1 ? "reply" : "replies"}…
+                  </p>
+                </Show>
+              </li>
+            )}
+          </For>
+        </ol>
+      </Show>
+
+      <div class="mt-4">
+        <Composer
+          placeholder="Leave a comment…"
+          submitLabel="Comment"
+          onSubmit={(text) => void post(text)}
+        />
+      </div>
+    </section>
+  );
+}
+
+/** One comment, top level or reply. The only difference is who can reply to it. */
+function CommentItem(props: {
+  comment: Comment;
+  taskId: string;
+  onDetail: (detail: TaskDetailData) => void;
+  onReply?: () => void;
+}): JSX.Element {
+  const [editing, setEditing] = createSignal(false);
+  const pending = () => props.comment.id.startsWith("tmp_");
+  const mine = () => props.comment.userId != null && props.comment.userId === me()?.id;
+
+  const write = async (run: () => Promise<TaskDetailData>, what: string) => {
+    try {
+      props.onDetail(await run());
+    } catch (error) {
+      pushToast({ tone: "error", title: `Could not ${what}`, detail: message(error) });
+    }
+  };
+
+  return (
+    <div class="group flex gap-2.5" classList={{ "opacity-50": pending() }}>
+      <Avatar
+        user={{
+          id: props.comment.userId ?? "",
+          username: props.comment.username,
+          initials: props.comment.initials,
+          color: props.comment.color,
+          avatar: props.comment.avatar,
+        }}
+        size={20}
+      />
+
+      <div class="min-w-0 flex-1">
+        <div class="flex items-baseline gap-2">
+          <span class="font-medium text-[13px] text-ink">
+            {props.comment.username ?? "Someone"}
+          </span>
+          <span class="text-[11px] text-ink-4">
+            {pending() ? "Sending…" : formatRelative(props.comment.date)}
+          </span>
+          <Show when={props.comment.editedAt}>
+            <span class="text-[11px] text-ink-4" title="Edited in Rask">
+              edited
+            </span>
+          </Show>
+          <Show when={props.comment.resolved}>
+            <span class="rounded bg-white/[0.05] px-1.5 text-[10px] text-ink-3 uppercase tracking-[0.04em]">
+              Resolved
+            </span>
+          </Show>
+        </div>
+
+        <Show
+          when={editing()}
+          fallback={
+            <>
+              {/* Sanitized in renderMarkdown. Comment bodies are other
+                  people's input and never reach the DOM raw. */}
+              <div
+                class="prose-rask selectable text-[13px]"
+                classList={{ "opacity-60": props.comment.resolved }}
+                innerHTML={renderMarkdown(props.comment.text)}
+              />
+
+              <Show when={!pending()}>
+                <div class="-ml-1 flex items-center gap-1 pt-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                  <Show when={props.onReply}>
+                    <CommentAction label="Reply" onClick={() => props.onReply?.()} />
+                  </Show>
+                  <CommentAction
+                    label={props.comment.resolved ? "Unresolve" : "Resolve"}
+                    onClick={() =>
+                      void write(
+                        () =>
+                          api.patchComment(props.comment.id, {
+                            resolved: !props.comment.resolved,
+                          }),
+                        "resolve the comment",
+                      )
+                    }
+                  />
+                  <Show when={mine()}>
+                    <CommentAction label="Edit" onClick={() => setEditing(true)} />
+                    <CommentAction
+                      label="Delete"
+                      onClick={() =>
+                        void write(() => api.deleteComment(props.comment.id), "delete the comment")
+                      }
+                    />
+                  </Show>
+                </div>
+              </Show>
+            </>
+          }
+        >
+          <div class="pt-1">
+            <Composer
+              initial={props.comment.text ?? ""}
+              placeholder="Edit the comment…"
+              submitLabel="Save"
+              autofocus
+              onCancel={() => setEditing(false)}
+              onSubmit={(text) => {
+                setEditing(false);
+                void write(() => api.patchComment(props.comment.id, { text }), "edit the comment");
+              }}
+            />
+          </div>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+function CommentAction(props: { label: string; onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      class="rounded-[4px] px-1 py-0.5 text-[11px] text-ink-4 hover:bg-white/[0.06] hover:text-ink-2"
+    >
+      {props.label}
+    </button>
+  );
+}
+
+/**
+ * The one text box behind writing, replying and editing.
+ *
+ * Keydown is stopped here, not filtered upstairs: the shell owns a single
+ * global listener and `j`, `k` and `c` are all letters people type.
+ */
+function Composer(props: {
+  initial?: string;
+  placeholder: string;
+  submitLabel: string;
+  autofocus?: boolean;
+  onSubmit: (text: string) => void;
+  onCancel?: () => void;
+}): JSX.Element {
+  const [text, setText] = createSignal(props.initial ?? "");
+  let box!: HTMLTextAreaElement;
+
+  const submit = () => {
+    const value = text().trim();
+    if (!value) return;
+    setText(props.initial === undefined ? "" : value);
+    props.onSubmit(value);
+  };
+
+  // Focused by hand, not by the attribute. `autofocus` is ignored when the
+  // element is inserted while something else already has focus, which is
+  // always the case here: the button that opened this box does. Every
+  // keystroke that misses the box reaches the shell's shortcuts instead.
+  onMount(() => {
+    if (props.autofocus) box.focus();
+  });
+
+  return (
+    <div class="rounded-lg border border-line bg-elevated/70 focus-within:border-line-strong">
       <textarea
+        ref={box}
         rows={2}
         value={text()}
         onInput={(event) => setText(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            void send();
+            submit();
+          }
+          if (event.key === "Escape" && props.onCancel) {
+            event.preventDefault();
+            props.onCancel();
           }
           event.stopPropagation();
         }}
-        placeholder="Leave a comment…"
+        placeholder={props.placeholder}
         class="w-full resize-none px-3 py-2 text-[13px]"
       />
       <div class="flex items-center justify-between px-3 pb-2">
-        <span class="text-[11px] text-ink-4">⌘↵ to send</span>
+        <span class="text-[11px] text-ink-4">
+          ⌘↵ to send{props.onCancel ? " · esc to cancel" : ""}
+        </span>
         <button
           type="button"
           disabled={!text().trim()}
-          onClick={() => void send()}
+          onClick={submit}
           class="rounded-[5px] bg-accent px-2.5 py-1 font-medium text-[12px] text-white disabled:opacity-30"
         >
-          Comment
+          {props.submitLabel}
         </button>
       </div>
     </div>
   );
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Custom field values arrive raw. Only the types worth rendering get special care. */

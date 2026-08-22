@@ -20,7 +20,9 @@ import {
   clickUpTeam,
   clickUpUser,
   clickUpWebhook,
+  createdComment,
   taskPage,
+  threadedCommentCreated,
 } from "./schemas.ts";
 
 export const CLICKUP_API_BASE = "https://api.clickup.com/api";
@@ -368,22 +370,97 @@ export class ClickUpClient {
     ).then((r) => r.comments);
   }
 
+  /**
+   * Every comment on a task, oldest page last.
+   *
+   * ClickUp pages this endpoint with `start` (the `date` of the oldest comment
+   * you already have) and `start_id` (its id) rather than a page number, so it
+   * cannot be walked in parallel. `maxPages` is the caller's budget: a task
+   * with a thousand comments is not worth forty requests to mirror in full.
+   */
+  async *iterateComments(
+    taskId: string,
+    options: { maxPages?: number } = {},
+  ): AsyncGenerator<ClickUpComment[]> {
+    const maxPages = options.maxPages ?? 4;
+    let cursor: { start: number; startId: string } | undefined;
+
+    for (let page = 0; page < maxPages; page++) {
+      const batch = await this.getComments(taskId, cursor);
+      if (batch.length === 0) return;
+      yield batch;
+
+      // Comments come back newest first, so the cursor is the last element.
+      const oldest = batch[batch.length - 1];
+      if (!oldest?.date) return;
+      cursor = { start: oldest.date.getTime(), startId: oldest.id };
+    }
+  }
+
+  /** The replies under one comment. Not paginated: ClickUp returns the thread. */
+  getThreadedComments(commentId: string): Promise<ClickUpComment[]> {
+    return this.request(
+      z.looseObject({ comments: z.array(clickUpComment) }),
+      "GET",
+      `/v2/comment/${commentId}/reply`,
+    ).then((r) => r.comments);
+  }
+
   createComment(
     taskId: string,
     input: { text: string; assignee?: number; notifyAll?: boolean },
   ): Promise<{ id: string }> {
-    return this.request(
-      z.looseObject({ id: z.union([z.string(), z.number()]).transform(String) }),
-      "POST",
-      `/v2/task/${taskId}/comment`,
-      {
-        body: {
-          comment_text: input.text,
-          assignee: input.assignee,
-          notify_all: input.notifyAll ?? false,
-        },
+    return this.request(createdComment, "POST", `/v2/task/${taskId}/comment`, {
+      body: {
+        comment_text: input.text,
+        assignee: input.assignee,
+        notify_all: input.notifyAll ?? false,
       },
-    );
+    });
+  }
+
+  /**
+   * Replies to a comment. Same body as a task comment.
+   *
+   * The spec documents an empty object as the response where the task-comment
+   * version returns an id, so the id is optional here and callers refetch the
+   * thread instead of trusting it.
+   */
+  createThreadedComment(
+    commentId: string,
+    input: { text: string; assignee?: number; notifyAll?: boolean },
+  ): Promise<{ id?: string }> {
+    return this.request(threadedCommentCreated, "POST", `/v2/comment/${commentId}/reply`, {
+      body: {
+        comment_text: input.text,
+        assignee: input.assignee,
+        notify_all: input.notifyAll ?? false,
+      },
+    });
+  }
+
+  /**
+   * Edits a comment. Also how a comment is resolved or assigned.
+   *
+   * ClickUp treats `comment_text` and `resolved` as required, so a caller that
+   * only wants to resolve still has to send the body back unchanged. Sending a
+   * partial body silently blanks the comment.
+   */
+  async updateComment(
+    commentId: string,
+    input: { text: string; resolved: boolean; assignee?: number },
+  ): Promise<void> {
+    await this.request(z.unknown(), "PUT", `/v2/comment/${commentId}`, {
+      body: {
+        comment_text: input.text,
+        resolved: input.resolved,
+        assignee: input.assignee,
+      },
+    });
+  }
+
+  async deleteComment(commentId: string): Promise<void> {
+    await this.request(z.unknown(), "DELETE", `/v2/comment/${commentId}`);
   }
 
   // --- Webhooks -----------------------------------------------------------

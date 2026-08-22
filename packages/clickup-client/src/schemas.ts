@@ -134,6 +134,12 @@ export const clickUpComment = z.looseObject({
 });
 export type ClickUpComment = z.infer<typeof clickUpComment>;
 
+/** What POST .../comment answers with. Just enough to find the row again. */
+export const createdComment = z.looseObject({ id: id });
+
+/** The reply endpoint is documented as answering `{}`, so the id is optional. */
+export const threadedCommentCreated = z.looseObject({ id: id.optional() });
+
 export const clickUpList = z.looseObject({
   id: z.string(),
   name: z.string(),

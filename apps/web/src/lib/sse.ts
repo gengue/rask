@@ -1,6 +1,19 @@
+import { createSignal } from "solid-js";
 import type { Task, TaskDetail } from "./api.ts";
 import { merge } from "./store.ts";
 import { pushToast } from "./toast.ts";
+
+/**
+ * The last task detail the server pushed at us.
+ *
+ * The API refreshes an open task from ClickUp in the background and sends the
+ * result here, which is the only way newly fetched comments reach a panel that
+ * is already on screen. A signal rather than a callback so the detail panel can
+ * pick it up without the shell having to thread a handler through.
+ */
+const [pushedDetail, setPushedDetail] = createSignal<TaskDetail | null>(null);
+
+export { pushedDetail };
 
 /**
  * Server-sent events from the API.
@@ -20,6 +33,7 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
   source.addEventListener("task", (event) => {
     const detail = JSON.parse((event as MessageEvent<string>).data) as TaskDetail;
     merge([detail]);
+    setPushedDetail(detail);
     handlers.onDetail?.(detail);
   });
 
@@ -42,5 +56,7 @@ const FAILURE_LABELS: Record<string, string> = {
   update_task: "edit",
   create_task: "new task",
   create_comment: "comment",
+  update_comment: "comment edit",
+  delete_comment: "comment deletion",
   set_custom_field: "field change",
 };

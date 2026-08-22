@@ -1,5 +1,5 @@
-import { type Db, outbox, taskAssignees, tasks } from "@rask/schema";
-import { eq } from "drizzle-orm";
+import { comments, type Db, outbox, taskAssignees, tasks } from "@rask/schema";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 /**
@@ -33,7 +33,23 @@ export const newTaskInput = z.object({
   clientId: z.string().min(1).max(64),
 });
 
-export const newCommentInput = z.object({ text: z.string().min(1).max(50_000) });
+export const newCommentInput = z.object({
+  text: z.string().min(1).max(50_000),
+  /** Set to reply inside a thread. ClickUp threads are one level deep. */
+  parentId: z.string().min(1).optional(),
+  /** Client-generated, so the optimistic row can be matched to ClickUp's reply. */
+  clientId: z.string().min(1).max(64),
+});
+
+export const commentPatchInput = z
+  .object({
+    text: z.string().min(1).max(50_000).optional(),
+    resolved: z.boolean().optional(),
+  })
+  .refine((patch) => patch.text !== undefined || patch.resolved !== undefined, {
+    message: "nothing to change",
+  });
+export type CommentPatchInput = z.infer<typeof commentPatchInput>;
 
 export function placeholderId(clientId: string): string {
   return `tmp_${clientId}`;
@@ -139,15 +155,174 @@ export async function createTask(
   return id;
 }
 
+/**
+ * Posts a comment, or a reply when `parentId` is set.
+ *
+ * Same shape as `createTask`: the mirror gets a placeholder row keyed on the
+ * client's id so the browser sees the comment at once, and the outbox row
+ * carries the same client id so the worker can swap in ClickUp's version.
+ */
 export async function createComment(
   db: Db,
-  input: { taskId: string; userId: string; text: string },
+  input: { taskId: string; userId: string; comment: z.infer<typeof newCommentInput> },
+): Promise<string> {
+  const { taskId, userId, comment } = input;
+  const id = placeholderId(comment.clientId);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(comments)
+      .values({
+        id,
+        taskId,
+        parentCommentId: comment.parentId ?? null,
+        userId,
+        text: comment.text,
+        date: new Date(),
+      })
+      .onConflictDoNothing();
+
+    // The thread header says "2 replies" the moment the second one is typed.
+    if (comment.parentId) {
+      await tx
+        .update(comments)
+        .set({ replyCount: sql`${comments.replyCount} + 1` })
+        .where(eq(comments.id, comment.parentId));
+    }
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "create_comment",
+      entityId: taskId,
+      clientId: comment.clientId,
+      payload: { taskId, text: comment.text, parentId: comment.parentId ?? null },
+    });
+  });
+
+  return id;
+}
+
+export interface CommentOwner {
+  id: string;
+  taskId: string;
+  userId: string | null;
+  text: string | null;
+  resolved: boolean;
+  parentCommentId: string | null;
+}
+
+export async function findComment(db: Db, commentId: string): Promise<CommentOwner | null> {
+  const [row] = await db
+    .select({
+      id: comments.id,
+      taskId: comments.taskId,
+      userId: comments.userId,
+      text: comments.text,
+      resolved: comments.resolved,
+      parentCommentId: comments.parentCommentId,
+    })
+    .from(comments)
+    .where(eq(comments.id, commentId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Edits a comment's body, resolves it, or both.
+ *
+ * ClickUp's PUT treats `comment_text` and `resolved` as required and blanks
+ * whatever is left out, so the queued payload always carries the full resulting
+ * state rather than the delta the caller sent.
+ */
+export async function applyCommentPatch(
+  db: Db,
+  input: { comment: CommentOwner; userId: string; patch: CommentPatchInput },
 ): Promise<void> {
-  await db.insert(outbox).values({
-    userId: input.userId,
-    op: "create_comment",
-    entityId: input.taskId,
-    payload: { taskId: input.taskId, text: input.text },
+  const { comment, userId, patch } = input;
+  const text = patch.text ?? comment.text ?? "";
+  const resolved = patch.resolved ?? comment.resolved;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(comments)
+      .set({
+        text,
+        resolved,
+        syncedAt: new Date(),
+        ...(patch.text !== undefined ? { editedAt: new Date() } : {}),
+      })
+      .where(eq(comments.id, comment.id));
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "update_comment",
+      entityId: comment.taskId,
+      payload: {
+        taskId: comment.taskId,
+        commentId: comment.id,
+        // Carried so a rejected edit is repaired from the right endpoint: a
+        // reply is only readable through its thread, never the task's list.
+        parentId: comment.parentCommentId,
+        text,
+        resolved,
+      },
+    });
+  });
+}
+
+export async function deleteComment(
+  db: Db,
+  input: { comment: CommentOwner; userId: string },
+): Promise<void> {
+  const { comment, userId } = input;
+
+  await db.transaction(async (tx) => {
+    await tx.delete(comments).where(eq(comments.id, comment.id));
+    // Its own replies go with it; ClickUp does the same on its side.
+    await tx.delete(comments).where(eq(comments.parentCommentId, comment.id));
+
+    if (comment.parentCommentId) {
+      await tx
+        .update(comments)
+        .set({ replyCount: sql`greatest(${comments.replyCount} - 1, 0)` })
+        .where(eq(comments.id, comment.parentCommentId));
+    }
+
+    await tx.insert(outbox).values({
+      userId,
+      op: "delete_comment",
+      entityId: comment.taskId,
+      payload: {
+        taskId: comment.taskId,
+        commentId: comment.id,
+        parentId: comment.parentCommentId,
+      },
+    });
+  });
+}
+
+/**
+ * Drops a comment that never reached ClickUp.
+ *
+ * A placeholder has no ClickUp id, so there is nothing to delete upstream and
+ * nothing to queue — the outbox row is simply withdrawn if it has not been
+ * claimed yet.
+ */
+export async function discardPendingComment(
+  db: Db,
+  input: { comment: CommentOwner; userId: string },
+): Promise<void> {
+  const clientId = input.comment.id.replace(/^tmp_/, "");
+
+  await db.transaction(async (tx) => {
+    await tx.delete(comments).where(eq(comments.id, input.comment.id));
+    if (input.comment.parentCommentId) {
+      await tx
+        .update(comments)
+        .set({ replyCount: sql`greatest(${comments.replyCount} - 1, 0)` })
+        .where(eq(comments.id, input.comment.parentCommentId));
+    }
+    await tx.delete(outbox).where(and(eq(outbox.clientId, clientId), eq(outbox.status, "pending")));
   });
 }
 
