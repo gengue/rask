@@ -80,6 +80,33 @@ Each of these was dropped for a reason, and each has a way back in.
   of work, not a flag.
 - **OpenTelemetry.** Not wired. Half-instrumenting is worse than not starting.
 
+## Measured against the real workspace
+
+Numbers from the Ventura workspace (`bun run --cwd apps/worker measure`), not
+estimates. 6 spaces, 36 folders, **243 lists**, 200 members.
+
+| | requests | time |
+|---|---|---|
+| Space/folder/list tree | 13 | 1.4s |
+| Full load of the 8 biggest IT lists (17,049 tasks) | 196 | 4.7min |
+| Incremental poll of those same 8 lists, nothing changed | 8 | 7.5s |
+
+Two things follow.
+
+Steady state is cheap: one request per tracked list per cycle, and a quiet list
+costs exactly one. Rask only polls lists somebody has opened, and round-robins
+across every signed-in token, so the 100 req/min ceiling is not the binding
+constraint. Polling all 243 lists on one token would take 2.4 minutes per pass,
+which is why "lists someone has looked at" is the unit rather than "all lists".
+
+The first load is what costs. 4.7 minutes for eight lists, and the wall is
+ClickUp's own latency — roughly 1.8s per page of 100 tasks — not our rate
+limiter, which never had to throttle. A full initial load of the workspace is
+an overnight job, not something to do while a user waits.
+
+One list in that workspace holds 5,696 tasks. Views cap at 500 rows and say so
+(`553+` in the header) rather than truncating quietly.
+
 ## Deployment
 
 One image, three commands: the API (which also serves the SPA), the worker, and
