@@ -17,3 +17,6 @@ test-results/
 
 *.log
 .DS_Store
+
+# Dev-only session token written by the seed script
+apps/web/.dev-session

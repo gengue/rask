@@ -1,0 +1,104 @@
+import { type JSX, Show } from "solid-js";
+import type { Task } from "../lib/api.ts";
+import { formatDue } from "../lib/format.ts";
+import { AvatarStack } from "./Avatar.tsx";
+import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
+
+const DUE_TONE: Record<string, string> = {
+  overdue: "text-urgent",
+  today: "text-high",
+  soon: "text-ink-2",
+  normal: "text-ink-3",
+};
+
+/**
+ * One task, one line, 36px tall.
+ *
+ * Everything on the row is glanceable and nothing wraps: an overflowing title
+ * is truncated rather than pushing the due date and avatars out of alignment.
+ * Vertical rhythm is the whole point of a list you scan a hundred rows of.
+ */
+export function TaskRow(props: {
+  task: Task;
+  active: boolean;
+  selected: boolean;
+  onOpen: () => void;
+  onStatusClick: (event: MouseEvent) => void;
+}): JSX.Element {
+  const due = () => formatDue(props.task.dueDate);
+  const pending = () => props.task.id.startsWith("tmp_");
+
+  return (
+    <div
+      role="row"
+      tabindex={-1}
+      onClick={props.onOpen}
+      class="group relative flex h-9 cursor-default items-center gap-3 border-line/45 border-b pr-5 pl-5 transition-colors duration-75"
+      classList={{
+        "bg-white/[0.05]": props.active,
+        "hover:bg-white/[0.025]": !props.active,
+        // A task that has not reached ClickUp yet is dimmed, not hidden.
+        "opacity-55": pending(),
+      }}
+    >
+      {/* A hairline on the left edge marks the cursor without moving anything. */}
+      <span
+        class="absolute top-0 bottom-0 left-0 w-[2px] bg-accent transition-opacity"
+        classList={{ "opacity-100": props.active, "opacity-0": !props.active }}
+      />
+
+      <PriorityIcon priority={props.task.priority} class="shrink-0" />
+
+      <Show when={props.task.customId}>
+        <span class="w-[62px] shrink-0 truncate font-mono text-[11px] text-ink-4 tabular-nums">
+          {props.task.customId}
+        </span>
+      </Show>
+
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          props.onStatusClick(event);
+        }}
+        class="-m-1 shrink-0 rounded-[5px] p-1 hover:bg-white/10"
+        title={props.task.status ?? "No status"}
+      >
+        <StatusIcon type={props.task.statusType} color={props.task.statusColor} />
+      </button>
+
+      <span class="flex-1 truncate text-[13px] text-ink" classList={{ "text-white": props.active }}>
+        {props.task.name}
+      </span>
+
+      <Show when={props.task.tags.length > 0}>
+        <div class="flex shrink-0 items-center gap-1">
+          {props.task.tags.slice(0, 2).map((tag) => (
+            <span
+              class="rounded-[4px] border px-1.5 py-px text-[10px] leading-4"
+              style={{
+                "border-color": `${tag.bg ?? "#2a2c30"}55`,
+                background: `${tag.bg ?? "#2a2c30"}1f`,
+                color: tag.bg ?? "var(--color-ink-3)",
+              }}
+            >
+              {tag.name}
+            </span>
+          ))}
+        </div>
+      </Show>
+
+      <Show when={due()}>
+        {(label) => (
+          <span class={`w-[72px] shrink-0 text-right text-xs ${DUE_TONE[label().tone]}`}>
+            {label().text}
+          </span>
+        )}
+      </Show>
+
+      <div class="shrink-0">
+        <AvatarStack users={props.task.assignees} />
+      </div>
+    </div>
+  );
+}

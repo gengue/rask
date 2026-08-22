@@ -1,0 +1,54 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig, type Plugin } from "vite";
+import solid from "vite-plugin-solid";
+
+/**
+ * Dev-only sign-in.
+ *
+ * `bun run --cwd apps/api seed` writes a session token to .dev-session; hitting
+ * /__dev-login turns it into a cookie. This lives in the Vite dev server, which
+ * is not part of any build, so there is no code path in the deployed app that
+ * can do the same thing. The seeded session is a normal row that expires and
+ * can be revoked like any other.
+ */
+function devLogin(): Plugin {
+  return {
+    name: "rask-dev-login",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__dev-login", (_request, response) => {
+        const file = join(dirname(fileURLToPath(import.meta.url)), ".dev-session");
+        if (!existsSync(file)) {
+          response.statusCode = 404;
+          response.end("No .dev-session. Run: bun run --cwd apps/api seed");
+          return;
+        }
+        const token = readFileSync(file, "utf8").trim();
+        response.setHeader(
+          "Set-Cookie",
+          `rask_session=${token}; Path=/; Max-Age=2592000; SameSite=Lax`,
+        );
+        response.setHeader("Location", "/");
+        response.statusCode = 302;
+        response.end();
+      });
+    },
+  };
+}
+
+export default defineConfig({
+  plugins: [solid(), tailwindcss(), devLogin()],
+  server: {
+    port: 5173,
+    // Same-origin in dev, exactly like production behind Coolify. Keeps the
+    // session cookie SameSite=Lax instead of forcing SameSite=None.
+    proxy: {
+      "/api": { target: "http://localhost:3000", changeOrigin: true },
+      "/auth": { target: "http://localhost:3000", changeOrigin: true },
+    },
+  },
+  build: { target: "es2022", sourcemap: true },
+});
