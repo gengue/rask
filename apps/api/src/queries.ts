@@ -273,3 +273,62 @@ export async function listMembers(db: Db) {
     .from(users)
     .orderBy(asc(users.username));
 }
+
+/** What an id lifted out of a ClickUp URL turned out to be. */
+export type ResolvedRef =
+  | { kind: "task"; taskId: string; listId: string }
+  | { kind: "list"; listId: string; name: string }
+  | { kind: "folder"; folderId: string; name: string }
+  | { kind: "space"; spaceId: string; name: string };
+
+/**
+ * Identifies ids pulled out of a ClickUp URL against the mirror.
+ *
+ * The caller passes candidates most-specific first and gets back the first one
+ * that is anything at all. Four indexed lookups run in parallel rather than a
+ * union, because a task id and a list id share no shape and there is nothing to
+ * decide before asking.
+ */
+export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | null> {
+  if (ids.length === 0) return null;
+
+  // Custom ids are conventionally uppercase (TK-51829) but a hand-edited URL
+  // may not be, and the column is indexed by value, not by upper(value).
+  const upper = ids.map((id) => id.toUpperCase());
+
+  const [taskRows, listRows, folderRows, spaceRows] = await Promise.all([
+    db
+      .select({ id: tasks.id, customId: tasks.customId, listId: tasks.listId })
+      .from(tasks)
+      .where(
+        and(
+          isNull(tasks.deletedAt),
+          or(
+            inArray(tasks.id, ids),
+            inArray(tasks.customId, ids),
+            inArray(tasks.customId, upper),
+          ) ?? sql`false`,
+        ),
+      ),
+    db.select({ id: lists.id, name: lists.name }).from(lists).where(inArray(lists.id, ids)),
+    db.select({ id: folders.id, name: folders.name }).from(folders).where(inArray(folders.id, ids)),
+    db.select({ id: spaces.id, name: spaces.name }).from(spaces).where(inArray(spaces.id, ids)),
+  ]);
+
+  for (const id of ids) {
+    const key = id.toUpperCase();
+    const task = taskRows.find((row) => row.id === id || row.customId?.toUpperCase() === key);
+    if (task) return { kind: "task", taskId: task.id, listId: task.listId };
+
+    const list = listRows.find((row) => row.id === id);
+    if (list) return { kind: "list", listId: list.id, name: list.name };
+
+    const folder = folderRows.find((row) => row.id === id);
+    if (folder) return { kind: "folder", folderId: folder.id, name: folder.name };
+
+    const space = spaceRows.find((row) => row.id === id);
+    if (space) return { kind: "space", spaceId: space.id, name: space.name };
+  }
+
+  return null;
+}
