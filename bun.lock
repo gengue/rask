@@ -10,6 +10,17 @@
         "typescript": "^7.0.2",
       },
     },
+    "apps/api": {
+      "name": "@rask/api",
+      "version": "0.0.0",
+      "dependencies": {
+        "@rask/clickup-client": "workspace:*",
+        "@rask/schema": "workspace:*",
+        "drizzle-orm": "^0.45.2",
+        "hono": "^4.13.3",
+        "zod": "^4.4.3",
+      },
+    },
     "apps/worker": {
       "name": "@rask/worker",
       "version": "0.0.0",
@@ -31,6 +42,7 @@
       "name": "@rask/schema",
       "version": "0.0.0",
       "dependencies": {
+        "@rask/clickup-client": "workspace:*",
         "drizzle-orm": "^0.45.2",
       },
       "devDependencies": {
@@ -115,6 +127,8 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
+    "@rask/api": ["@rask/api@workspace:apps/api"],
+
     "@rask/clickup-client": ["@rask/clickup-client@workspace:packages/clickup-client"],
 
     "@rask/schema": ["@rask/schema@workspace:packages/schema"],
@@ -178,6 +192,8 @@
     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
     "get-tsconfig": ["get-tsconfig@4.14.3", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-++QEw4DIY7WGoukz+/+A/8dGYPT9l9yIadnmSgZ8Rjr3YVSVDipQSO9CdnJo9ePqFqUUqh+wk9uIaoiAwsiPkA=="],
+
+    "hono": ["hono@4.13.3", "", {}, "sha512-r8AO2mYHoLxSHkgafNeC/BXyb2vWRxD3jem4Ts+ptav8oTG5FIRifAjuJEmZI4bSvvc2ns0GxmIYiZnHqN3mMw=="],
 
     "resolve-pkg-maps": ["resolve-pkg-maps@1.0.0", "", {}, "sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw=="],
 

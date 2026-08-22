@@ -1,7 +1,7 @@
 import { ClickUpError } from "@rask/clickup-client";
-import { type Db, type OutboxOp, outbox, tasks } from "@rask/schema";
+import { type Db, ingestTasks, type OutboxOp, outbox, tasks } from "@rask/schema";
 import { eq, sql } from "drizzle-orm";
-import { ingestTasks } from "./ingest.ts";
+
 import type { TokenPool } from "./tokens.ts";
 
 /**

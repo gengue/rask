@@ -1,17 +1,6 @@
 import type { ClickUpTask } from "@rask/clickup-client";
-import {
-  comments,
-  customFieldDefs,
-  type Db,
-  folders,
-  lists,
-  spaces,
-  taskAssignees,
-  taskCustomValues,
-  tasks,
-  users,
-} from "@rask/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import type { Db } from "./db.ts";
 import {
   type MappedCustomField,
   type MappedUser,
@@ -21,6 +10,17 @@ import {
   mapSpace,
   mapTask,
 } from "./map.ts";
+import {
+  comments,
+  customFieldDefs,
+  folders,
+  lists,
+  spaces,
+  taskAssignees,
+  taskCustomValues,
+  tasks,
+  users,
+} from "./schema.ts";
 
 /**
  * Writes ClickUp payloads into the mirror.

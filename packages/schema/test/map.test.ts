@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { clickUpTask } from "@rask/clickup-client";
-import taskFixture from "../../../packages/clickup-client/test/fixtures/task.json" with {
-  type: "json",
-};
+import taskFixture from "../../clickup-client/test/fixtures/task.json" with { type: "json" };
 import { mapTask } from "../src/map.ts";
 
 const parse = (overrides: Record<string, unknown> = {}) =>

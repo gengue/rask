@@ -1,14 +1,17 @@
 import type { ClickUpClient } from "@rask/clickup-client";
-import { type Db, lists, syncCursors, tasks } from "@rask/schema";
-import { and, eq, isNull, sql } from "drizzle-orm";
 import {
+  type Db,
   ingestTasks,
+  lists,
+  mapCustomField,
+  syncCursors,
+  tasks,
   upsertCustomFields,
   upsertFolders,
   upsertLists,
   upsertSpaces,
-} from "./ingest.ts";
-import { mapCustomField } from "./map.ts";
+} from "@rask/schema";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 export interface SyncStats {
   requests: number;

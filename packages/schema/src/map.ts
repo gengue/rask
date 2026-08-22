@@ -7,7 +7,7 @@ import type {
   ClickUpTask,
   ClickUpUser,
 } from "@rask/clickup-client";
-import type { StatusDef, TaskTag } from "@rask/schema";
+import type { StatusDef, TaskTag } from "./schema.ts";
 
 /**
  * ClickUp payloads to mirror rows. Pure functions, no database: the ugly parts
