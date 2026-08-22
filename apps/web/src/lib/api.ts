@@ -100,6 +100,14 @@ export interface Space {
   lists: Array<{ id: string; name: string }>;
 }
 
+/** What an id lifted out of a ClickUp URL turned out to be. */
+export type ResolvedRef =
+  | { kind: "task"; taskId: string; listId: string }
+  | { kind: "list"; listId: string; name: string }
+  | { kind: "folder"; folderId: string; name: string }
+  | { kind: "space"; spaceId: string; name: string }
+  | { kind: "unknown" };
+
 export interface TaskQuery {
   list?: string;
   space?: string;
@@ -176,6 +184,13 @@ export const api = {
   },
 
   task: (id: string) => request<TaskDetail>(`/api/tasks/${id}`),
+
+  /** Candidates go most-specific first; the server answers with the first hit. */
+  resolve(ids: string[], remote: boolean): Promise<ResolvedRef> {
+    const params = new URLSearchParams({ ids: ids.join(",") });
+    if (remote) params.set("remote", "1");
+    return request<ResolvedRef>(`/api/resolve?${params}`);
+  },
 
   statuses: (listId: string) => request<StatusDef[]>(`/api/lists/${listId}/statuses`),
 

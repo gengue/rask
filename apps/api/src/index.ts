@@ -8,7 +8,14 @@ import { z } from "zod";
 import { authRoutes, currentUser, SESSION_COOKIE, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
-import { getHierarchy, getTaskDetail, listMembers, listTasks, statusesForList } from "./queries.ts";
+import {
+  getHierarchy,
+  getTaskDetail,
+  listMembers,
+  listTasks,
+  resolveRefs,
+  statusesForList,
+} from "./queries.ts";
 import {
   applyTaskPatch,
   createComment,
@@ -71,6 +78,39 @@ api.get("/me", (c) => c.json(c.get("user")));
 api.get("/hierarchy", async (c) => c.json(await getHierarchy(db)));
 
 api.get("/members", async (c) => c.json(await listMembers(db)));
+
+/**
+ * Identifies ids lifted out of a ClickUp URL, so a pasted ClickUp link can be
+ * routed to whatever Rask view fits. The client sends candidates most-specific
+ * first and gets back the first one that is anything.
+ */
+api.get("/resolve", async (c) => {
+  const ids = (c.req.query("ids") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const found = await resolveRefs(db, ids);
+  if (found) return c.json(found);
+
+  // Nothing in the mirror. A /t/ URL is a task by construction, so ask ClickUp
+  // once before giving up: it may live in a list nobody has opened yet. Only
+  // real task ids work here, since GET /task/{id} needs custom_task_ids and a
+  // team_id to accept a custom one and our client does not send them.
+  const first = ids[0];
+  if (c.req.query("remote") === "1" && first) {
+    const client = await clientFor(c.get("user").id);
+    const task = await client?.getTask(first).catch(() => null);
+    if (task) {
+      await ingestTasks(db, [task]);
+      const refreshed = await resolveRefs(db, [task.id]);
+      if (refreshed) return c.json(refreshed);
+    }
+  }
+
+  return c.json({ kind: "unknown" } as const);
+});
 
 const taskFilters = z.object({
   list: z.string().optional(),
