@@ -50,6 +50,13 @@
       "when": 1787432173033,
       "tag": "0006_comment_segments",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787439560570,
+      "tag": "0007_checklists",
+      "breakpoints": true
     }
   ]
 }

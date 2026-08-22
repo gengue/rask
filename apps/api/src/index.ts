@@ -27,16 +27,28 @@ import {
   statusesForList,
 } from "./queries.ts";
 import {
+  applyChecklistItemPatch,
   applyCommentPatch,
   applyTaskPatch,
+  checklistItemPatchInput,
+  checklistPatchInput,
   commentPatchInput,
+  createChecklist,
+  createChecklistItem,
   createComment,
   createTask,
+  deleteChecklist,
+  deleteChecklistItem,
   deleteComment,
   discardPendingComment,
+  findChecklist,
+  findChecklistItem,
   findComment,
+  newChecklistInput,
+  newChecklistItemInput,
   newCommentInput,
   newTaskInput,
+  renameChecklist,
   setCustomField,
   setTaskTags,
   taskPatchInput,
@@ -72,6 +84,16 @@ const userStreams = new Map<string, Set<Push>>();
 function pushTo(userId: string, event: string, data: unknown): void {
   for (const send of userStreams.get(userId) ?? []) send(event, data);
 }
+
+/**
+ * A row the outbox has not shipped yet, so ClickUp has no id for it.
+ *
+ * Addressing one upstream would 404 and take the local state down with it on
+ * the revert, so those writes are refused rather than queued. The window is a
+ * couple of seconds — the outbox drains every two — and the UI says so.
+ */
+const pending = (id: string): boolean => id.startsWith("tmp_");
+const NOT_YET = "this has not reached ClickUp yet";
 
 type Env = { Variables: { user: SessionUser } };
 
@@ -257,6 +279,76 @@ api.delete("/comments/:id", async (c) => {
   else await deleteComment(db, { comment, userId });
 
   return c.json(await getTaskDetail(db, comment.taskId));
+});
+
+/**
+ * Checklist writes, all answering with the whole refreshed task detail.
+ *
+ * Same contract as comments and for the same reason: the task collection the
+ * browser keeps carries no checklists, so there is no row for it to patch and
+ * handing back the detail leaves it exactly in step with the mirror.
+ */
+api.post("/tasks/:id/checklists", async (c) => {
+  const body = newChecklistInput.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  const taskId = c.req.param("id");
+  await createChecklist(db, { taskId, userId: c.get("user").id, checklist: body.data });
+  return c.json(await getTaskDetail(db, taskId), 201);
+});
+
+api.patch("/checklists/:id", async (c) => {
+  const body = checklistPatchInput.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  const checklist = await findChecklist(db, c.req.param("id"));
+  if (!checklist) return c.json({ error: "not found" }, 404);
+  if (pending(checklist.id)) return c.json({ error: NOT_YET }, 409);
+
+  await renameChecklist(db, { checklist, userId: c.get("user").id, name: body.data.name });
+  return c.json(await getTaskDetail(db, checklist.taskId));
+});
+
+api.delete("/checklists/:id", async (c) => {
+  const checklist = await findChecklist(db, c.req.param("id"));
+  if (!checklist) return c.json({ error: "not found" }, 404);
+  if (pending(checklist.id)) return c.json({ error: NOT_YET }, 409);
+
+  await deleteChecklist(db, { checklist, userId: c.get("user").id });
+  return c.json(await getTaskDetail(db, checklist.taskId));
+});
+
+api.post("/checklists/:id/items", async (c) => {
+  const body = newChecklistItemInput.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  const checklist = await findChecklist(db, c.req.param("id"));
+  if (!checklist) return c.json({ error: "not found" }, 404);
+  if (pending(checklist.id)) return c.json({ error: NOT_YET }, 409);
+
+  await createChecklistItem(db, { checklist, userId: c.get("user").id, item: body.data });
+  return c.json(await getTaskDetail(db, checklist.taskId), 201);
+});
+
+api.patch("/checklist-items/:id", async (c) => {
+  const body = checklistItemPatchInput.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  const item = await findChecklistItem(db, c.req.param("id"));
+  if (!item) return c.json({ error: "not found" }, 404);
+  if (pending(item.id)) return c.json({ error: NOT_YET }, 409);
+
+  await applyChecklistItemPatch(db, { item, userId: c.get("user").id, patch: body.data });
+  return c.json(await getTaskDetail(db, item.taskId));
+});
+
+api.delete("/checklist-items/:id", async (c) => {
+  const item = await findChecklistItem(db, c.req.param("id"));
+  if (!item) return c.json({ error: "not found" }, 404);
+  if (pending(item.id)) return c.json({ error: NOT_YET }, 409);
+
+  await deleteChecklistItem(db, { item, userId: c.get("user").id });
+  return c.json(await getTaskDetail(db, item.taskId));
 });
 
 api.put("/tasks/:id/tags", async (c) => {

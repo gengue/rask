@@ -125,6 +125,34 @@ export interface Attachment {
   urlWithQuery: string | null;
 }
 
+export interface ChecklistItem {
+  id: string;
+  name: string;
+  resolved: boolean;
+  assigneeId: string | null;
+  /** Set on an item nested under another. ClickUp's UI allows one level. */
+  parentItemId: string | null;
+}
+
+/** One "did I do the four things" list inside a task. */
+export interface Checklist {
+  id: string;
+  name: string;
+  items: ChecklistItem[];
+}
+
+/** Enough of a task to draw one line of it and link to it. */
+export interface TaskRef {
+  id: string;
+  customId: string | null;
+  name: string;
+  status: string | null;
+  statusColor: string | null;
+  statusType: string | null;
+  listId: string;
+  assignees: Assignee[];
+}
+
 export interface TaskDetail extends Task {
   description: string | null;
   creatorId: string | null;
@@ -136,6 +164,10 @@ export interface TaskDetail extends Task {
   customFields: CustomField[];
   statuses: StatusDef[];
   attachments: Attachment[];
+  checklists: Checklist[];
+  subtasks: TaskRef[];
+  /** The task this one hangs off, when it is a subtask. */
+  parent: TaskRef | null;
 }
 
 /** A task match from the palette's workspace-wide search. */
@@ -295,6 +327,40 @@ export const api = {
     }),
 
   spaceTags: (spaceId: string) => request<Tag[]>(`/api/spaces/${spaceId}/tags`),
+
+  /**
+   * Checklist writes answer with the whole task detail, like comment writes and
+   * for the same reason: the task collection carries no checklists.
+   */
+  createChecklist: (taskId: string, input: { name: string; clientId: string }) =>
+    request<TaskDetail>(`/api/tasks/${taskId}/checklists`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  renameChecklist: (checklistId: string, name: string) =>
+    request<TaskDetail>(`/api/checklists/${checklistId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteChecklist: (checklistId: string) =>
+    request<TaskDetail>(`/api/checklists/${checklistId}`, { method: "DELETE" }),
+
+  createChecklistItem: (checklistId: string, input: { name: string; clientId: string }) =>
+    request<TaskDetail>(`/api/checklists/${checklistId}/items`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  patchChecklistItem: (itemId: string, patch: { name?: string; resolved?: boolean }) =>
+    request<TaskDetail>(`/api/checklist-items/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  deleteChecklistItem: (itemId: string) =>
+    request<TaskDetail>(`/api/checklist-items/${itemId}`, { method: "DELETE" }),
 
   setField: (taskId: string, fieldId: string, value: unknown) =>
     request<{ ok: true }>(`/api/tasks/${taskId}/fields/${fieldId}`, {

@@ -1,4 +1,5 @@
 import {
+  checklistItems,
   comments,
   customFieldDefs,
   type Db,
@@ -8,6 +9,7 @@ import {
   spaces,
   taskAssignees,
   taskAttachments,
+  taskChecklists,
   taskCustomValues,
   tasks,
   users,
@@ -161,28 +163,151 @@ export async function getTaskDetail(db: Db, taskId: string) {
 
   if (!task) return null;
 
-  const [taskComments, fields, statuses, attachments] = await Promise.all([
-    listComments(db, taskId),
+  const [taskComments, fields, statuses, attachments, checklists, subtasks, parent] =
+    await Promise.all([
+      listComments(db, taskId),
+
+      db
+        .select({
+          id: customFieldDefs.id,
+          name: customFieldDefs.name,
+          type: customFieldDefs.type,
+          typeConfig: customFieldDefs.typeConfig,
+          value: taskCustomValues.value,
+        })
+        .from(taskCustomValues)
+        .innerJoin(customFieldDefs, eq(customFieldDefs.id, taskCustomValues.fieldId))
+        .where(eq(taskCustomValues.taskId, taskId))
+        .orderBy(asc(customFieldDefs.name)),
+
+      statusesForList(db, task.listId),
+
+      listAttachments(db, taskId),
+
+      listChecklists(db, taskId),
+
+      listSubtasks(db, taskId),
+
+      task.parentId ? findTaskRef(db, task.parentId) : null,
+    ]);
+
+  return {
+    ...task,
+    comments: taskComments,
+    customFields: fields,
+    statuses,
+    attachments,
+    checklists,
+    subtasks,
+    parent,
+  };
+}
+
+export interface TaskRef {
+  id: string;
+  customId: string | null;
+  name: string;
+  status: string | null;
+  statusColor: string | null;
+  statusType: string | null;
+  listId: string;
+  assignees: Assignee[];
+}
+
+const taskRefColumns = {
+  id: tasks.id,
+  customId: tasks.customId,
+  name: tasks.name,
+  status: tasks.status,
+  statusColor: tasks.statusColor,
+  statusType: tasks.statusType,
+  listId: tasks.listId,
+  assignees: assigneesJson.as("assignees"),
+};
+
+/**
+ * Enough of a task to render one line of it and link to it.
+ *
+ * Deliberately not `getTaskDetail`: a parent with four subtasks would otherwise
+ * fetch four descriptions, four comment threads and four checklists to draw
+ * four rows.
+ */
+export async function findTaskRef(db: Db, taskId: string): Promise<TaskRef | null> {
+  const [row] = await db.select(taskRefColumns).from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  return row ?? null;
+}
+
+/**
+ * A task's subtasks.
+ *
+ * Closed ones are included. A parent's own detail is where you go to find out
+ * whether the pieces are done, so hiding the done ones would answer the
+ * opposite of the question being asked — unlike a list view, where closed rows
+ * are noise.
+ */
+export async function listSubtasks(db: Db, taskId: string): Promise<TaskRef[]> {
+  return db
+    .select(taskRefColumns)
+    .from(tasks)
+    .where(and(eq(tasks.parentId, taskId), isNull(tasks.deletedAt), eq(tasks.archived, false)))
+    .orderBy(asc(tasks.orderindex), asc(tasks.dateCreated));
+}
+
+export interface ChecklistItemRow {
+  id: string;
+  name: string;
+  resolved: boolean;
+  assigneeId: string | null;
+  parentItemId: string | null;
+}
+
+export interface ChecklistRow {
+  id: string;
+  name: string;
+  items: ChecklistItemRow[];
+}
+
+/**
+ * A task's checklists with their items, in ClickUp's own order.
+ *
+ * Two queries and a group in memory rather than a json_agg: a task has a
+ * handful of checklists holding a handful of items each, and the flat rows are
+ * what the tests read.
+ *
+ * Items are ordered by `orderindex` with the id as a tiebreak. A locally
+ * created item has no orderindex yet — ClickUp assigns it — and nulls sort last,
+ * which puts a just-typed item at the bottom of its list, where it was typed.
+ */
+export async function listChecklists(db: Db, taskId: string): Promise<ChecklistRow[]> {
+  const [lists, items] = await Promise.all([
+    db
+      .select({ id: taskChecklists.id, name: taskChecklists.name })
+      .from(taskChecklists)
+      .where(eq(taskChecklists.taskId, taskId))
+      .orderBy(asc(taskChecklists.orderindex), asc(taskChecklists.dateCreated)),
 
     db
       .select({
-        id: customFieldDefs.id,
-        name: customFieldDefs.name,
-        type: customFieldDefs.type,
-        typeConfig: customFieldDefs.typeConfig,
-        value: taskCustomValues.value,
+        id: checklistItems.id,
+        checklistId: checklistItems.checklistId,
+        name: checklistItems.name,
+        resolved: checklistItems.resolved,
+        assigneeId: checklistItems.assigneeId,
+        parentItemId: checklistItems.parentItemId,
       })
-      .from(taskCustomValues)
-      .innerJoin(customFieldDefs, eq(customFieldDefs.id, taskCustomValues.fieldId))
-      .where(eq(taskCustomValues.taskId, taskId))
-      .orderBy(asc(customFieldDefs.name)),
-
-    statusesForList(db, task.listId),
-
-    listAttachments(db, taskId),
+      .from(checklistItems)
+      .innerJoin(taskChecklists, eq(taskChecklists.id, checklistItems.checklistId))
+      .where(eq(taskChecklists.taskId, taskId))
+      .orderBy(sql`${checklistItems.orderindex} asc nulls last`, asc(checklistItems.id)),
   ]);
 
-  return { ...task, comments: taskComments, customFields: fields, statuses, attachments };
+  return lists.map((list) => ({
+    id: list.id,
+    name: list.name,
+    items: items
+      .filter((item) => item.checklistId === list.id)
+      .map(({ checklistId: _checklistId, ...item }) => item),
+  }));
 }
 
 export interface AttachmentRow {

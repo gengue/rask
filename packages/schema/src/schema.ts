@@ -319,6 +319,64 @@ export const taskAttachments = pgTable(
   (t) => [index("task_attachments_task_idx").on(t.taskId, t.date)],
 );
 
+/**
+ * Checklists on a task, and their line items.
+ *
+ * These arrive on the same schedule as attachments and for the same reason:
+ * only `GET /task/{id}` carries a `checklists` array, so a list poll says
+ * nothing about them and ingest has to leave them alone rather than read the
+ * silence as "there are none".
+ *
+ * ClickUp reports `resolved` and `unresolved` counts on the checklist. They are
+ * not mirrored, because they are the items counted — a stored copy would be a
+ * second number to keep in step every time somebody ticks a box, and the query
+ * that renders the list already holds the items.
+ */
+export const taskChecklists = pgTable(
+  "task_checklists",
+  {
+    /** ClickUp's uuid, not a task-scoped index, so it survives a reorder. */
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    orderindex: integer("orderindex"),
+    /** ClickUp sends a bare user id here, not the user object it sends elsewhere. */
+    creatorId: text("creator_id"),
+    dateCreated: ts("date_created"),
+    syncedAt: ts("synced_at").notNull().defaultNow(),
+  },
+  (t) => [index("task_checklists_task_idx").on(t.taskId, t.orderindex)],
+);
+
+export const checklistItems = pgTable(
+  "checklist_items",
+  {
+    id: text("id").primaryKey(),
+    /**
+     * Cascades, unlike most of the mirror.
+     *
+     * The usual rule — no foreign key a partial resync could arrive out of
+     * order against — does not bite here: items only ever arrive inside their
+     * checklist, in one payload, so there is no ordering to lose. The cascade
+     * is what makes replacing a task's checklists a single delete.
+     */
+    checklistId: text("checklist_id")
+      .notNull()
+      .references(() => taskChecklists.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    orderindex: integer("orderindex"),
+    assigneeId: text("assignee_id"),
+    resolved: boolean("resolved").notNull().default(false),
+    /** Set on an item nested under another. ClickUp's UI allows one level. */
+    parentItemId: text("parent_item_id"),
+    dateCreated: ts("date_created"),
+    syncedAt: ts("synced_at").notNull().defaultNow(),
+  },
+  (t) => [index("checklist_items_checklist_idx").on(t.checklistId, t.orderindex)],
+);
+
 // --- Custom fields --------------------------------------------------------
 
 /**
@@ -439,7 +497,13 @@ export type OutboxOp =
   | "create_comment"
   | "update_comment"
   | "delete_comment"
-  | "set_custom_field";
+  | "set_custom_field"
+  | "create_checklist"
+  | "update_checklist"
+  | "delete_checklist"
+  | "create_checklist_item"
+  | "update_checklist_item"
+  | "delete_checklist_item";
 
 export type OutboxStatus = "pending" | "sending" | "done" | "failed";
 
@@ -547,6 +611,26 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   customValues: many(taskCustomValues),
   comments: many(comments),
   attachments: many(taskAttachments),
+  checklists: many(taskChecklists),
+  /** Self-reference: a subtask points at the task it hangs off. */
+  parent: one(tasks, {
+    fields: [tasks.parentId],
+    references: [tasks.id],
+    relationName: "subtasks",
+  }),
+  subtasks: many(tasks, { relationName: "subtasks" }),
+}));
+
+export const taskChecklistsRelations = relations(taskChecklists, ({ one, many }) => ({
+  task: one(tasks, { fields: [taskChecklists.taskId], references: [tasks.id] }),
+  items: many(checklistItems),
+}));
+
+export const checklistItemsRelations = relations(checklistItems, ({ one }) => ({
+  checklist: one(taskChecklists, {
+    fields: [checklistItems.checklistId],
+    references: [taskChecklists.id],
+  }),
 }));
 
 export const taskAttachmentsRelations = relations(taskAttachments, ({ one }) => ({

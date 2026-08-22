@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { clickUpComment, clickUpTask } from "@rask/clickup-client";
+import checklistFixture from "../../clickup-client/test/fixtures/checklist.json" with {
+  type: "json",
+};
 import commentFixture from "../../clickup-client/test/fixtures/comment-with-image.json" with {
   type: "json",
 };
@@ -148,6 +151,56 @@ describe("mapTask attachments", () => {
 
   test("is an empty array when the task really has none", () => {
     expect(mapTask(parse({ attachments: [] })).attachments).toEqual([]);
+  });
+});
+
+describe("mapTask checklists", () => {
+  const withChecklist = () => parse({ checklists: [checklistFixture] });
+
+  test("splits a checklist into its row and its items", () => {
+    const [mapped] = mapTask(withChecklist()).checklists ?? [];
+
+    expect(mapped?.checklist).toEqual({
+      id: "f66e2c95-ab84-463b-8b5d-3754a97ec1e7",
+      taskId: "9hz",
+      name: "Release steps",
+      orderindex: 1,
+      creatorId: "82591240",
+      dateCreated: new Date(1787165200145),
+    });
+    expect(mapped?.items.map((item) => item.name)).toEqual([
+      "Tag the release",
+      "Run the migrations",
+      "Announce it in the channel",
+    ]);
+  });
+
+  /*
+   * The spec types this field as a user object in the CreateChecklistItem
+   * response and as a bare id in the EditChecklistItem one, and both really do
+   * come back. Reducing them here is what keeps the difference out of the rest
+   * of the codebase.
+   */
+  test("reduces an item assignee to an id whichever shape ClickUp used", () => {
+    const [mapped] = mapTask(withChecklist()).checklists ?? [];
+
+    expect(mapped?.items.map((item) => item.assigneeId)).toEqual([null, "183", "183"]);
+  });
+
+  test("keeps a nested item's parent, which is how nesting is stored", () => {
+    const [mapped] = mapTask(withChecklist()).checklists ?? [];
+
+    expect(mapped?.items[2]?.parentItemId).toBe("b851599b-ac59-4e52-b15a-ec2a18921647");
+  });
+
+  /* Same null-versus-[] distinction as attachments, and the same consequence. */
+  test("is null when the payload never mentioned checklists", () => {
+    const { checklists, ...withoutChecklists } = taskFixture;
+    expect(mapTask(clickUpTask.parse(withoutChecklists)).checklists).toBeNull();
+  });
+
+  test("is an empty array when the task really has none", () => {
+    expect(mapTask(parse({ checklists: [] })).checklists).toEqual([]);
   });
 });
 

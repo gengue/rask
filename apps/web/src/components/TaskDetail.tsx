@@ -27,9 +27,11 @@ import { pushToast } from "../lib/toast.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { Checklists } from "./Checklists.tsx";
 import { MarkdownEditor } from "./MarkdownEditor.tsx";
 import { Menu, type MenuItem } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
+import { ParentLink, Subtasks } from "./Subtasks.tsx";
 
 /**
  * The detail panel.
@@ -82,6 +84,23 @@ export function TaskDetail(props: {
 
   /** Optimistic edit of the open task. The collection rolls it back on failure. */
   const patch = (apply: (draft: Task) => void) => tasks.update(props.taskId, apply);
+
+  /**
+   * Optimistic edit of what only the detail knows.
+   *
+   * Checklists and subtasks are not in the task collection — carrying them
+   * would mean fetching every one for a 500-row list — so there is nothing for
+   * `tasks.update` to roll back. Returning the previous detail hands the caller
+   * its own undo instead.
+   */
+  const optimistic = (
+    apply: (current: TaskDetailData) => TaskDetailData,
+  ): TaskDetailData | null => {
+    const before = detail();
+    if (!before) return null;
+    mutate(apply(before));
+    return before;
+  };
 
   // The SSE feed writes refreshed rows into the collection. When the open task
   // is one of them, pull the fuller detail again so comments stay live.
@@ -208,6 +227,7 @@ export function TaskDetail(props: {
             }}
           >
             <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": ui.taskExpanded }}>
+              <ParentLink parent={task().parent} />
               <TitleField
                 value={task().name}
                 onCommit={(name) => {
@@ -381,6 +401,15 @@ export function TaskDetail(props: {
                 the panel. */}
             <div classList={{ "col-start-1": ui.taskExpanded }}>
               <Attachments items={task().attachments} />
+
+              <Checklists
+                taskId={props.taskId}
+                checklists={task().checklists}
+                onDetail={(next) => mutate(next)}
+                onOptimistic={optimistic}
+              />
+
+              <Subtasks task={task()} onOptimistic={optimistic} onRefresh={() => void refetch()} />
 
               <Comments
                 taskId={props.taskId}

@@ -1,5 +1,6 @@
 import type {
   ClickUpAttachment,
+  ClickUpChecklist,
   ClickUpComment,
   ClickUpCustomField,
   ClickUpFolder,
@@ -55,6 +56,29 @@ export interface MappedTask {
    * has to say "no opinion" rather than "none".
    */
   attachments: MappedAttachment[] | null;
+  /** Null for the same reason as `attachments`: only `GET /task/{id}` knows. */
+  checklists: MappedChecklist[] | null;
+}
+
+export interface MappedChecklist {
+  checklist: {
+    id: string;
+    taskId: string;
+    name: string;
+    orderindex: number | null;
+    creatorId: string | null;
+    dateCreated: Date | null;
+  };
+  items: Array<{
+    id: string;
+    checklistId: string;
+    name: string;
+    orderindex: number | null;
+    assigneeId: string | null;
+    resolved: boolean;
+    parentItemId: string | null;
+    dateCreated: Date | null;
+  }>;
 }
 
 export interface MappedAttachment {
@@ -120,6 +144,45 @@ export function mapAttachment(attachment: ClickUpAttachment): MappedAttachment {
   };
 }
 
+/**
+ * A checklist and its items, flattened into the two rows they are stored as.
+ *
+ * `taskId` comes from the caller rather than the payload: ClickUp echoes
+ * `task_id` on a checklist read back from a write, but not consistently, and
+ * the task being ingested is the only thing that is certainly right.
+ *
+ * `assignee` is the one field the vendored spec disagrees with itself about —
+ * a user object in one response, a bare id in another — so both are reduced to
+ * an id here and the difference stops at this function.
+ */
+export function mapChecklist(checklist: ClickUpChecklist, taskId: string): MappedChecklist {
+  return {
+    checklist: {
+      id: checklist.id,
+      taskId,
+      name: checklist.name,
+      orderindex: checklist.orderindex ?? null,
+      creatorId: checklist.creator ?? null,
+      dateCreated: checklist.date_created ?? null,
+    },
+    items: checklist.items.map((item) => ({
+      id: item.id,
+      checklistId: checklist.id,
+      name: item.name,
+      orderindex: item.orderindex ?? null,
+      assigneeId: assigneeId(item.assignee),
+      resolved: item.resolved ?? false,
+      parentItemId: item.parent ?? null,
+      dateCreated: item.date_created ?? null,
+    })),
+  };
+}
+
+function assigneeId(assignee: ClickUpChecklist["items"][number]["assignee"]): string | null {
+  if (assignee === null || assignee === undefined) return null;
+  return typeof assignee === "object" ? String(assignee.id) : String(assignee);
+}
+
 export function mapCustomField(field: ClickUpCustomField): MappedCustomField {
   return {
     id: field.id,
@@ -181,6 +244,7 @@ export function mapTask(task: ClickUpTask): MappedTask {
     // the task, which is worse than not having it.
     attachments:
       task.attachments?.filter((a) => !a.deleted && !a.hidden).map(mapAttachment) ?? null,
+    checklists: task.checklists?.map((list) => mapChecklist(list, task.id)) ?? null,
   };
 }
 
