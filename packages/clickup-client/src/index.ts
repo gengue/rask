@@ -8,6 +8,7 @@ export {
   type TaskPatch,
   type TeamTasksParams,
 } from "./client.ts";
+export { renderCommentBody } from "./comment-body.ts";
 export * from "./mentions.ts";
 export { RateLimiter, type RateLimiterOptions } from "./rate-limit.ts";
 export * from "./schemas.ts";

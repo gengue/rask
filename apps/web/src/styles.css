@@ -434,9 +434,9 @@ html.light {
   font-weight: 500;
   white-space: nowrap;
 }
-/* Every image in rendered markdown opens the lightbox, so it says so. Capped
-   in height as well as width: a full-page screenshot pasted into a description
-   should not be a scroll of its own before the next paragraph. */
+/* Every image in rendered markdown opens the lightbox, so it says so. Capped in
+   height as well as width: screenshots arrive at whatever the sender's monitor
+   was, and one should not be a scroll of its own before the next paragraph. */
 .prose-rask img {
   border-radius: 6px;
   max-width: 100%;

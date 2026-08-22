@@ -1,0 +1,68 @@
+{
+  "id": "90150253178233",
+  "comment": [
+    {
+      "type": "tag",
+      "user": {
+        "id": 2465931,
+        "username": "Soledad Cruz",
+        "email": "soledad.cruz@viventura.com",
+        "initials": "SC",
+        "profilePicture": "https://attachments.clickup.com/profilePictures/2465931_Jf3.jpg"
+      },
+      "text": "@Soledad Cruz"
+    },
+    {
+      "text": " I created a new version",
+      "attributes": {}
+    },
+    {
+      "text": "\n",
+      "attributes": {
+        "block-id": "block-57twQWwGqx"
+      }
+    },
+    {
+      "type": "image",
+      "text": "image.png",
+      "image": {
+        "id": "0ed173fb-2acb-4479-a3b9-24610aa6b60a.png",
+        "name": "image.png",
+        "title": "image.png",
+        "type": "png",
+        "extension": "image/png",
+        "thumbnail_large": "https://t529.p.clickup-attachments.com/t529/0ed173fb-2acb-4479-a3b9-24610aa6b60a/image.png",
+        "thumbnail_medium": "https://t529.p.clickup-attachments.com/t529/0ed173fb-2acb-4479-a3b9-24610aa6b60a/image.png",
+        "thumbnail_small": "https://t529.p.clickup-attachments.com/t529/0ed173fb-2acb-4479-a3b9-24610aa6b60a_small.png",
+        "url": "https://t529.p.clickup-attachments.com/t529/0ed173fb-2acb-4479-a3b9-24610aa6b60a/image.png",
+        "uploaded": true,
+        "width": 452,
+        "height": 197
+      },
+      "attributes": {
+        "width": "300",
+        "data-id": "0ed173fb-2acb-4479-a3b9-24610aa6b60a.png",
+        "data-attachment": null,
+        "data-natural-width": "452",
+        "data-natural-height": "197"
+      }
+    },
+    {
+      "text": "\n",
+      "attributes": {
+        "block-id": "block-iRBL5ZnePy"
+      }
+    }
+  ],
+  "comment_text": "@Soledad Cruz I created a new version\nimage.png\n",
+  "user": {
+    "id": 2465932,
+    "username": "Rosa Pacheco",
+    "email": "rosa.pacheco@viventura.com",
+    "color": "#7b68ee",
+    "initials": "RP",
+    "profilePicture": "https://attachments.clickup.com/profilePictures/2465932_Gsj.jpg"
+  },
+  "date": "1787362175023",
+  "reply_count": 0
+}

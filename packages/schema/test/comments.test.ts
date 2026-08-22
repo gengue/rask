@@ -47,6 +47,52 @@ describe("ingestComments", () => {
 
     expect((await stored()).map((row) => row.id)).toEqual(["c1", "c2"]);
   });
+
+  test("carries the rendered body into the column the UI reads", async () => {
+    // The whole point of the column: the flat text ClickUp also sends says
+    // "image.png" and nothing else, so a mirror that only stores that has
+    // thrown the screenshot away before the UI ever sees it.
+    await ingestComments(db, TASK, [
+      payload("c1", "@Ada hi\nimage.png\n", {
+        comment: [
+          { type: "tag", user: { id: 7, username: "Ada" }, text: "@Ada" },
+          { text: " hi", attributes: {} },
+          { text: "\n", attributes: { "block-id": "b1" } },
+          {
+            type: "image",
+            text: "image.png",
+            image: { name: "image.png", url: "https://t529.p.clickup-attachments.com/x/i.png" },
+          },
+        ],
+      }),
+    ]);
+
+    const [row] = await db
+      .select({ text: comments.text, markdown: comments.markdown })
+      .from(comments)
+      .where(eq(comments.id, "c1"));
+
+    expect(row?.text).toBe("@Ada hi\nimage.png\n");
+    expect(row?.markdown).toBe(
+      "@[Ada](clickup://user/7) hi\n" +
+        "![image.png](https://t529.p.clickup-attachments.com/x/i.png?view=open)",
+    );
+  });
+
+  test("a comment that loses its rich body on the way back in clears the column", async () => {
+    await ingestComments(db, TASK, [
+      payload("c1", "hi", { comment: [{ text: "hi", attributes: { bold: true } }] }),
+    ]);
+    await ingestComments(db, TASK, [payload("c1", "hi")]);
+
+    const [row] = await db
+      .select({ markdown: comments.markdown })
+      .from(comments)
+      .where(eq(comments.id, "c1"));
+
+    // Otherwise an edit that removed the formatting would keep rendering it.
+    expect(row?.markdown).toBeNull();
+  });
 });
 
 describe("ingestReplies", () => {

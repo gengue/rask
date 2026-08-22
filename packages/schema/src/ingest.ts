@@ -355,7 +355,7 @@ async function upsertComments(db: Db, rows: ReturnType<typeof mapComment>[]): Pr
     .onConflictDoUpdate({
       target: comments.id,
       set: {
-        ...pick(["text", "resolved", "replyCount", "date"], { syncedAt: true }),
+        ...pick(["text", "markdown", "resolved", "replyCount", "date"], { syncedAt: true }),
         // A reply re-read as part of some other batch must not lose its thread.
         parentCommentId: sql`coalesce(excluded.parent_comment_id, ${comments.parentCommentId})`,
       },
