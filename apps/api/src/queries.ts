@@ -7,6 +7,7 @@ import {
   type StatusDef,
   spaces,
   taskAssignees,
+  taskAttachments,
   taskCustomValues,
   tasks,
   users,
@@ -160,7 +161,7 @@ export async function getTaskDetail(db: Db, taskId: string) {
 
   if (!task) return null;
 
-  const [taskComments, fields, statuses] = await Promise.all([
+  const [taskComments, fields, statuses, attachments] = await Promise.all([
     listComments(db, taskId),
 
     db
@@ -177,9 +178,50 @@ export async function getTaskDetail(db: Db, taskId: string) {
       .orderBy(asc(customFieldDefs.name)),
 
     statusesForList(db, task.listId),
+
+    listAttachments(db, taskId),
   ]);
 
-  return { ...task, comments: taskComments, customFields: fields, statuses };
+  return { ...task, comments: taskComments, customFields: fields, statuses, attachments };
+}
+
+export interface AttachmentRow {
+  id: string;
+  title: string | null;
+  extension: string | null;
+  mimetype: string | null;
+  size: number | null;
+  date: Date | null;
+  thumbnailSmall: string | null;
+  thumbnailMedium: string | null;
+  url: string | null;
+  urlWithQuery: string | null;
+}
+
+/**
+ * A task's files, oldest first, the order they were added in.
+ *
+ * `thumbnailLarge` stays in the mirror and out of the response: it is a 1600px
+ * render nothing shows, and a URL the client has no use for is payload for
+ * nothing.
+ */
+export async function listAttachments(db: Db, taskId: string): Promise<AttachmentRow[]> {
+  return db
+    .select({
+      id: taskAttachments.id,
+      title: taskAttachments.title,
+      extension: taskAttachments.extension,
+      mimetype: taskAttachments.mimetype,
+      size: taskAttachments.size,
+      date: taskAttachments.date,
+      thumbnailSmall: taskAttachments.thumbnailSmall,
+      thumbnailMedium: taskAttachments.thumbnailMedium,
+      url: taskAttachments.url,
+      urlWithQuery: taskAttachments.urlWithQuery,
+    })
+    .from(taskAttachments)
+    .where(eq(taskAttachments.taskId, taskId))
+    .orderBy(asc(taskAttachments.date), asc(taskAttachments.id));
 }
 
 export interface CommentRow {

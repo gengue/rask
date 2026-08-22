@@ -56,6 +56,27 @@ export function formatRelative(value: string | null, now = new Date()): string {
   return shortDate(date);
 }
 
+/**
+ * File size, at the precision a person actually reads.
+ *
+ * Powers of 1024 with the short units, which is what every file manager on the
+ * machine shows. One decimal below 10 so 1.4 MB does not round to 1 MB, none
+ * above it because nobody is comparing 148 MB to 149 MB.
+ */
+export function formatBytes(bytes: number | null): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
 export function initialsOf(name: string | null, fallback: string | null): string {
   if (fallback) return fallback.slice(0, 2).toUpperCase();
   if (!name) return "?";

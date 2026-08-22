@@ -80,6 +80,45 @@ const parentRef = z.looseObject({
   hidden: z.boolean().nullish(),
 });
 
+/**
+ * A file attached to a task.
+ *
+ * Three URLs come back for the same object and they are not interchangeable.
+ * `url` and `url_w_host` address the file itself, and the CDN answers them with
+ * `Content-Disposition: attachment` — fine for an `<img>`, but a link to one
+ * downloads a PDF instead of showing it. `url_w_query` is the same URL plus
+ * `?view=open`, which flips the disposition to `inline`. So: `url` for
+ * rendering, `url_w_query` for anything a person clicks.
+ *
+ * Three thumbnails, too. For an image ClickUp points `thumbnail_medium` and
+ * `thumbnail_large` back at the original file; for a PDF or a video they are
+ * genuine renders (a first page, a poster frame) at roughly 533px and 1600px,
+ * and `thumbnail_small` is always a real ~80px thumbnail.
+ */
+export const clickUpAttachment = z.looseObject({
+  /** "<uuid>.<ext>". Unique across the workspace, so it keys the mirror row. */
+  id: z.string(),
+  date: epochMs,
+  title: z.string().nullish(),
+  extension: z.string().nullish(),
+  mimetype: z.string().nullish(),
+  size: z
+    .union([z.string(), z.number()])
+    .nullish()
+    .transform((v) => (v == null || v === "" ? null : Number(v))),
+  thumbnail_small: z.string().nullish(),
+  thumbnail_medium: z.string().nullish(),
+  thumbnail_large: z.string().nullish(),
+  /** ClickUp keeps rows for removed files and flags them rather than dropping them. */
+  deleted: z.boolean().nullish(),
+  /** Set on files ClickUp itself does not list on the task. */
+  hidden: z.boolean().nullish(),
+  url: z.string().nullish(),
+  url_w_query: z.string().nullish(),
+  url_w_host: z.string().nullish(),
+});
+export type ClickUpAttachment = z.infer<typeof clickUpAttachment>;
+
 export const clickUpTask = z.looseObject({
   id: z.string(),
   custom_id: z.string().nullish(),
@@ -116,6 +155,13 @@ export const clickUpTask = z.looseObject({
   folder: parentRef.nullish(),
   space: parentRef.nullish(),
   url: z.string().nullish(),
+  /**
+   * Optional, not defaulted, and the difference matters. `GET /task/{id}` always
+   * sends the key (`[]` when there are none); `GET /list/{id}/task` omits it
+   * entirely. Defaulting to `[]` would make a list poll look like ClickUp had
+   * just told us the task has no files, and the mirror would delete them all.
+   */
+  attachments: z.array(clickUpAttachment).optional(),
 });
 export type ClickUpTask = z.infer<typeof clickUpTask>;
 

@@ -105,6 +105,49 @@ describe("getTask", () => {
   });
 });
 
+describe("attachments", () => {
+  test("parses the whole file, including the epoch and the stringified size", async () => {
+    const { client } = makeClient([{ body: taskFixture }]);
+    const [image, pdf] = (await client.getTask("9hz")).attachments ?? [];
+
+    expect(image?.title).toBe("cold-start.png");
+    expect(image?.mimetype).toBe("image/png");
+    expect(image?.size).toBe(18080);
+    expect(image?.date).toEqual(new Date(1787362173440));
+    expect(image?.thumbnail_small).toContain("image_small.png");
+
+    // Size and date come back as strings on some files and numbers on others.
+    expect(pdf?.size).toBe(10916008);
+    expect(pdf?.date).toEqual(new Date(1787298878760));
+  });
+
+  test("keeps the URL variants apart, since only one of them renders inline", async () => {
+    const { client } = makeClient([{ body: taskFixture }]);
+    const [image] = (await client.getTask("9hz")).attachments ?? [];
+
+    expect(image?.url).toBe("https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png");
+    expect(image?.url_w_query).toBe(
+      "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png?view=open",
+    );
+  });
+
+  /*
+   * The distinction the mirror depends on. `GET /task/{id}` always sends the
+   * key; `GET /list/{id}/task` never does. A default of [] here would make a
+   * list poll indistinguishable from ClickUp reporting an empty task.
+   */
+  test("is undefined when ClickUp omitted the key", async () => {
+    const { attachments, ...withoutAttachments } = taskFixture;
+    const { client } = makeClient([{ body: withoutAttachments }]);
+    expect((await client.getTask("9hz")).attachments).toBeUndefined();
+  });
+
+  test("is an empty array when ClickUp says the task has none", async () => {
+    const { client } = makeClient([{ body: { ...taskFixture, attachments: [] } }]);
+    expect((await client.getTask("9hz")).attachments).toEqual([]);
+  });
+});
+
 describe("query serialization", () => {
   test("repeats array params with a [] suffix, the way ClickUp expects", async () => {
     const { client, calls } = makeClient([{ body: { tasks: [], last_page: true } }]);

@@ -2,6 +2,7 @@ import type { ClickUpTask } from "@rask/clickup-client";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "./db.ts";
 import {
+  type MappedAttachment,
   type MappedCustomField,
   type MappedUser,
   mapComment,
@@ -17,6 +18,7 @@ import {
   lists,
   spaces,
   taskAssignees,
+  taskAttachments,
   taskCustomValues,
   tasks,
   users,
@@ -215,6 +217,7 @@ export async function ingestTasks(
     const taskIds = chunk.map((m) => m.task.id);
     await replaceAssignees(db, taskIds, chunk);
     await replaceCustomValues(db, taskIds, chunk);
+    await replaceAttachments(db, chunk);
 
     for (const m of chunk) {
       if (m.task.dateUpdated && (!newestUpdate || m.task.dateUpdated > newestUpdate)) {
@@ -255,6 +258,33 @@ async function replaceCustomValues(
   if (rows.length === 0) return;
   for (const chunk of chunks(rows, ROW_CHUNK)) {
     await db.insert(taskCustomValues).values(chunk).onConflictDoNothing();
+  }
+}
+
+/**
+ * Attachments, for the tasks in the batch that came with an opinion about them.
+ *
+ * A task whose payload had no `attachments` key is skipped entirely rather than
+ * emptied: every list endpoint omits the key, so a poll would otherwise wipe
+ * what the last detail fetch mirrored, and the files would flicker back into
+ * existence the next time somebody opened the task.
+ */
+async function replaceAttachments(
+  db: Db,
+  mapped: Array<{ task: { id: string }; attachments: MappedAttachment[] | null }>,
+): Promise<void> {
+  const known = mapped.filter((m) => m.attachments !== null);
+  if (known.length === 0) return;
+
+  const taskIds = known.map((m) => m.task.id);
+  await db.delete(taskAttachments).where(inArray(taskAttachments.taskId, taskIds));
+
+  const rows = known.flatMap((m) =>
+    (m.attachments ?? []).map((attachment) => ({ ...attachment, taskId: m.task.id })),
+  );
+  if (rows.length === 0) return;
+  for (const chunk of chunks(rows, ROW_CHUNK)) {
+    await db.insert(taskAttachments).values(chunk).onConflictDoNothing();
   }
 }
 

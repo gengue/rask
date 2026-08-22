@@ -62,5 +62,59 @@
   "list": { "id": "123", "name": "Engineering", "access": true },
   "project": { "id": "456", "name": "Q3", "hidden": false, "access": true },
   "folder": { "id": "456", "name": "Q3", "hidden": false, "access": true },
-  "space": { "id": "789" }
+  "space": { "id": "789" },
+  "attachments": [
+    {
+      "id": "0ed173fb-2acb-4479-a3b9-24610aa6b60a.png",
+      "date": "1787362173440",
+      "title": "cold-start.png",
+      "type": 2,
+      "source": 1,
+      "version": 0,
+      "extension": "png",
+      "thumbnail_small": "https://t529.p.clickup-attachments.com/t529/0ed173fb/image_small.png",
+      "thumbnail_medium": "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png",
+      "thumbnail_large": "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png",
+      "is_folder": null,
+      "mimetype": "image/png",
+      "hidden": false,
+      "parent_id": "9hz",
+      "size": 18080,
+      "total_comments": 0,
+      "resolved_comments": 0,
+      "user": { "id": 183, "username": "jori", "initials": "JO", "color": "#827718" },
+      "deleted": false,
+      "orientation": null,
+      "url": "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png",
+      "email_data": null,
+      "url_w_query": "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png?view=open",
+      "url_w_host": "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png?host=prod"
+    },
+    {
+      "id": "dddfb8bc-e190-4d17-866b-73290ae62763.pdf",
+      "date": 1787298878760,
+      "title": "trace.pdf",
+      "extension": "pdf",
+      "mimetype": "application/pdf",
+      "thumbnail_small": "https://t529.p.clickup-attachments.com/t529/dddfb8bc_small.png",
+      "thumbnail_medium": "https://t529.p.clickup-attachments.com/t529/dddfb8bc_medium.png",
+      "thumbnail_large": "https://t529.p.clickup-attachments.com/t529/dddfb8bc_large.png",
+      "hidden": false,
+      "size": "10916008",
+      "deleted": false,
+      "url": "https://t529.p.clickup-attachments.com/t529/dddfb8bc/trace.pdf",
+      "url_w_query": "https://t529.p.clickup-attachments.com/t529/dddfb8bc/trace.pdf?view=open"
+    },
+    {
+      "id": "99999999-0000-0000-0000-000000000000.png",
+      "date": "1787298878000",
+      "title": "removed.png",
+      "extension": "png",
+      "mimetype": "image/png",
+      "hidden": false,
+      "size": 12,
+      "deleted": true,
+      "url": "https://t529.p.clickup-attachments.com/t529/99999999/removed.png"
+    }
+  ]
 }

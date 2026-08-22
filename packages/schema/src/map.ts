@@ -1,4 +1,5 @@
 import type {
+  ClickUpAttachment,
   ClickUpComment,
   ClickUpCustomField,
   ClickUpFolder,
@@ -47,6 +48,26 @@ export interface MappedTask {
   users: MappedUser[];
   customValues: Array<{ fieldId: string; value: unknown }>;
   customFields: MappedCustomField[];
+  /**
+   * Null when the payload carried no `attachments` key at all, which is how
+   * every list endpoint answers. Only `GET /task/{id}` knows, so anything else
+   * has to say "no opinion" rather than "none".
+   */
+  attachments: MappedAttachment[] | null;
+}
+
+export interface MappedAttachment {
+  id: string;
+  title: string | null;
+  extension: string | null;
+  mimetype: string | null;
+  size: number | null;
+  date: Date | null;
+  thumbnailSmall: string | null;
+  thumbnailMedium: string | null;
+  thumbnailLarge: string | null;
+  url: string | null;
+  urlWithQuery: string | null;
 }
 
 export interface MappedUser {
@@ -74,6 +95,27 @@ export function mapUser(user: ClickUpUser): MappedUser {
     color: user.color ?? null,
     initials: user.initials ?? null,
     profilePicture: user.profilePicture ?? null,
+  };
+}
+
+/**
+ * `url_w_host` is dropped: it is `url` again, sometimes with a `?host=prod`
+ * that changes nothing about what comes back. Two columns holding the same
+ * string is two chances to read the wrong one.
+ */
+export function mapAttachment(attachment: ClickUpAttachment): MappedAttachment {
+  return {
+    id: attachment.id,
+    title: attachment.title ?? null,
+    extension: attachment.extension ?? null,
+    mimetype: attachment.mimetype ?? null,
+    size: attachment.size ?? null,
+    date: attachment.date ?? null,
+    thumbnailSmall: attachment.thumbnail_small ?? null,
+    thumbnailMedium: attachment.thumbnail_medium ?? null,
+    thumbnailLarge: attachment.thumbnail_large ?? null,
+    url: attachment.url ?? null,
+    urlWithQuery: attachment.url_w_query ?? attachment.url ?? null,
   };
 }
 
@@ -133,6 +175,11 @@ export function mapTask(task: ClickUpTask): MappedTask {
       .filter((f) => f.value !== undefined)
       .map((f) => ({ fieldId: f.id, value: f.value ?? null })),
     customFields: task.custom_fields.map(mapCustomField),
+    // Deleted and hidden rows keep coming back after ClickUp stops showing
+    // them. Mirroring a file the workspace considers gone would put it back on
+    // the task, which is worse than not having it.
+    attachments:
+      task.attachments?.filter((a) => !a.deleted && !a.hidden).map(mapAttachment) ?? null,
   };
 }
 

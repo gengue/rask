@@ -89,3 +89,61 @@ describe("mapTask", () => {
     expect(task.dateDone).toBeNull();
   });
 });
+
+describe("mapTask attachments", () => {
+  test("renames the URL and thumbnail fields onto the mirror's columns", () => {
+    const [image] = mapTask(parse()).attachments ?? [];
+
+    expect(image).toEqual({
+      id: "0ed173fb-2acb-4479-a3b9-24610aa6b60a.png",
+      title: "cold-start.png",
+      extension: "png",
+      mimetype: "image/png",
+      size: 18080,
+      date: new Date(1787362173440),
+      thumbnailSmall: "https://t529.p.clickup-attachments.com/t529/0ed173fb/image_small.png",
+      thumbnailMedium: "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png",
+      thumbnailLarge: "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png",
+      url: "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png",
+      urlWithQuery: "https://t529.p.clickup-attachments.com/t529/0ed173fb/image.png?view=open",
+    });
+  });
+
+  test("drops files ClickUp has deleted", () => {
+    const ids = (mapTask(parse()).attachments ?? []).map((a) => a.id);
+    expect(ids).toEqual([
+      "0ed173fb-2acb-4479-a3b9-24610aa6b60a.png",
+      "dddfb8bc-e190-4d17-866b-73290ae62763.pdf",
+    ]);
+  });
+
+  test("drops files ClickUp hides from the task", () => {
+    const hidden = structuredClone(taskFixture) as Record<string, unknown>;
+    const files = hidden.attachments as Array<Record<string, unknown>>;
+    if (files[0]) files[0].hidden = true;
+
+    expect((mapTask(clickUpTask.parse(hidden)).attachments ?? []).map((a) => a.id)).toEqual([
+      "dddfb8bc-e190-4d17-866b-73290ae62763.pdf",
+    ]);
+  });
+
+  test("falls back to the plain URL when there is no ?view=open variant", () => {
+    const attachments = [{ id: "a.png", url: "https://cdn.example/a.png" }];
+    const [only] = mapTask(parse({ attachments })).attachments ?? [];
+    expect(only?.urlWithQuery).toBe("https://cdn.example/a.png");
+  });
+
+  /*
+   * Null and [] are different answers and ingest acts on the difference: null
+   * means the endpoint does not report attachments, [] means this task has
+   * none. Collapsing them deletes every mirrored file on the next list poll.
+   */
+  test("is null when the payload never mentioned attachments", () => {
+    const { attachments, ...withoutAttachments } = taskFixture;
+    expect(mapTask(clickUpTask.parse(withoutAttachments)).attachments).toBeNull();
+  });
+
+  test("is an empty array when the task really has none", () => {
+    expect(mapTask(parse({ attachments: [] })).attachments).toEqual([]);
+  });
+});
