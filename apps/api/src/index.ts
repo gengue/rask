@@ -194,6 +194,11 @@ api.get("/events", (c) => {
     const push: Push = (event, data) => {
       void stream.writeSSE({ event, data: JSON.stringify(data) });
     };
+
+    // Only the author of a rejected write hears about it.
+    const unsubscribeFailures = feed.onFailure((failure) => {
+      if (failure.userId === userId) push("write-failed", failure);
+    });
     const mine = userStreams.get(userId) ?? new Set<Push>();
     mine.add(push);
     userStreams.set(userId, mine);
@@ -201,6 +206,7 @@ api.get("/events", (c) => {
     stream.onAbort(() => {
       closed = true;
       unsubscribe();
+      unsubscribeFailures();
       mine.delete(push);
       if (mine.size === 0) userStreams.delete(userId);
     });

@@ -1,5 +1,6 @@
 import type { Task, TaskDetail } from "./api.ts";
 import { merge } from "./store.ts";
+import { pushToast } from "./toast.ts";
 
 /**
  * Server-sent events from the API.
@@ -22,5 +23,24 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
     handlers.onDetail?.(detail);
   });
 
+  source.addEventListener("write-failed", (event) => {
+    const failure = JSON.parse((event as MessageEvent<string>).data) as {
+      op: string;
+      error: string;
+    };
+    pushToast({
+      tone: "error",
+      title: `ClickUp rejected your ${FAILURE_LABELS[failure.op] ?? "change"}`,
+      detail: failure.error,
+    });
+  });
+
   return () => source.close();
 }
+
+const FAILURE_LABELS: Record<string, string> = {
+  update_task: "edit",
+  create_task: "new task",
+  create_comment: "comment",
+  set_custom_field: "field change",
+};

@@ -1,4 +1,5 @@
-import type { Db } from "@rask/schema";
+import { type Db, outbox } from "@rask/schema";
+import { and, eq, gt } from "drizzle-orm";
 import { listTasks, type TaskRow } from "./queries.ts";
 
 /**
@@ -14,9 +15,18 @@ import { listTasks, type TaskRow } from "./queries.ts";
  * something, an idle workspace produces one cheap indexed query per second and
  * zero traffic.
  */
+export interface WriteFailure {
+  userId: string;
+  op: string;
+  entityId: string | null;
+  error: string;
+}
+
 export class ChangeFeed {
   private readonly subscribers = new Set<(tasks: TaskRow[]) => void>();
+  private readonly failureHandlers = new Set<(failure: WriteFailure) => void>();
   private since = new Date();
+  private failuresSince = new Date();
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -30,6 +40,21 @@ export class ChangeFeed {
     return () => {
       this.subscribers.delete(onChange);
       if (this.subscribers.size === 0) this.stop();
+    };
+  }
+
+  /**
+   * Notified when the worker gives up on a write.
+   *
+   * The mirror has already been repaired from ClickUp by then, so the user has
+   * watched their change snap back. Without this they get no explanation.
+   */
+  onFailure(handler: (failure: WriteFailure) => void): () => void {
+    this.failureHandlers.add(handler);
+    if (this.subscribers.size === 0 && this.failureHandlers.size === 1) this.start();
+    return () => {
+      this.failureHandlers.delete(handler);
+      if (this.subscribers.size === 0 && this.failureHandlers.size === 0) this.stop();
     };
   }
 
@@ -58,10 +83,40 @@ export class ChangeFeed {
       // Advance only after the query succeeds, so a database blip replays
       // rather than drops the window.
       this.since = cutoff;
-      if (changed.length === 0) return;
-      for (const notify of this.subscribers) notify(changed);
+      if (changed.length > 0) {
+        for (const notify of this.subscribers) notify(changed);
+      }
     } catch (error) {
       console.error("[changes]", error instanceof Error ? error.message : error);
+    }
+
+    await this.pollFailures();
+  }
+
+  private async pollFailures(): Promise<void> {
+    if (this.failureHandlers.size === 0) return;
+    const cutoff = new Date();
+    try {
+      const failed = await this.db
+        .select({
+          userId: outbox.userId,
+          op: outbox.op,
+          entityId: outbox.entityId,
+          error: outbox.lastError,
+        })
+        .from(outbox)
+        .where(and(eq(outbox.status, "failed"), gt(outbox.updatedAt, this.failuresSince)))
+        .limit(20);
+
+      this.failuresSince = cutoff;
+
+      for (const row of failed) {
+        for (const notify of this.failureHandlers) {
+          notify({ ...row, error: row.error ?? "ClickUp rejected the change" });
+        }
+      }
+    } catch (error) {
+      console.error("[changes:failures]", error instanceof Error ? error.message : error);
     }
   }
 }

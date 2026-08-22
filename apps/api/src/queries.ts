@@ -101,8 +101,13 @@ export async function listTasks(db: Db, filters: TaskFilters) {
   if (filters.spaceId) where.push(eq(tasks.spaceId, filters.spaceId));
   if (filters.statuses?.length) where.push(inArray(tasks.status, filters.statuses));
   if (filters.tag) {
-    // Matches the GIN jsonb_path_ops index on tasks.tags.
-    where.push(sql`${tasks.tags} @> ${JSON.stringify([{ name: filters.tag }])}::jsonb`);
+    // Built server-side from a plain text parameter rather than a stringified
+    // literal: a JSON string bound as a parameter arrives as a jsonb *string*,
+    // and containment against a string matches nothing. Uses the GIN
+    // jsonb_path_ops index on tasks.tags.
+    where.push(
+      sql`${tasks.tags} @> jsonb_build_array(jsonb_build_object('name', ${filters.tag}::text))`,
+    );
   }
   if (!filters.includeClosed) {
     where.push(

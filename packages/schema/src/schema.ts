@@ -6,7 +6,6 @@ import {
   customType,
   index,
   integer,
-  jsonb,
   pgTable,
   primaryKey,
   real,
@@ -32,6 +31,27 @@ import {
 const bytea = customType<{ data: Buffer; notNull: true }>({
   dataType: () => "bytea",
 });
+
+/**
+ * jsonb that hands the driver the value itself.
+ *
+ * Drizzle's built-in `jsonb` calls JSON.stringify before binding, because
+ * node-postgres sends parameters as text for Postgres to cast. Bun's SQL driver
+ * encodes JS values to JSON on its own, so a pre-stringified value lands as a
+ * jsonb *string* instead of an object or array.
+ *
+ * Reads still round-trip, which is what makes it easy to miss: Drizzle parses
+ * the string back on the way out. What breaks is everything else. `tags @>
+ * '[{"name":"..."}]'` never matches a string, so the tag filter silently returns
+ * nothing, and anything reading the column with raw SQL — the outbox drain, for
+ * one — gets a string where it expected an object.
+ */
+const jsonb = <T>(name: string) =>
+  customType<{ data: T; driverData: T }>({
+    dataType: () => "jsonb",
+    toDriver: (value) => value,
+    fromDriver: (value) => value,
+  })(name);
 
 /** Local-clock timestamp column. ClickUp sends epoch ms; the client converts. */
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
@@ -99,7 +119,7 @@ export const spaces = pgTable(
     private: boolean("private").notNull().default(false),
     archived: boolean("archived").notNull().default(false),
     /** The Space's status set, inherited by its lists unless a list overrides it. */
-    statuses: jsonb("statuses").$type<StatusDef[]>().notNull().default(sql`'[]'::jsonb`),
+    statuses: jsonb<StatusDef[]>("statuses").notNull().default(sql`'[]'::jsonb`),
     syncedAt: ts("synced_at").notNull().defaultNow(),
   },
   (t) => [index("spaces_team_idx").on(t.teamId)],
@@ -132,7 +152,7 @@ export const lists = pgTable(
     taskCount: integer("task_count"),
     archived: boolean("archived").notNull().default(false),
     /** Only set when the list overrides its Space's statuses. */
-    statuses: jsonb("statuses").$type<StatusDef[] | null>(),
+    statuses: jsonb<StatusDef[] | null>("statuses"),
     syncedAt: ts("synced_at").notNull().defaultNow(),
   },
   (t) => [index("lists_space_idx").on(t.spaceId), index("lists_folder_idx").on(t.folderId)],
@@ -177,7 +197,7 @@ export const tasks = pgTable(
     creatorId: text("creator_id"),
     archived: boolean("archived").notNull().default(false),
     /** [{ name, fg, bg }]. Kept whole so the UI can render colors without a join. */
-    tags: jsonb("tags").$type<TaskTag[]>().notNull().default(sql`'[]'::jsonb`),
+    tags: jsonb<TaskTag[]>("tags").notNull().default(sql`'[]'::jsonb`),
     timeEstimate: bigint("time_estimate", { mode: "number" }),
     points: real("points"),
     url: text("url"),
@@ -233,7 +253,7 @@ export const customFieldDefs = pgTable("custom_field_defs", {
   /** drop_down, labels, number, date, text, url, checkbox, users, ... */
   type: text("type").notNull(),
   /** Dropdown options, number precision, and so on. Shape varies by type. */
-  typeConfig: jsonb("type_config"),
+  typeConfig: jsonb<unknown>("type_config"),
   required: boolean("required").notNull().default(false),
   syncedAt: ts("synced_at").notNull().defaultNow(),
 });
@@ -246,7 +266,7 @@ export const taskCustomValues = pgTable(
       .references(() => tasks.id, { onDelete: "cascade" }),
     fieldId: text("field_id").notNull(),
     /** Raw ClickUp value. Type depends on the field type; the UI reads typeConfig. */
-    value: jsonb("value"),
+    value: jsonb<unknown>("value"),
   },
   (t) => [
     primaryKey({ columns: [t.taskId, t.fieldId] }),
@@ -297,7 +317,7 @@ export const outbox = pgTable(
     op: text("op").$type<OutboxOp>().notNull(),
     /** The ClickUp id being written to. Null for creates until ClickUp assigns one. */
     entityId: text("entity_id"),
-    payload: jsonb("payload").notNull(),
+    payload: jsonb<Record<string, unknown>>("payload").notNull(),
     /**
      * Client-generated id for the optimistic row. Lets the API match ClickUp's
      * response back to the placeholder the browser is already showing.

@@ -64,19 +64,40 @@ async function pollOnce(full: boolean): Promise<void> {
   }
 }
 
-async function bootstrap(): Promise<void> {
+/**
+ * Refreshes the Space/Folder/List tree.
+ *
+ * Tries each token in turn. A single revoked token must not stop the worker:
+ * someone leaving the company should not take ingestion down with them, and a
+ * token that fails here still gets its own writes attempted in the outbox loop.
+ */
+async function refreshHierarchy(): Promise<boolean> {
   const count = await pool.refresh();
-  console.log(`[worker] ${count} ClickUp token(s) available`);
-  if (count === 0) return;
+  if (count === 0) return false;
 
-  const entry = pool.next();
-  if (!entry) return;
-  const teamId = config.CLICKUP_TEAM_ID ?? entry.teamId;
-  const stats = await syncHierarchy(db, entry.client, teamId);
-  console.log(`[worker] hierarchy synced in ${stats.ms}ms (${stats.requests} requests)`);
+  for (let attempt = 0; attempt < count; attempt++) {
+    const entry = pool.next();
+    if (!entry) break;
+    try {
+      const teamId = config.CLICKUP_TEAM_ID ?? entry.teamId;
+      const stats = await syncHierarchy(db, entry.client, teamId);
+      console.log(`[worker] hierarchy synced in ${stats.ms}ms (${stats.requests} requests)`);
+      return true;
+    } catch (error) {
+      console.error(
+        `[worker] hierarchy sync failed for user ${entry.userId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  console.error("[worker] no usable ClickUp token; ingestion is idle until someone signs in");
+  return false;
 }
 
-await bootstrap();
+const tokenCount = await pool.refresh();
+console.log(`[worker] ${tokenCount} ClickUp token(s) available`);
+await refreshHierarchy();
 
 every(config.OUTBOX_INTERVAL_MS, "outbox", async () => {
   await pool.refresh();
@@ -96,6 +117,8 @@ every(15 * 60_000, "reconcile", async () => {
   const now = new Date();
   if (now.getHours() !== config.RECONCILE_HOUR || now.getDate() === lastReconcileDay) return;
   lastReconcileDay = now.getDate();
+  // Lists get created and renamed; the nightly pass is where that catches up.
+  await refreshHierarchy();
   await pollOnce(true);
 });
 

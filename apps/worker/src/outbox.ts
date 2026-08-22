@@ -16,7 +16,7 @@ import type { TokenPool } from "./tokens.ts";
  * told. That repair is why `revert` refetches instead of trying to undo.
  */
 
-const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 5;
 
 export interface OutboxRow {
   id: number;
@@ -58,9 +58,7 @@ export async function drainOutbox(db: Db, pool: TokenPool, limit = 20): Promise<
         .set({
           status: permanent ? "failed" : "pending",
           attempts: row.attempts + 1,
-          // 2s, 4s, 8s, 16s. The client's own retry budget, not ClickUp's:
-          // 429s are already absorbed inside the ClickUp client.
-          nextAttemptAt: new Date(Date.now() + 2 ** (row.attempts + 1) * 1000),
+          nextAttemptAt: new Date(Date.now() + backoffMs(row.attempts + 1)),
           lastError: message,
           updatedAt: new Date(),
         })
@@ -158,8 +156,18 @@ export function placeholderId(clientId: string): string {
   return `tmp_${clientId}`;
 }
 
+/**
+ * 2s, 4s, 8s, 16s, capped at five minutes.
+ *
+ * This is the worker's own budget, not ClickUp's: 429s are absorbed inside the
+ * ClickUp client, so anything reaching here is a transient server error.
+ */
+export function backoffMs(attempt: number): number {
+  return Math.min(300_000, 2 ** attempt * 1000);
+}
+
 /** A 4xx that is not 429 means the request itself is wrong. Retrying cannot help. */
-function isPermanent(error: unknown): boolean {
+export function isPermanent(error: unknown): boolean {
   return (
     error instanceof ClickUpError &&
     error.status >= 400 &&

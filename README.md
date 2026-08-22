@@ -50,6 +50,11 @@ Browser (SPA) <-- SSE --> API <-- REST + webhooks --> ClickUp
 Tooling: Biome, `bun test`, Playwright for the critical flow, Docker Compose for
 local Postgres.
 
+Run the suite with `bun run test`, not a bare `bun test`: the latter globs the
+Playwright specs, which need running servers. Some tests talk to the local
+Postgres on purpose — a jsonb column that round-trips through the ORM while
+being stored wrong is not catchable any other way.
+
 ### Things the original plan called for that are not here
 
 Each of these was dropped for a reason, and each has a way back in.

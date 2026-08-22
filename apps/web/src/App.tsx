@@ -11,6 +11,7 @@ import { QuickAdd } from "./components/QuickAdd.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusIcon } from "./components/StatusIcon.tsx";
 import { TaskDetail } from "./components/TaskDetail.tsx";
+import { Toasts } from "./components/Toasts.tsx";
 import { api, type StatusDef, type Task } from "./lib/api.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
@@ -392,6 +393,8 @@ export function AppShell(): JSX.Element {
           onClose={() => setUi("quickAdd", false)}
         />
       </Show>
+
+      <Toasts />
 
       <Show when={menu()}>
         {(current) => (
