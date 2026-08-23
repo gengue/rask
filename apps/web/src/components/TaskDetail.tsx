@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   type JSX,
+  lazy,
   onCleanup,
   onMount,
   Show,
@@ -28,7 +29,19 @@ import { setUi, ui } from "../lib/ui.ts";
 import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Checklists } from "./Checklists.tsx";
-import { MarkdownEditor } from "./MarkdownEditor.tsx";
+
+/*
+ * CodeMirror is loaded when someone starts editing, not before.
+ *
+ * It and its lezer grammars are about 1.1MB of the source that went into the
+ * bundle — the largest thing in it by a distance — and none of it is needed to
+ * read a task. Splitting it out is the difference between paying for the editor
+ * on first paint and paying for it the first time you click into a description.
+ */
+const MarkdownEditor = lazy(() =>
+  import("./MarkdownEditor.tsx").then((m) => ({ default: m.MarkdownEditor })),
+);
+
 import { Menu, type MenuItem } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
 import { ParentLink, Subtasks } from "./Subtasks.tsx";
