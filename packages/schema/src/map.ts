@@ -8,6 +8,7 @@ import type {
   ClickUpSpace,
   ClickUpTask,
   ClickUpUser,
+  ClickUpView,
 } from "@rask/clickup-client";
 import { renderCommentBody } from "@rask/clickup-client";
 import type { StatusDef, TaskTag } from "./schema.ts";
@@ -297,6 +298,32 @@ export function mapList(
     // Only meaningful when the list overrides its Space. Otherwise the Space's
     // set applies and duplicating it here would be a second thing to keep in sync.
     statuses: list.override_statuses && list.statuses ? list.statuses.map(mapStatus) : null,
+  };
+}
+
+/**
+ * A view to the row that draws its tab.
+ *
+ * `listId` comes from the caller. ClickUp does echo the container back as
+ * `parent: { id, type }`, but `type` is a numeric enum (6 is a List) that
+ * nothing else in this codebase decodes, and the List the views were fetched
+ * for is the only thing that is certainly right.
+ *
+ * `isDefault` also comes from the caller: it lives in a separate `default_view`
+ * object on the response, not on the view.
+ */
+export function mapView(view: ClickUpView, listId: string, defaultViewId: string | null) {
+  return {
+    id: view.id,
+    listId,
+    name: view.name,
+    type: view.type,
+    orderindex: view.orderindex ?? null,
+    isDefault: view.id === defaultViewId,
+    // Absent on forms and conversations, which hold no tasks to group.
+    groupField: view.grouping?.field ?? null,
+    showClosed: view.filters?.show_closed ?? false,
+    publicUrl: view.public_url ?? null,
   };
 }
 

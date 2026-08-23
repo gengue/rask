@@ -1,4 +1,4 @@
-import type { ClickUpTask } from "@rask/clickup-client";
+import type { ClickUpTask, ClickUpView } from "@rask/clickup-client";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "./db.ts";
 import {
@@ -12,6 +12,7 @@ import {
   mapList,
   mapSpace,
   mapTask,
+  mapView,
 } from "./map.ts";
 import {
   checklistItems,
@@ -19,6 +20,7 @@ import {
   customFieldDefs,
   folders,
   lists,
+  listViews,
   spaces,
   taskAssignees,
   taskAttachments,
@@ -96,6 +98,57 @@ export async function upsertLists(
         { syncedAt: true },
       ),
     });
+}
+
+/**
+ * A List's views, replacing whatever was there.
+ *
+ * `GET /list/{id}/view` answers with the complete set — saved views and
+ * built-ins together — so unlike a page of comments, "absent" here really does
+ * mean "deleted in ClickUp", and a tab bar that keeps offering a view somebody
+ * removed is worse than one that is a poll behind.
+ *
+ * Upsert then delete, rather than delete then insert: the rows survive a failed
+ * fetch, and nothing observes the table mid-transaction anyway.
+ */
+export async function replaceListViews(
+  db: Db,
+  listId: string,
+  input: { views: ClickUpView[]; defaultViewId: string | null },
+): Promise<void> {
+  const rows = input.views.map((view) => mapView(view, listId, input.defaultViewId));
+
+  if (rows.length > 0) {
+    await db
+      .insert(listViews)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: listViews.id,
+        set: pick(
+          [
+            "listId",
+            "name",
+            "type",
+            "orderindex",
+            "isDefault",
+            "groupField",
+            "showClosed",
+            "publicUrl",
+          ],
+          { syncedAt: true },
+        ),
+      });
+  }
+
+  const keep = rows.map((row) => row.id);
+  await db
+    .delete(listViews)
+    .where(
+      and(
+        eq(listViews.listId, listId),
+        keep.length > 0 ? notInArray(listViews.id, keep) : undefined,
+      ),
+    );
 }
 
 export async function upsertUsers(db: Db, input: MappedUser[]): Promise<void> {

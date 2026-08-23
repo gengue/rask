@@ -1,5 +1,5 @@
 import type { Task } from "./api.ts";
-import { formatDue } from "./format.ts";
+import { formatDue, PRIORITY_LABELS } from "./format.ts";
 import type { GroupBy } from "./ui.ts";
 
 export interface GroupHeader {
@@ -43,7 +43,7 @@ export function groupTasks(tasks: Task[], groupBy: GroupBy): FlatItem[] {
     else groups.set(key.id, { label: key.label, color: key.color, type: key.type, tasks: [task] });
   }
 
-  const order = groupBy === "due" ? DUE_ORDER : [...groups.keys()];
+  const order = FIXED_ORDER[groupBy] ?? [...groups.keys()];
   const sorted = [...groups.entries()].sort(
     (a, b) => rank(order, a[0]) - rank(order, b[0]) || a[1].label.localeCompare(b[1].label),
   );
@@ -61,7 +61,18 @@ export function groupTasks(tasks: Task[], groupBy: GroupBy): FlatItem[] {
   ]);
 }
 
-const DUE_ORDER = ["overdue", "today", "soon", "later", "none"];
+/**
+ * Groupings whose order is the meaning, not the alphabet.
+ *
+ * Due dates and priorities both run from "deal with this" to "do not", and
+ * sorting either of them by label would put "Low" above "Urgent". Everything
+ * else — status, assignee, list — has no inherent order, so its groups come out
+ * in the order the rows produced them.
+ */
+const FIXED_ORDER: Partial<Record<GroupBy, string[]>> = {
+  due: ["overdue", "today", "soon", "later", "none"],
+  priority: ["1", "2", "3", "4", "none"],
+};
 
 function rank(order: string[], id: string): number {
   const index = order.indexOf(id);
@@ -97,6 +108,16 @@ function groupKey(
     if (!due) return { id: "none", label: "No due date", color: null, type: null };
     const id = due.tone === "normal" ? "later" : due.tone;
     return { id, label: DUE_LABELS[id] ?? "Later", color: null, type: null };
+  }
+
+  if (groupBy === "priority") {
+    if (task.priority == null) return { id: "none", label: "No priority", color: null, type: null };
+    return {
+      id: String(task.priority),
+      label: PRIORITY_LABELS[task.priority] ?? String(task.priority),
+      color: null,
+      type: null,
+    };
   }
 
   return {

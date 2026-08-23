@@ -5,6 +5,7 @@ import {
   type Db,
   folders,
   lists,
+  listViews,
   type StatusDef,
   spaces,
   taskAssignees,
@@ -83,6 +84,14 @@ export interface TaskFilters {
   assigneeId?: string;
   statuses?: string[];
   tag?: string;
+  /**
+   * An explicit set of tasks, in place of a predicate.
+   *
+   * This is how a view is read: ClickUp decided which tasks pass the view's
+   * filters, and the mirror is asked for exactly those rows rather than for a
+   * query that tries to mean the same thing.
+   */
+  taskIds?: string[];
   /** Closed and done tasks are hidden unless asked for. */
   includeClosed?: boolean;
   /** Only rows the mirror touched after this instant. Drives the SSE feed. */
@@ -107,6 +116,11 @@ export async function listTasks(db: Db, filters: TaskFilters) {
     where.push(gt(tasks.syncedAt, filters.syncedAfter));
   }
 
+  if (filters.taskIds) {
+    // An empty set is a real answer — a view whose filters match nothing — and
+    // `in ()` is not valid SQL, so say false rather than dropping the clause.
+    where.push(filters.taskIds.length > 0 ? inArray(tasks.id, filters.taskIds) : sql`false`);
+  }
   if (filters.listId) where.push(eq(tasks.listId, filters.listId));
   if (filters.spaceId) where.push(eq(tasks.spaceId, filters.spaceId));
   if (filters.statuses?.length) where.push(inArray(tasks.status, filters.statuses));
@@ -437,6 +451,72 @@ function byDate(a: { date: Date | null }, b: { date: Date | null }): number {
   return (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0);
 }
 
+export interface ListViewRow {
+  id: string;
+  listId: string;
+  name: string;
+  type: string;
+  isDefault: boolean;
+  groupField: string | null;
+  showClosed: boolean;
+  publicUrl: string | null;
+}
+
+const listViewColumns = {
+  id: listViews.id,
+  listId: listViews.listId,
+  name: listViews.name,
+  type: listViews.type,
+  isDefault: listViews.isDefault,
+  groupField: listViews.groupField,
+  showClosed: listViews.showClosed,
+  publicUrl: listViews.publicUrl,
+};
+
+/**
+ * A List's tabs, in the order ClickUp draws them.
+ *
+ * Three rules, and `orderindex` is only the last of them. That is not what the
+ * field looks like, which is why this is spelled out: sorting the views of list
+ * 901516038590 by orderindex alone gives Board, Ventura AI, All, … and ClickUp
+ * draws Channel, All, Board, Ventura AI, ….
+ *
+ *  1. The chat view leads. ClickUp lifts it out of the row entirely, labels it
+ *     "Channel" and puts a divider after it.
+ *  2. The default view is next, wherever its orderindex falls. On list
+ *     5345534 the default is a dashboard at orderindex 90, behind sixty other
+ *     views, and ClickUp still draws it first.
+ *  3. Everything else by orderindex, which is one sequence across the saved
+ *     views and the built-in ones. The id breaks ties — ClickUp has its own
+ *     tiebreak and it is not the id, but a tab bar that reshuffles between two
+ *     reads of the same list is worse than one whose ties are in the wrong
+ *     order.
+ *
+ * All three are observed rather than documented: the published schema for
+ * GetListViews does not mention `required_views` or `default_view` at all.
+ */
+export async function listViewsFor(db: Db, listId: string): Promise<ListViewRow[]> {
+  return db
+    .select(listViewColumns)
+    .from(listViews)
+    .where(eq(listViews.listId, listId))
+    .orderBy(
+      sql`(${listViews.type} = 'conversation') desc`,
+      desc(listViews.isDefault),
+      sql`${listViews.orderindex} asc nulls last`,
+      asc(listViews.id),
+    );
+}
+
+export async function findListView(db: Db, viewId: string): Promise<ListViewRow | null> {
+  const [row] = await db
+    .select(listViewColumns)
+    .from(listViews)
+    .where(eq(listViews.id, viewId))
+    .limit(1);
+  return row ?? null;
+}
+
 /** A list's own status set if it overrides, otherwise its Space's. */
 export async function statusesForList(db: Db, listId: string): Promise<StatusDef[]> {
   const [row] = await db
@@ -569,6 +649,7 @@ export async function searchTasks(db: Db, query: string, limit = 12) {
 /** What an id lifted out of a ClickUp URL turned out to be. */
 export type ResolvedRef =
   | { kind: "task"; taskId: string; listId: string }
+  | { kind: "view"; viewId: string; listId: string; name: string }
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
   | { kind: "space"; spaceId: string; name: string };
@@ -588,7 +669,7 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
   // may not be, and the column is indexed by value, not by upper(value).
   const upper = ids.map((id) => id.toUpperCase());
 
-  const [taskRows, listRows, folderRows, spaceRows] = await Promise.all([
+  const [taskRows, viewRows, listRows, folderRows, spaceRows] = await Promise.all([
     db
       .select({ id: tasks.id, customId: tasks.customId, listId: tasks.listId })
       .from(tasks)
@@ -602,6 +683,10 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
           ) ?? sql`false`,
         ),
       ),
+    db
+      .select({ id: listViews.id, name: listViews.name, listId: listViews.listId })
+      .from(listViews)
+      .where(inArray(listViews.id, ids)),
     db.select({ id: lists.id, name: lists.name }).from(lists).where(inArray(lists.id, ids)),
     db.select({ id: folders.id, name: folders.name }).from(folders).where(inArray(folders.id, ids)),
     db.select({ id: spaces.id, name: spaces.name }).from(spaces).where(inArray(spaces.id, ids)),
@@ -611,6 +696,11 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
     const key = id.toUpperCase();
     const task = taskRows.find((row) => row.id === id || row.customId?.toUpperCase() === key);
     if (task) return { kind: "task", taskId: task.id, listId: task.listId };
+
+    // Before the list, because a built-in view's id ("6-{list}-1") is a
+    // different string from its list's and only one of the two can match.
+    const view = viewRows.find((row) => row.id === id);
+    if (view) return { kind: "view", viewId: view.id, listId: view.listId, name: view.name };
 
     const list = listRows.find((row) => row.id === id);
     if (list) return { kind: "list", listId: list.id, name: list.name };

@@ -13,6 +13,7 @@ import {
   type ClickUpTask,
   type ClickUpTeam,
   type ClickUpUser,
+  type ClickUpView,
   type ClickUpWebhook,
   checklistResponse,
   clickUpComment,
@@ -26,6 +27,7 @@ import {
   clickUpUser,
   clickUpWebhook,
   createdComment,
+  listViewsResponse,
   taskPage,
   threadedCommentCreated,
 } from "./schemas.ts";
@@ -293,6 +295,71 @@ export class ClickUpClient {
         return { space, folders, lists };
       }),
     );
+  }
+
+  // --- Views --------------------------------------------------------------
+
+  /**
+   * Every view on a List, by orderindex.
+   *
+   * ClickUp splits the answer into `views` (saved) and `required_views` (the
+   * built-in List and Board, plus a null for every built-in the List does not
+   * have). Both share one `orderindex` sequence, so they are merged and sorted
+   * here rather than by every caller. `default_view` names the tab ClickUp
+   * opens the List on; it is a differently shaped copy of a row already in the
+   * merged list, so only its id comes back.
+   *
+   * Orderindex is not the order ClickUp's own tab bar uses — the chat view and
+   * the default view are lifted to the front of it. That belongs to whatever
+   * draws tabs, and it lives in the API's read model. What this owes its caller
+   * is one deterministic list.
+   *
+   * The same shape exists at `/space/{id}/view`, `/folder/{id}/view` and
+   * `/team/{id}/view`. Lists are what Rask navigates, so only that one is here.
+   */
+  getListViews(listId: string): Promise<{ views: ClickUpView[]; defaultViewId: string | null }> {
+    return this.request(listViewsResponse, "GET", `/v2/list/${listId}/view`).then((r) => {
+      const merged = new Map<string, ClickUpView>();
+      for (const view of [...Object.values(r.required_views), ...r.views]) {
+        if (view) merged.set(view.id, view);
+      }
+      return {
+        views: [...merged.values()].sort(byOrderindex),
+        defaultViewId: r.default_view?.id ?? null,
+      };
+    });
+  }
+
+  /**
+   * One page of the tasks a view shows, with the view's own filters already
+   * applied by ClickUp.
+   *
+   * This is the reason views are worth mirroring at all: reimplementing
+   * `{field:"tag", op:"NOT ANY", values:[...]}` against the local mirror would
+   * be rebuilding ClickUp's filter engine, and it would be wrong the first time
+   * somebody used an operator we had not met.
+   *
+   * The payload is thinner than `GET /list/{id}/task`: no `description`, no
+   * `text_content`, and `include_markdown_description` is ignored. Treat it as
+   * "which tasks", not as a fresh copy of them.
+   */
+  getViewTasks(
+    viewId: string,
+    params: { page?: number } = {},
+  ): Promise<{ tasks: ClickUpTask[]; lastPage: boolean }> {
+    return this.request(taskPage, "GET", `/v2/view/${viewId}/task`, {
+      // `page` is required on this endpoint, unlike the list one.
+      query: { page: params.page ?? 0 },
+    }).then((r) => ({ tasks: r.tasks, lastPage: r.last_page ?? r.tasks.length === 0 }));
+  }
+
+  /** Walks every page of a view. Stops on the first page ClickUp flags as last. */
+  async *iterateViewTasks(viewId: string): AsyncGenerator<ClickUpTask[]> {
+    for (let page = 0; ; page++) {
+      const { tasks, lastPage } = await this.getViewTasks(viewId, { page });
+      if (tasks.length > 0) yield tasks;
+      if (lastPage || tasks.length === 0) return;
+    }
   }
 
   getListCustomFields(listId: string): Promise<ClickUpCustomField[]> {
@@ -618,6 +685,18 @@ function taskQuery(params: ListTasksParams): Query {
     order_by: params.orderBy,
     reverse: params.reverse,
   };
+}
+
+/**
+ * A view with no orderindex sorts after every view that has one — ClickUp
+ * always sends it, so a missing one means a shape nobody has seen and the safe
+ * place for it is the end. The id breaks ties so two reads of the same List do
+ * not disagree.
+ */
+function byOrderindex(a: ClickUpView, b: ClickUpView): number {
+  const left = a.orderindex ?? Number.MAX_SAFE_INTEGER;
+  const right = b.orderindex ?? Number.MAX_SAFE_INTEGER;
+  return left - right || a.id.localeCompare(b.id);
 }
 
 /**

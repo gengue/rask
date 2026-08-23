@@ -57,6 +57,13 @@
       "when": 1787439560570,
       "tag": "0007_checklists",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787446152449,
+      "tag": "0008_list_views",
+      "breakpoints": true
     }
   ]
 }
