@@ -64,30 +64,61 @@ export const tasks = createCollection<Task, string>({
   },
 
   onUpdate: async ({ transaction }) => {
-    for (const mutation of transaction.mutations) {
-      const patch = toApiPatch(mutation.changes as Partial<Task>);
-      if (Object.keys(patch).length === 0) continue;
-      await api.patchTask(String(mutation.key), patch);
+    try {
+      for (const mutation of transaction.mutations) {
+        const patch = toApiPatch(mutation.changes as Partial<Task>);
+        if (Object.keys(patch).length === 0) continue;
+        await api.patchTask(String(mutation.key), patch);
+      }
+    } catch (error) {
+      /*
+       * The collection rolls the row back on a throw and says nothing.
+       *
+       * So a dropped card slides back to where it was, a status flips and
+       * unflips, and the only account of it is a network entry. The README
+       * promises "revert and notify"; this is the notify. The `write-failed`
+       * channel covers the other half — a write ClickUp rejects after it
+       * reached the outbox — and never sees this one, because this one never
+       * got that far.
+       */
+      announceRollback("Could not save that change", error);
+      throw error;
     }
   },
 
   onInsert: async ({ transaction }) => {
-    for (const mutation of transaction.mutations) {
-      const task = mutation.modified as Task;
-      await api.createTask({
-        listId: task.listId,
-        name: task.name,
-        status: task.status ?? undefined,
-        priority: task.priority,
-        dueDate: task.dueDate ? Date.parse(task.dueDate) : null,
-        assignees: task.assignees.map((a) => a.id),
-        // The placeholder id doubles as the idempotency key the server matches
-        // ClickUp's reply back to.
-        clientId: task.id.replace(/^tmp_/, ""),
-      });
+    try {
+      for (const mutation of transaction.mutations) {
+        const task = mutation.modified as Task;
+        await api.createTask({
+          listId: task.listId,
+          name: task.name,
+          status: task.status ?? undefined,
+          priority: task.priority,
+          dueDate: task.dueDate ? Date.parse(task.dueDate) : null,
+          assignees: task.assignees.map((a) => a.id),
+          // The placeholder id doubles as the idempotency key the server matches
+          // ClickUp's reply back to.
+          clientId: task.id.replace(/^tmp_/, ""),
+        });
+      }
+    } catch (error) {
+      // Same reason as onUpdate: the placeholder disappears on its own and the
+      // user is otherwise told nothing about why their task did not stick.
+      announceRollback("Could not create that task", error);
+      throw error;
     }
   },
 });
+
+/** Says out loud what the collection just undid. */
+function announceRollback(title: string, error: unknown): void {
+  pushToast({
+    tone: "error",
+    title,
+    detail: error instanceof Error ? error.message : String(error),
+  });
+}
 
 /** Folds server rows into the collection: insert, update, or drop if deleted. */
 export function merge(rows: Task[]): void {
