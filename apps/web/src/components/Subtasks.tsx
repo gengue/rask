@@ -1,3 +1,4 @@
+import { isClosedType, isPlaceholder, placeholderId } from "@rask/clickup-client/vocabulary";
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TaskDetail, type TaskRef } from "../lib/api.ts";
 import { useNavigate } from "../lib/nav.tsx";
@@ -77,8 +78,7 @@ export function Subtasks(props: {
   const [adding, setAdding] = createSignal(false);
 
   const empty = () => props.task.subtasks.length === 0;
-  const done = () =>
-    props.task.subtasks.filter((t) => t.statusType === "done" || t.statusType === "closed").length;
+  const done = () => props.task.subtasks.filter((t) => isClosedType(t.statusType)).length;
 
   /**
    * Creates a subtask in the parent's own list.
@@ -129,7 +129,7 @@ export function Subtasks(props: {
       <ul>
         <For each={props.task.subtasks}>
           {(subtask) => {
-            const pending = () => subtask.id.startsWith("tmp_");
+            const pending = () => isPlaceholder(subtask.id);
             return (
               <li>
                 <button
@@ -148,9 +148,8 @@ export function Subtasks(props: {
                   <span
                     class="flex-1 truncate text-base"
                     classList={{
-                      "text-ink-4 line-through":
-                        subtask.statusType === "done" || subtask.statusType === "closed",
-                      "text-ink": subtask.statusType !== "done" && subtask.statusType !== "closed",
+                      "text-ink-4 line-through": isClosedType(subtask.statusType),
+                      "text-ink": !isClosedType(subtask.statusType),
                     }}
                   >
                     {subtask.name}
@@ -200,7 +199,7 @@ export function Subtasks(props: {
  */
 function draft(name: string, parent: TaskDetail): TaskRef {
   return {
-    id: `tmp_${crypto.randomUUID()}`,
+    id: placeholderId(crypto.randomUUID()),
     customId: null,
     name,
     status: parent.status,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ClickUpClient, ClickUpError, WEBHOOK_TASK_EVENTS } from "../src/client.ts";
+import type { CommentSegment } from "../src/mentions.ts";
 import { RateLimiter } from "../src/rate-limit.ts";
 import checklistFixture from "./fixtures/checklist.json" with { type: "json" };
 import taskFixture from "./fixtures/task.json" with { type: "json" };
@@ -440,6 +441,110 @@ describe("comments", () => {
       resolved: true,
       assignee: undefined,
     });
+    // The flattened text must never travel alongside the rich body: whichever
+    // key ClickUp reads last wins, and comment_text is the lossy one.
+    expect(calls[0]?.body).not.toHaveProperty("comment");
+  });
+
+  /**
+   * Resolving a comment must not flatten it.
+   *
+   * PUT /comment replaces the body. `text` is only ClickUp's flattening of it,
+   * so a comment holding a screenshot, a table or a mention that goes back as
+   * `comment_text` loses that content upstream, permanently — nobody kept a
+   * copy of the original. The segments branch is the whole defence, and it is
+   * one `?.length` and one key name wide.
+   */
+  describe("updateComment sends the rich body back", () => {
+    /** The shape ClickUp actually stores: an image is a segment, not characters. */
+    const SEGMENTS = [
+      { text: "the cold start looks like " },
+      { type: "attachment", attachment: { id: "5f1e2a", title: "cold-start.png" } },
+      { text: "\n" },
+      { type: "tag", user: { id: 2462555 } },
+      { text: " can you confirm?" },
+    ] as unknown as CommentSegment[];
+
+    test("sends the segments under `comment`, verbatim, when resolving", async () => {
+      const { client, calls } = makeClient([{ body: {} }]);
+      await client.updateComment("40", {
+        // What ClickUp's own flattening looks like. Sending this back is the bug.
+        text: "the cold start looks like \n@Roberto Spinelli can you confirm?",
+        resolved: true,
+        segments: SEGMENTS,
+      });
+
+      expect(calls[0]?.method).toBe("PUT");
+      expect(calls[0]?.url).toContain("/v2/comment/40");
+      expect(calls[0]?.body).toEqual({
+        comment: [
+          { text: "the cold start looks like " },
+          { type: "attachment", attachment: { id: "5f1e2a", title: "cold-start.png" } },
+          { text: "\n" },
+          { type: "tag", user: { id: 2462555 } },
+          { text: " can you confirm?" },
+        ],
+        resolved: true,
+        assignee: undefined,
+      });
+    });
+
+    test("does not smuggle the flattened text along with the segments", async () => {
+      // If both keys go up, the screenshot segment is one ClickUp precedence
+      // change away from being replaced by the plain text next to it.
+      const { client, calls } = makeClient([{ body: {} }]);
+      await client.updateComment("40", { text: "flattened", resolved: true, segments: SEGMENTS });
+
+      expect(calls[0]?.body).not.toHaveProperty("comment_text");
+      // Keys on the wire, after JSON.stringify has dropped the absent assignee.
+      expect(Object.keys(calls[0]?.body as object).sort()).toEqual(["comment", "resolved"]);
+    });
+
+    test("carries the segments even when the caller is only assigning", async () => {
+      // Assigning a comment is the same PUT. It replaces the body too.
+      const { client, calls } = makeClient([{ body: {} }]);
+      await client.updateComment("40", {
+        text: "flattened",
+        resolved: false,
+        assignee: 183,
+        segments: SEGMENTS,
+      });
+
+      expect(calls[0]?.body).toEqual({ comment: SEGMENTS, resolved: false, assignee: 183 });
+    });
+
+    test.each([
+      ["no segments column yet", undefined],
+      ["a comment ClickUp sent no segments for", null],
+      ["an empty array, which carries nothing to preserve", []],
+    ])("falls back to comment_text for %s", async (_label, segments) => {
+      // Only these three may flatten. Anything else reaching comment_text is a
+      // comment losing its attachments.
+      const { client, calls } = makeClient([{ body: {} }]);
+      await client.updateComment("40", { text: "plain words", resolved: true, segments });
+
+      expect(calls[0]?.body).toEqual({
+        comment_text: "plain words",
+        resolved: true,
+        assignee: undefined,
+      });
+    });
+
+    test("structures a mention typed locally, even with no segments to send back", async () => {
+      // The fallback still goes through commentBody, so editing a comment to add
+      // an @mention tags the person instead of posting the literal characters.
+      const { client, calls } = makeClient([{ body: {} }]);
+      await client.updateComment("40", {
+        text: "ping @[Roberto Spinelli](clickup://user/2462555) please",
+        resolved: false,
+      });
+
+      expect(calls[0]?.body).toEqual({
+        comment: [{ text: "ping " }, { type: "tag", user: { id: 2462555 } }, { text: " please" }],
+        resolved: false,
+        assignee: undefined,
+      });
+    });
   });
 
   test("deleteComment sends a DELETE with no body", async () => {
@@ -495,6 +600,32 @@ describe("list pages lie about checklists", () => {
     ]);
 
     const { tasks } = await client.getListTasks("123");
+    expect(tasks[0] && "checklists" in tasks[0]).toBe(false);
+  });
+
+  test("drops it on a view page too, which is the hot path", async () => {
+    // GET /view/{id}/task sends the same empty array, and every open of a view
+    // ingests what it returns. Left in, opening a board wipes the checklists of
+    // every task on it.
+    const { client } = makeClient([
+      { body: { tasks: [{ ...taskFixture, checklists: [] }], last_page: true } },
+    ]);
+
+    const { tasks } = await client.getViewTasks("v1");
+    expect(tasks[0] && "checklists" in tasks[0]).toBe(false);
+  });
+
+  test("drops it on a view page even when the page claims to have one", async () => {
+    const { client } = makeClient([
+      {
+        body: {
+          tasks: [{ ...taskFixture, checklists: [{ id: "c1", name: "nope", items: [] }] }],
+          last_page: true,
+        },
+      },
+    ]);
+
+    const { tasks } = await client.getViewTasks("v1");
     expect(tasks[0] && "checklists" in tasks[0]).toBe(false);
   });
 

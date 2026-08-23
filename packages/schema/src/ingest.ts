@@ -200,7 +200,7 @@ export interface IngestResult {
 export async function ingestTasks(
   db: Db,
   batch: ClickUpTask[],
-  context: { listId?: string; teamId?: string } = {},
+  context: { listId?: string; teamId?: string; force?: boolean } = {},
 ): Promise<IngestResult> {
   if (batch.length === 0) return { changed: 0, newestUpdate: null };
 
@@ -264,9 +264,21 @@ export async function ingestTasks(
             { syncedAt: true },
           ),
         },
-        // Skip rows ClickUp has not touched since we last stored them. Keeps the
-        // nightly full resync from bumping synced_at on every task and flooding SSE.
-        setWhere: sql`${tasks.dateUpdated} IS DISTINCT FROM excluded.date_updated`,
+        /*
+         * Skip rows ClickUp has not touched since we last stored them. Keeps
+         * the nightly full resync from bumping synced_at on every task and
+         * flooding SSE.
+         *
+         * `force` is for repair, where the guard is exactly wrong: a rejected
+         * write left the mirror holding a status ClickUp never accepted, and
+         * ClickUp's `date_updated` is unchanged precisely *because* it rejected
+         * it. Guarded, the read-back would restore assignees and checklists —
+         * those are replaced unconditionally below — while leaving status, name
+         * and due date optimistic forever. Half-repaired is worse than either.
+         */
+        setWhere: context.force
+          ? undefined
+          : sql`${tasks.dateUpdated} IS DISTINCT FROM excluded.date_updated`,
       })
       .returning({ id: tasks.id });
 

@@ -1,3 +1,4 @@
+import { isClosedType } from "@rask/clickup-client/vocabulary";
 import { type JSX, Show } from "solid-js";
 
 /**
@@ -16,7 +17,7 @@ export function StatusIcon(props: {
 }): JSX.Element {
   const size = () => props.size ?? 14;
   const color = () => props.color ?? "var(--color-low)";
-  const done = () => props.type === "done" || props.type === "closed";
+  const done = () => isClosedType(props.type);
   const open = () => props.type === "open" || props.type === null;
 
   return (

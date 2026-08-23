@@ -1,4 +1,5 @@
 import { ClickUpClient, type ClickUpTask, RateLimiter } from "@rask/clickup-client";
+import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import {
   comments,
   createDb,
@@ -99,7 +100,7 @@ function pushTo(userId: string, event: string, data: unknown): void {
  * the revert, so those writes are refused rather than queued. The window is a
  * couple of seconds — the outbox drains every two — and the UI says so.
  */
-const pending = (id: string): boolean => id.startsWith("tmp_");
+
 const NOT_YET = "this has not reached ClickUp yet";
 
 type Env = { Variables: { user: SessionUser } };
@@ -404,7 +405,7 @@ api.patch("/comments/:id", async (c) => {
   }
   // Nothing to address upstream yet: ClickUp has not assigned an id, so a PUT
   // would 404 and take the local edit down with it on the revert.
-  if (comment.id.startsWith("tmp_")) {
+  if (isPlaceholder(comment.id)) {
     return c.json({ error: "this comment has not reached ClickUp yet" }, 409);
   }
 
@@ -420,7 +421,7 @@ api.delete("/comments/:id", async (c) => {
   }
 
   const userId = c.get("user").id;
-  if (comment.id.startsWith("tmp_")) await discardPendingComment(db, { comment, userId });
+  if (isPlaceholder(comment.id)) await discardPendingComment(db, { comment, userId });
   else await deleteComment(db, { comment, userId });
 
   return c.json(await getTaskDetail(db, comment.taskId));
@@ -448,7 +449,7 @@ api.patch("/checklists/:id", async (c) => {
 
   const checklist = await findChecklist(db, c.req.param("id"));
   if (!checklist) return c.json({ error: "not found" }, 404);
-  if (pending(checklist.id)) return c.json({ error: NOT_YET }, 409);
+  if (isPlaceholder(checklist.id)) return c.json({ error: NOT_YET }, 409);
 
   await renameChecklist(db, { checklist, userId: c.get("user").id, name: body.data.name });
   return c.json(await getTaskDetail(db, checklist.taskId));
@@ -457,7 +458,7 @@ api.patch("/checklists/:id", async (c) => {
 api.delete("/checklists/:id", async (c) => {
   const checklist = await findChecklist(db, c.req.param("id"));
   if (!checklist) return c.json({ error: "not found" }, 404);
-  if (pending(checklist.id)) return c.json({ error: NOT_YET }, 409);
+  if (isPlaceholder(checklist.id)) return c.json({ error: NOT_YET }, 409);
 
   await deleteChecklist(db, { checklist, userId: c.get("user").id });
   return c.json(await getTaskDetail(db, checklist.taskId));
@@ -469,7 +470,7 @@ api.post("/checklists/:id/items", async (c) => {
 
   const checklist = await findChecklist(db, c.req.param("id"));
   if (!checklist) return c.json({ error: "not found" }, 404);
-  if (pending(checklist.id)) return c.json({ error: NOT_YET }, 409);
+  if (isPlaceholder(checklist.id)) return c.json({ error: NOT_YET }, 409);
 
   await createChecklistItem(db, { checklist, userId: c.get("user").id, item: body.data });
   return c.json(await getTaskDetail(db, checklist.taskId), 201);
@@ -481,7 +482,7 @@ api.patch("/checklist-items/:id", async (c) => {
 
   const item = await findChecklistItem(db, c.req.param("id"));
   if (!item) return c.json({ error: "not found" }, 404);
-  if (pending(item.id)) return c.json({ error: NOT_YET }, 409);
+  if (isPlaceholder(item.id)) return c.json({ error: NOT_YET }, 409);
 
   await applyChecklistItemPatch(db, { item, userId: c.get("user").id, patch: body.data });
   return c.json(await getTaskDetail(db, item.taskId));
@@ -490,7 +491,7 @@ api.patch("/checklist-items/:id", async (c) => {
 api.delete("/checklist-items/:id", async (c) => {
   const item = await findChecklistItem(db, c.req.param("id"));
   if (!item) return c.json({ error: "not found" }, 404);
-  if (pending(item.id)) return c.json({ error: NOT_YET }, 409);
+  if (isPlaceholder(item.id)) return c.json({ error: NOT_YET }, 409);
 
   await deleteChecklistItem(db, { item, userId: c.get("user").id });
   return c.json(await getTaskDetail(db, item.taskId));
@@ -699,7 +700,7 @@ const THREADS_PER_REFRESH = 10;
 
 async function refreshTask(userId: string, taskId: string): Promise<void> {
   try {
-    if (taskId.startsWith("tmp_")) return;
+    if (isPlaceholder(taskId)) return;
     const client = await clientFor(userId);
     if (!client) return;
 
@@ -776,6 +777,20 @@ async function replyCounts(taskId: string): Promise<Map<string, number>> {
   return new Map(rows.map((row) => [row.parentId ?? "", row.n]));
 }
 
-console.log(`[api] listening on http://localhost:${config.API_PORT}`);
+/*
+ * Exported so a test can walk the route table.
+ *
+ * `apps/api/test/auth.test.ts` asserts every route outside a five-name
+ * allow-list answers 401, which is the check that catches a route registered on
+ * `app` instead of `api` and therefore silently public. It used to get at this
+ * by mocking Hono's constructor.
+ */
+export { app };
+
+// Only when run, not when imported. A test that imports this file to read its
+// routes should not announce a server that is not listening.
+if (import.meta.main) {
+  console.log(`[api] listening on http://localhost:${config.API_PORT}`);
+}
 
 export default { port: config.API_PORT, fetch: app.fetch, idleTimeout: 120 };

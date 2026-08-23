@@ -8,11 +8,11 @@ import {
   cardOffsets,
   draggingId,
   moveToColumn,
-  visibleRange,
 } from "../lib/board.ts";
 import { tasks } from "../lib/store.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import { viewLoading } from "../lib/view.ts";
+import { visibleRange } from "../lib/windowing.ts";
 import { BoardCard } from "./BoardCard.tsx";
 import { StatusIcon } from "./StatusIcon.tsx";
 

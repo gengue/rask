@@ -3,9 +3,9 @@ import { api, type FilterField, type StatusDef, type Tag, type Task } from "./ap
 import {
   type Clause,
   isCustomField,
-  matchesTask,
   namedStatuses,
   needsClosed,
+  selectRows,
   statusVisible,
   toWire,
 } from "./filters.ts";
@@ -48,11 +48,19 @@ export const [viewLoading, setViewLoading] = createSignal(true);
  * server over name, custom id and description, scoped to this view for `/` and
  * to the workspace for ⌘K.
  */
-export const activeClauses = globalMemo<Clause[]>(() => {
-  const text = ui.search.trim();
-  if (!text) return [...ui.filters];
-  return [...ui.filters, { field: "search", op: "EQ", values: [text] }];
-});
+export const activeClauses = globalMemo<Clause[]>(() => withSearch(ui.filters, ui.search.trim()));
+
+/**
+ * The filter clauses plus the search term, which is itself a clause.
+ *
+ * Written out twice before, once here and once in `serverFilter`, differing
+ * only in which copy of the search text they read. Two spellings of one clause
+ * is how the two ends of the same search start meaning different things.
+ */
+function withSearch(filters: readonly Clause[], text: string): Clause[] {
+  if (!text) return [...filters];
+  return [...filters, { field: "search", op: "EQ", values: [text] }];
+}
 
 /**
  * The search box, one keystroke behind.
@@ -87,10 +95,7 @@ createRoot(() => {
  * server has no way to see it.
  */
 export const serverFilter = globalMemo(() => {
-  const text = settledSearch();
-  const clauses = text
-    ? [...ui.filters, { field: "search", op: "EQ" as const, values: [text] }]
-    : [...ui.filters];
+  const clauses = withSearch(ui.filters, settledSearch());
   if (clauses.length === 0) return "";
   return JSON.stringify(toWire(clauses, new Date()));
 });
@@ -167,24 +172,20 @@ const localClauses = globalMemo(() =>
 );
 
 /** Search, filter clauses and grouping, shared by the list, the board and the keyboard. */
-export const flatItems = globalMemo(() => {
-  const clauses = localClauses();
-  const member = viewMembership();
-  const now = new Date();
-
-  const filtered = viewTasks().filter((task) => {
-    // The collection is additive on purpose, so turning "show closed" back off
-    // has to filter here. Without this, closed tasks load once and never leave.
-    if (!statusShown(task.status, task.statusType)) return false;
-    // A row this browser created a moment ago cannot be in the server's answer:
-    // it did not exist when the question was asked. Dropping it would make
-    // creating a task under a filter look like the create had failed.
-    if (member && !member.has(task.id) && !task.id.startsWith("tmp_")) return false;
-    return matchesTask(task, clauses, now);
-  });
-
-  return groupTasks(filtered, ui.groupBy);
-});
+export const flatItems = globalMemo(() =>
+  groupTasks(
+    // The collection is additive on purpose, so a filter loosened and tightened
+    // again has to be re-applied here: rows load once and never leave.
+    selectRows(viewTasks(), {
+      clauses: localClauses(),
+      member: viewMembership(),
+      showClosed: ui.showClosed,
+      named: namedStatuses(ui.filters),
+      now: new Date(),
+    }),
+    ui.groupBy,
+  ),
+);
 
 // --- what a filter can be built out of --------------------------------------
 
@@ -210,7 +211,7 @@ export const [viewStatuses, setViewStatuses] = createSignal<StatusDef[]>([]);
  * not name a tag on 118 of the rows below it while happily offering one used
  * once. A single list resolves to one Space and costs one request, as before.
  */
-export const viewSpaceIds = globalMemo(() => {
+const viewSpaceIds = globalMemo(() => {
   const ids = new Set<string>();
   for (const task of viewTasks()) if (task.spaceId) ids.add(task.spaceId);
   return [...ids].sort();

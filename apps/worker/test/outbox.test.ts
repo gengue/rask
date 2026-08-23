@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ClickUpError } from "@rask/clickup-client";
-import { backoffMs, isPermanent, MAX_ATTEMPTS, placeholderId } from "../src/outbox.ts";
+import { placeholderId } from "@rask/clickup-client/vocabulary";
+import { backoffMs, isPermanent, MAX_ATTEMPTS } from "../src/outbox.ts";
 
 /**
  * Retry classification is the part of the drain that is easy to get subtly
@@ -49,6 +50,6 @@ describe("backoff", () => {
   });
 });
 
-test("placeholder ids are prefixed so the API and worker agree on them", () => {
+test("placeholder ids are prefixed so the API, worker and browser agree on them", () => {
   expect(placeholderId("abc")).toBe("tmp_abc");
 });

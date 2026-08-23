@@ -6,9 +6,9 @@ import {
   cardOffsets,
   nextCursor,
   toColumns,
-  visibleRange,
 } from "../src/lib/board.ts";
 import { groupTasks } from "../src/lib/grouping.ts";
+import { visibleRange } from "../src/lib/windowing.ts";
 
 function task(id: string, status: string | null, extra: Partial<Task> = {}): Task {
   return {

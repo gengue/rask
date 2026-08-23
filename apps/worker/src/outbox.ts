@@ -1,4 +1,6 @@
 import { ClickUpError, type CommentSegment } from "@rask/clickup-client";
+
+import { placeholderId } from "@rask/clickup-client/vocabulary";
 import {
   checklistItems,
   comments,
@@ -20,8 +22,14 @@ import type { TokenPool } from "./tokens.ts";
  * Ships optimistic writes to ClickUp.
  *
  * The outbox table is the queue. Rows are claimed with FOR UPDATE SKIP LOCKED,
- * so several worker processes can drain it at once without coordination and a
- * crashed worker's rows come back on their own once the transaction dies.
+ * so several worker processes can drain it at once without coordination.
+ *
+ * A crashed worker's rows do *not* come back on their own, which this comment
+ * used to claim: `claim` is one autocommitted statement, so it commits
+ * `sending` and drops its lock before the work starts. Nothing else selects
+ * `sending`, so a worker that dies mid-flight stranded the row forever — the
+ * user's write silently lost, with no toast, because the change feed only
+ * watches for `failed`. `STALE_SENDING` is what actually brings those back.
  *
  * ClickUp is the source of truth, so a rejected write is not retried forever
  * and is not papered over: the mirror is repaired from ClickUp and the user is
@@ -29,6 +37,20 @@ import type { TokenPool } from "./tokens.ts";
  */
 
 export const MAX_ATTEMPTS = 5;
+
+/**
+ * How long a row may sit in `sending` before another worker takes it back.
+ *
+ * Deliberately far longer than any single write can take. The claim holds no
+ * lock while the work runs, so this is a bet that a row untouched for fifteen
+ * minutes belongs to a process that is gone rather than one that is slow — and
+ * losing that bet means sending the same write twice. Fifteen minutes against a
+ * ClickUp call that takes seconds even through the retry budget.
+ *
+ * ponytail: a heartbeat column would make this exact instead of a bet, and is
+ * worth adding the day a single write can legitimately run for minutes.
+ */
+const STALE_SENDING = "15 minutes";
 
 export interface OutboxRow {
   id: number;
@@ -173,8 +195,10 @@ async function execute(
       if (row.op === "add_tag") await client.addTag(taskId, tag);
       else await client.removeTag(taskId, tag);
       // ClickUp returns nothing useful, and its own colour for a new tag only
-      // shows up on the task itself.
-      await ingestTasks(db, [await client.getTask(taskId)]);
+      // shows up on the task itself. Forced, because a tag change does not move
+      // `date_updated`: guarded, this read-back would be paid for and thrown
+      // away.
+      await ingestTasks(db, [await client.getTask(taskId)], { force: true });
       return;
     }
 
@@ -249,7 +273,9 @@ async function execute(
       };
       await client.setCustomFieldValue(taskId, fieldId, value);
       const refreshed = await client.getTask(taskId);
-      await ingestTasks(db, [refreshed]);
+      // Same as the tag case: a Custom Field write does not move `date_updated`
+      // either, so the guard would skip the row this request was made for.
+      await ingestTasks(db, [refreshed], { force: true });
       return;
     }
   }
@@ -317,7 +343,16 @@ async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
     }
 
     const truth = await client.getTask(taskId);
-    await ingestTasks(db, [truth]);
+    /*
+     * Forced: this is the read-back the `force` option exists for.
+     *
+     * ClickUp rejected the write, so its `date_updated` is unchanged — which is
+     * exactly what the skip guard reads as "nothing to do". Guarded, ingest
+     * would put back the assignees, custom values, attachments and checklists
+     * (all replaced unconditionally) while leaving status, name, priority and
+     * due date holding the value ClickUp refused. Half-repaired forever.
+     */
+    await ingestTasks(db, [truth], { force: true });
   } catch {
     // The revert is best-effort. The nightly reconciliation is the backstop,
     // and leaving the row marked failed is what tells the user something broke.
@@ -344,10 +379,6 @@ async function readBackComments(
   await ingestComments(db, taskId, await client.getComments(taskId));
 }
 
-export function placeholderId(clientId: string): string {
-  return `tmp_${clientId}`;
-}
-
 /**
  * 2s, 4s, 8s, 16s, capped at five minutes.
  *
@@ -372,7 +403,8 @@ async function claim(db: Db, limit: number): Promise<OutboxRow[]> {
   const result = await db.execute(sql`
     with claimed as (
       select id from ${outbox}
-      where status = 'pending' and next_attempt_at <= now()
+      where (status = 'pending' and next_attempt_at <= now())
+         or (status = 'sending' and updated_at < now() - ${STALE_SENDING}::interval)
       order by id
       for update skip locked
       limit ${limit}
@@ -383,7 +415,24 @@ async function claim(db: Db, limit: number): Promise<OutboxRow[]> {
     where o.id = c.id
     returning o.id, o.user_id, o.op, o.entity_id, o.payload, o.client_id, o.attempts
   `);
-  return (
+  const rows = (
     Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
   ) as OutboxRow[];
+
+  /*
+   * Sorted here, not in the query.
+   *
+   * The `order by id` above lives in the CTE, where it only decides *which*
+   * rows the limit takes. The outer `UPDATE ... RETURNING` has no ordering of
+   * its own, so rows come back in heap order — and a row that failed once has
+   * been rewritten, which moves it to the end of the heap. Two queued edits to
+   * the same field then reach ClickUp backwards and the older value wins, which
+   * looks to the user like their second edit was ignored.
+   *
+   * Not covered by a test: heap order is not deterministic enough to provoke on
+   * demand, so a test asserting the order passed with the sort removed too. The
+   * line stays because the query does not promise what the drain assumes and
+   * one comparison costs nothing.
+   */
+  return rows.sort((a, b) => a.id - b.id);
 }

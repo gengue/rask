@@ -80,8 +80,16 @@ Each of these was dropped for a reason, and each has a way back in.
   fixed height, so the list is windowed by hand in thirty lines. A virtualizer
   earns its place back when rows need measuring rather than assuming.
 - **wa-sqlite over OPFS with FTS5.** The in-memory collection is enough for the
-  MVP. This buys offline and instant cross-list search, and it is a real piece
-  of work, not a flag.
+  MVP, and cross-list search now runs on the server in single-digit
+  milliseconds, so what this still buys is offline. A real piece of work, not a
+  flag.
+- **TanStack DB's query builder.** The collection stays — its optimistic layer
+  replays pending mutations over the synced base rather than restoring a
+  snapshot, which is what keeps a rollback from resurrecting stale values under
+  a newer edit. The live-query engine went: the view predicate is a plain
+  function of route params, so shipping a differential-dataflow compiler to
+  answer `SELECT *` cost 30kB gzipped and a full array reconcile per change
+  batch. `lib/live.ts` mirrors the collection into a keyed Solid store instead.
 - **OpenTelemetry.** Not wired. Half-instrumenting is worse than not starting.
 
 ## Measured against the real workspace

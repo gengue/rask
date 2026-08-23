@@ -1,4 +1,5 @@
 import { formatMention } from "@rask/clickup-client/mentions";
+import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import {
   createEffect,
   createResource,
@@ -900,7 +901,7 @@ function CommentItem(props: {
   onReply?: () => void;
 }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
-  const pending = () => props.comment.id.startsWith("tmp_");
+  const pending = () => isPlaceholder(props.comment.id);
   const mine = () => props.comment.userId != null && props.comment.userId === me()?.id;
 
   const write = async (run: () => Promise<TaskDetailData>, what: string) => {

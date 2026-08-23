@@ -80,11 +80,6 @@ export interface ListTasksParams {
   reverse?: boolean;
 }
 
-export interface TeamTasksParams extends ListTasksParams {
-  listIds?: string[];
-  spaceIds?: string[];
-}
-
 export interface TaskPatch {
   name?: string;
   description?: string;
@@ -408,24 +403,6 @@ export class ClickUpClient {
       if (tasks.length > 0) yield tasks;
       if (lastPage || tasks.length === 0) return;
     }
-  }
-
-  /** Cross-list task query. This is what backs My Tasks. */
-  getTeamTasks(
-    teamId: string,
-    params: TeamTasksParams = {},
-  ): Promise<{ tasks: ClickUpTask[]; lastPage: boolean }> {
-    return this.request(taskPage, "GET", `/v2/team/${teamId}/task`, {
-      query: {
-        ...taskQuery(params),
-        list_ids: params.listIds,
-        space_ids: params.spaceIds,
-        include_markdown_description: true,
-      },
-    }).then((r) => ({
-      tasks: r.tasks.map(withoutListPageLies),
-      lastPage: r.last_page ?? r.tasks.length === 0,
-    }));
   }
 
   createTask(listId: string, input: NewTask): Promise<ClickUpTask> {

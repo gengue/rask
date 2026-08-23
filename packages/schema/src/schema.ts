@@ -1,4 +1,4 @@
-import { relations, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
@@ -790,72 +790,3 @@ export interface TaskTag {
   fg?: string | null;
   bg?: string | null;
 }
-
-// --- Relations ------------------------------------------------------------
-
-export const tasksRelations = relations(tasks, ({ one, many }) => ({
-  list: one(lists, { fields: [tasks.listId], references: [lists.id] }),
-  creator: one(users, { fields: [tasks.creatorId], references: [users.id] }),
-  assignees: many(taskAssignees),
-  customValues: many(taskCustomValues),
-  comments: many(comments),
-  attachments: many(taskAttachments),
-  checklists: many(taskChecklists),
-  /** Self-reference: a subtask points at the task it hangs off. */
-  parent: one(tasks, {
-    fields: [tasks.parentId],
-    references: [tasks.id],
-    relationName: "subtasks",
-  }),
-  subtasks: many(tasks, { relationName: "subtasks" }),
-}));
-
-export const taskChecklistsRelations = relations(taskChecklists, ({ one, many }) => ({
-  task: one(tasks, { fields: [taskChecklists.taskId], references: [tasks.id] }),
-  items: many(checklistItems),
-}));
-
-export const checklistItemsRelations = relations(checklistItems, ({ one }) => ({
-  checklist: one(taskChecklists, {
-    fields: [checklistItems.checklistId],
-    references: [taskChecklists.id],
-  }),
-}));
-
-export const taskAttachmentsRelations = relations(taskAttachments, ({ one }) => ({
-  task: one(tasks, { fields: [taskAttachments.taskId], references: [tasks.id] }),
-}));
-
-export const taskAssigneesRelations = relations(taskAssignees, ({ one }) => ({
-  task: one(tasks, { fields: [taskAssignees.taskId], references: [tasks.id] }),
-  user: one(users, { fields: [taskAssignees.userId], references: [users.id] }),
-}));
-
-export const taskCustomValuesRelations = relations(taskCustomValues, ({ one }) => ({
-  task: one(tasks, { fields: [taskCustomValues.taskId], references: [tasks.id] }),
-  field: one(customFieldDefs, {
-    fields: [taskCustomValues.fieldId],
-    references: [customFieldDefs.id],
-  }),
-}));
-
-export const commentsRelations = relations(comments, ({ one }) => ({
-  task: one(tasks, { fields: [comments.taskId], references: [tasks.id] }),
-  user: one(users, { fields: [comments.userId], references: [users.id] }),
-}));
-
-export const listsRelations = relations(lists, ({ one, many }) => ({
-  space: one(spaces, { fields: [lists.spaceId], references: [spaces.id] }),
-  folder: one(folders, { fields: [lists.folderId], references: [folders.id] }),
-  tasks: many(tasks),
-}));
-
-export const foldersRelations = relations(folders, ({ one, many }) => ({
-  space: one(spaces, { fields: [folders.spaceId], references: [spaces.id] }),
-  lists: many(lists),
-}));
-
-export const spacesRelations = relations(spaces, ({ many }) => ({
-  folders: many(folders),
-  lists: many(lists),
-}));

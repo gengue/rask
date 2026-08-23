@@ -1,3 +1,4 @@
+import { placeholderId } from "@rask/clickup-client/vocabulary";
 import {
   checklistItems,
   comments,
@@ -65,10 +66,6 @@ export const commentPatchInput = z
     message: "nothing to change",
   });
 export type CommentPatchInput = z.infer<typeof commentPatchInput>;
-
-export function placeholderId(clientId: string): string {
-  return `tmp_${clientId}`;
-}
 
 export async function applyTaskPatch(
   db: Db,

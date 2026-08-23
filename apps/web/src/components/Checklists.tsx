@@ -1,3 +1,4 @@
+import { isPlaceholder, placeholderId } from "@rask/clickup-client/vocabulary";
 import { createSignal, For, Index, type JSX, Show } from "solid-js";
 import { api, type Checklist, type ChecklistItem, type TaskDetail } from "../lib/api.ts";
 import { pushToast } from "../lib/toast.ts";
@@ -191,7 +192,7 @@ function ChecklistBlock(props: {
   const [renaming, setRenaming] = createSignal(false);
 
   /** A checklist the outbox has not shipped yet has no id ClickUp would accept. */
-  const pending = () => props.list.id.startsWith("tmp_");
+  const pending = () => isPlaceholder(props.list.id);
   const done = () => props.list.items.filter((item) => item.resolved).length;
 
   return (
@@ -302,7 +303,7 @@ function Item(props: {
   onRemove: () => void;
 }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
-  const pending = () => props.item.id.startsWith("tmp_");
+  const pending = () => isPlaceholder(props.item.id);
 
   return (
     <li class="group/item flex items-start gap-2 rounded-[5px] py-[3px] pr-1 hover:bg-hover">
@@ -500,7 +501,7 @@ export function InlineInput(props: {
 
 /** Placeholder ids share the server's prefix, so "not sent yet" reads the same. */
 function draftId(): string {
-  return `tmp_${crypto.randomUUID()}`;
+  return placeholderId(crypto.randomUUID());
 }
 
 function draftItem(name: string): ChecklistItem {

@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } fro
 import type { Task } from "../lib/api.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import { flatItems, viewListId, viewLoading } from "../lib/view.ts";
+import { visibleRange } from "../lib/windowing.ts";
 import { StatusIcon } from "./StatusIcon.tsx";
 import { TaskRow } from "./TaskRow.tsx";
 
@@ -52,16 +53,9 @@ export function TaskList(props: {
     return item?.kind === "row" ? `task-${item.task.id}` : undefined;
   };
 
-  const range = createMemo(() => {
-    const tops = offsets();
-    const count = items().length;
-    if (count === 0) return { start: 0, end: 0 };
-    const top = scrollTop();
-    const bottom = top + (viewport() || 800);
-    const start = Math.max(0, indexAt(tops, top, count) - OVERSCAN);
-    const end = Math.min(count, indexAt(tops, bottom, count) + 1 + OVERSCAN);
-    return { start, end };
-  });
+  // Same windowing the board uses. It was written twice, identically, once per
+  // branch; one copy is enough and a scroll bug found here is then fixed there.
+  const range = createMemo(() => visibleRange(offsets(), scrollTop(), viewport() || 800, OVERSCAN));
 
   /** Indices that j/k can land on. Headers are skipped. */
   const rowIndices = createMemo(() =>
@@ -220,16 +214,4 @@ function SkeletonRows(): JSX.Element {
       ))}
     </div>
   );
-}
-
-/** Largest index whose offset is <= `pixel`. Offsets ascend, so binary search. */
-function indexAt(offsets: Float64Array, pixel: number, count: number): number {
-  let low = 0;
-  let high = count - 1;
-  while (low < high) {
-    const mid = (low + high + 1) >> 1;
-    if ((offsets[mid] ?? 0) <= pixel) low = mid;
-    else high = mid - 1;
-  }
-  return low;
 }

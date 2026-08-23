@@ -7,6 +7,7 @@ import {
   isCustomField,
   isDateField,
   PRIORITY_VALUES,
+  toggleValue,
 } from "./filters.ts";
 import { PRIORITY_LABELS } from "./format.ts";
 
@@ -45,7 +46,12 @@ export const FIELD_LABELS: Record<string, string> = {
   search: "Text",
 };
 
-const DUE_LABELS: Record<string, string> = {
+/*
+ * Not `grouping.ts`'s DUE_LABELS, which is a different set of buckets for a
+ * different question: grouping splits due dates four ways, filtering five, and
+ * "This week" there is a heading while "Due this week" here is a choice.
+ */
+const DUE_FILTER_LABELS: Record<string, string> = {
   overdue: "Overdue",
   today: "Due today",
   tomorrow: "Due tomorrow",
@@ -122,7 +128,7 @@ export function choicesFor(field: string, sources: OptionSources): Choice[] {
       ];
     case "dueDate":
       return [
-        ...DUE_BUCKETS.map((value) => ({ value, label: DUE_LABELS[value] ?? value })),
+        ...DUE_BUCKETS.map((value) => ({ value, label: DUE_FILTER_LABELS[value] ?? value })),
         { value: "", label: "No due date" },
       ];
     case "dateCreated":
@@ -159,11 +165,7 @@ export function applyChoice(clause: Clause | undefined, field: string, value: st
   // that can hold values again, keeping whichever way round it was pointing.
   const op: FilterOp =
     current.op === "IS NOT SET" ? "ANY" : current.op === "IS SET" ? "NOT ANY" : current.op;
-  const values = current.values.includes(value)
-    ? current.values.filter((existing) => existing !== value)
-    : [...current.values, value];
-
-  return { field, op, values };
+  return toggleValue({ ...current, field, op }, value);
 }
 
 function defaultOp(field: string): FilterOp {
@@ -208,7 +210,7 @@ function fieldLabel(field: string, lookup: Lookup): string {
 
 function valueLabel(field: string, value: string, lookup: Lookup): string {
   if (field === "priority") return PRIORITY_LABELS[Number(value)] ?? value;
-  if (field === "dueDate") return DUE_LABELS[value] ?? value;
+  if (field === "dueDate") return DUE_FILTER_LABELS[value] ?? value;
   if (isDateField(field)) return ACTIVITY_LABELS[value] ?? value;
   if (field === "assignee" || field === "list" || isCustomField(field)) {
     return lookup(field, value);

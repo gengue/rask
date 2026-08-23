@@ -6,7 +6,6 @@ export {
   type ListTasksParams,
   type NewTask,
   type TaskPatch,
-  type TeamTasksParams,
   WEBHOOK_TASK_EVENTS,
 } from "./client.ts";
 export { renderCommentBody } from "./comment-body.ts";

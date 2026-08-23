@@ -1,3 +1,4 @@
+import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import { type JSX, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { formatDue } from "../lib/format.ts";
@@ -55,7 +56,7 @@ export function TaskRow(props: {
   onStatusClick: (event: MouseEvent) => void;
 }): JSX.Element {
   const due = () => formatDue(props.task.dueDate);
-  const pending = () => props.task.id.startsWith("tmp_");
+  const pending = () => isPlaceholder(props.task.id);
 
   return (
     // Rows stay out of the tab order on purpose. The listbox holds focus and

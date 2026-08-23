@@ -1,3 +1,4 @@
+import { placeholderId } from "@rask/clickup-client/vocabulary";
 import { createResource, createSignal, type JSX, onMount, Show } from "solid-js";
 import { api } from "../lib/api.ts";
 import { tasks } from "../lib/store.ts";
@@ -35,7 +36,7 @@ export function QuickAdd(props: {
     const status = initial();
 
     tasks.insert({
-      id: `tmp_${crypto.randomUUID()}`,
+      id: placeholderId(crypto.randomUUID()),
       customId: null,
       name: value,
       status: status?.status ?? null,

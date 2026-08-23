@@ -641,23 +641,30 @@ export function AppShell(): JSX.Element {
 
       <Toasts />
 
+      {/*
+        Not `<Show when={menu()}>{(current) => …}`: that keyed accessor throws
+        once read after the menu has closed, and Solid answers a throw in the
+        owner by tearing the subtree's reactivity down. This only works today
+        because every read happens before `closeMenu`, which is a rule nobody
+        can see. Reading `menu()` directly cannot go stale.
+      */}
       <Show when={menu()}>
-        {(current) => (
-          <Menu
-            items={menuItems()}
-            anchor={current().anchor}
-            placeholder={current().kind === "status" ? "Change status…" : "Set priority…"}
-            onSelect={(id) => {
-              if (current().kind === "priority") {
-                applyPriority(current().task, id === "none" ? null : Number(id));
-                return;
-              }
-              const status = current().statuses.find((s) => s.status === id);
-              if (status) applyStatus(current().task, status);
-            }}
-            onClose={closeMenu}
-          />
-        )}
+        <Menu
+          items={menuItems()}
+          anchor={menu()?.anchor ?? { x: 0, y: 0 }}
+          placeholder={menu()?.kind === "status" ? "Change status…" : "Set priority…"}
+          onSelect={(id) => {
+            const current = menu();
+            if (!current) return;
+            if (current.kind === "priority") {
+              applyPriority(current.task, id === "none" ? null : Number(id));
+              return;
+            }
+            const status = current.statuses.find((s) => s.status === id);
+            if (status) applyStatus(current.task, status);
+          }}
+          onClose={closeMenu}
+        />
       </Show>
 
       {/* Last, so it covers everything, and always mounted: it is what makes
@@ -695,22 +702,20 @@ function GroupPicker(): JSX.Element {
       </button>
 
       <Show when={anchor()}>
-        {(at) => (
-          <Menu
-            anchor={at()}
-            width={180}
-            placeholder="Group by…"
-            items={options.map((option) => ({
-              id: option,
-              label: option === "none" ? "No grouping" : `By ${option}`,
-            }))}
-            onSelect={(id) => {
-              setUi("groupBy", id as (typeof options)[number]);
-              setAnchor(null);
-            }}
-            onClose={() => setAnchor(null)}
-          />
-        )}
+        <Menu
+          anchor={anchor() ?? { x: 0, y: 0 }}
+          width={180}
+          placeholder="Group by…"
+          items={options.map((option) => ({
+            id: option,
+            label: option === "none" ? "No grouping" : `By ${option}`,
+          }))}
+          onSelect={(id) => {
+            setUi("groupBy", id as (typeof options)[number]);
+            setAnchor(null);
+          }}
+          onClose={() => setAnchor(null)}
+        />
       </Show>
     </>
   );

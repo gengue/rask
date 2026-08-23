@@ -1,3 +1,4 @@
+import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import { type JSX, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { CARD_GAP, cardHeight, draggingId, setDraggingId } from "../lib/board.ts";
@@ -42,7 +43,7 @@ export function BoardCard(props: {
   onStatusClick: (event: MouseEvent) => void;
 }): JSX.Element {
   const due = () => formatDue(props.task.dueDate);
-  const pending = () => props.task.id.startsWith("tmp_");
+  const pending = () => isPlaceholder(props.task.id);
 
   return (
     // Same reasoning as the row: the column is the listbox and holds focus,

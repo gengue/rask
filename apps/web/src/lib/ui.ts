@@ -70,7 +70,3 @@ export function closeOverlays(): void {
 export function clearFilters(): void {
   setUi("filters", []);
 }
-
-export function activeFilterCount(): number {
-  return ui.filters.length;
-}

@@ -1,3 +1,12 @@
+import {
+  CUSTOM_FIELD_PREFIX,
+  customFieldId,
+  FILTER_FIELDS,
+  FILTER_OPS,
+  isCustomField,
+  MIN_SEARCH_LENGTH,
+  parseInstant,
+} from "@rask/clickup-client/vocabulary";
 import { taskAssignees, taskCustomValues, tasks } from "@rask/schema";
 import {
   and,
@@ -22,29 +31,18 @@ import { z } from "zod";
  * one decides which of 147,000 rows are worth sending, and the browser's
  * decides what stays on screen when somebody changes a status under the cursor.
  *
- * They have to agree. `apps/api/test/filters.test.ts` runs both over the same
- * rows and fails when they do not.
+ * They have to agree. `apps/api/test/filter-parity.test.ts` is what makes that
+ * true rather than intended: it runs one clause table through both, over one
+ * fixture, and fails when the two answer differently. This comment claimed that
+ * test existed for months before it did, and two divergences accumulated behind
+ * the claim.
  *
  * Everything here is a bound parameter. No clause interpolates a value into
  * SQL text, including the `to_tsquery` string, which is built from alphanumeric
  * tokens and then bound like any other.
  */
 
-/** Fields a filter may name. `cf:<id>` addresses a ClickUp Custom Field. */
-const KNOWN_FIELDS = [
-  "status",
-  "assignee",
-  "tag",
-  "priority",
-  "list",
-  "dueDate",
-  "dateCreated",
-  "dateUpdated",
-  "subtask",
-  "search",
-] as const;
-
-const CUSTOM_FIELD = /^cf:[\w-]{1,64}$/;
+const CUSTOM_FIELD = new RegExp(`^${CUSTOM_FIELD_PREFIX}[\\w-]{1,64}$`);
 
 /**
  * Unknown fields are refused rather than dropped.
@@ -58,10 +56,10 @@ export const filterClause = z.object({
   field: z
     .string()
     .refine(
-      (field) => (KNOWN_FIELDS as readonly string[]).includes(field) || CUSTOM_FIELD.test(field),
+      (field) => (FILTER_FIELDS as readonly string[]).includes(field) || CUSTOM_FIELD.test(field),
       { message: "unknown filter field" },
     ),
-  op: z.enum(["ANY", "NOT ANY", "IS SET", "IS NOT SET", "RANGE", "EQ"]),
+  op: z.enum(FILTER_OPS),
   values: z.array(z.string().max(400)).max(200).default([]),
 });
 
@@ -80,7 +78,7 @@ export function parseFilter(raw: string | undefined): Clause[] {
 export function fieldIdsIn(clauses: readonly Clause[]): string[] {
   return clauses
     .filter((clause) => clause.field.startsWith("cf:"))
-    .map((clause) => clause.field.slice(3));
+    .map((clause) => customFieldId(clause.field));
 }
 
 // --- text search ------------------------------------------------------------
@@ -120,7 +118,7 @@ export function toTsQuery(term: string): string | null {
  */
 export function textCondition(term: string): SQL | undefined {
   const trimmed = term.trim();
-  if (trimmed.length < 2) return undefined;
+  if (trimmed.length < MIN_SEARCH_LENGTH) return undefined;
 
   const like = `%${trimmed}%`;
   const parts: SQL[] = [ilike(tasks.name, like), ilike(tasks.customId, like)];
@@ -158,7 +156,7 @@ function emptySet(op: Clause["op"]): SQL {
 export function clauseCondition(clause: Clause): SQL | undefined {
   const { field, op, values } = clause;
 
-  if (field.startsWith("cf:")) return customFieldCondition(field.slice(3), op, values);
+  if (isCustomField(field)) return customFieldCondition(customFieldId(field), op, values);
   if (DATE_COLUMNS[field]) return dateCondition(DATE_COLUMNS[field], op, values);
 
   switch (field) {
@@ -266,9 +264,8 @@ function dateCondition(
 }
 
 function instant(value: string | undefined): Date | null {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? null : new Date(parsed);
+  const parsed = parseInstant(value);
+  return parsed === null ? null : new Date(parsed);
 }
 
 /**

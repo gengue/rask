@@ -1,5 +1,3 @@
-import type { Task } from "./api.ts";
-
 /**
  * A filter, in ClickUp's own vocabulary.
  *
@@ -25,15 +23,45 @@ import type { Task } from "./api.ts";
  * parsed with Zod and turned into SQL. The two must agree; `filters.test.ts`
  * and `apps/api/test/filters.test.ts` are what keep them agreeing.
  */
-export type FilterOp = "ANY" | "NOT ANY" | "IS SET" | "IS NOT SET" | "RANGE" | "EQ";
+import {
+  type Clause,
+  CUSTOM_FIELD_PREFIX,
+  customFieldId,
+  type FilterOp,
+  isClosedType,
+  isCustomField,
+  isPlaceholder,
+  MIN_SEARCH_LENGTH,
+  parseInstant,
+} from "@rask/clickup-client/vocabulary";
 
-export interface Clause {
-  field: string;
-  op: FilterOp;
-  values: string[];
+export type { Clause, FilterOp };
+
+/**
+ * What the predicate reads, which is less than a whole `Task`.
+ *
+ * Spelled out rather than importing `Task` so this module depends on nothing
+ * browser-shaped: `apps/api/test/filter-parity.test.ts` runs it server-side
+ * against the SQL evaluator, and pulling `api.ts` in dragged `window` into a
+ * program with no DOM. `Task` satisfies it structurally, so no call site
+ * changed.
+ */
+export interface FilterableTask {
+  name: string;
+  customId: string | null;
+  status: string | null;
+  priority: number | null;
+  dueDate: string | null;
+  dateCreated: string | null;
+  dateUpdated: string | null;
+  listId: string;
+  parentId: string | null;
+  tags: ReadonlyArray<{ name: string }>;
+  assignees: ReadonlyArray<{ id: string }>;
+  customValues?: Record<string, string> | null;
 }
-
-export const CUSTOM_FIELD_PREFIX = "cf:";
+// Re-exported so callers keep importing their filter vocabulary from one place.
+export { CUSTOM_FIELD_PREFIX, customFieldId, isClosedType, isCustomField };
 
 /** 1 urgent, 2 high, 3 normal, 4 low, matching ClickUp's own numbering. */
 export const PRIORITY_VALUES = ["1", "2", "3", "4"] as const;
@@ -57,10 +85,6 @@ export const DATE_FIELDS = ["dueDate", "dateCreated", "dateUpdated"] as const;
 
 export function isDateField(field: string): boolean {
   return (DATE_FIELDS as readonly string[]).includes(field);
-}
-
-export function isCustomField(field: string): boolean {
-  return field.startsWith(CUSTOM_FIELD_PREFIX);
 }
 
 const DAY = 86_400_000;
@@ -126,13 +150,9 @@ export function clauseRanges(clause: Clause, now: Date): Array<[number, number]>
 }
 
 function bound(value: string | undefined, sign: -1 | 1): number {
-  if (!value) return sign < 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed)
-    ? sign < 0
-      ? Number.NEGATIVE_INFINITY
-      : Number.POSITIVE_INFINITY
-    : parsed;
+  const parsed = parseInstant(value);
+  if (parsed !== null) return parsed;
+  return sign < 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
 }
 
 /** A date clause rewritten as absolute instants, ready to send. */
@@ -152,13 +172,6 @@ export function toWire(clauses: readonly Clause[], now: Date): Clause[] {
 }
 
 // --- evaluation -------------------------------------------------------------
-
-const CLOSED_TYPES = new Set(["closed", "done"]);
-
-/** Whether a status counts as finished. Workspaces invent types; these two are ClickUp's. */
-export function isClosedType(statusType: string | null | undefined): boolean {
-  return statusType != null && CLOSED_TYPES.has(statusType);
-}
 
 /** Statuses a filter names outright. Asking for one is asking to see it. */
 export function namedStatuses(clauses: readonly Clause[]): ReadonlySet<string> {
@@ -215,14 +228,14 @@ function has(values: readonly string[], candidate: string | null | undefined): b
  * no values is one the current query did not return, and letting it through a
  * `NOT ANY` would show a task the server has already said does not qualify.
  */
-export function matchesClause(task: Task, clause: Clause, now: Date): boolean {
+export function matchesClause(task: FilterableTask, clause: Clause, now: Date): boolean {
   const { field, op, values } = clause;
 
   if (isCustomField(field)) {
     // Null and undefined both mean "this row was never tested against a Custom
     // Field", which is not the same as "it has no value for this one".
     if (task.customValues == null) return false;
-    const stored = task.customValues[field.slice(CUSTOM_FIELD_PREFIX.length)];
+    const stored = task.customValues[customFieldId(field)];
     if (op === "IS SET") return stored != null;
     if (op === "IS NOT SET") return stored == null;
     const hit = stored != null && values.includes(stored);
@@ -291,16 +304,17 @@ export function matchesClause(task: Task, clause: Clause, now: Date): boolean {
  * not carry — so this is only ever used where the server was not asked. See
  * `searchScope` in `lib/view.ts`, which is what decides that.
  */
-function matchesText(task: Task, text: string): boolean {
+function matchesText(task: FilterableTask, text: string): boolean {
   const query = text.trim().toLowerCase();
-  if (query.length === 0) return true;
+  // Below the shared floor the server constrains nothing, so neither does this.
+  if (query.length < MIN_SEARCH_LENGTH) return true;
   return (
     task.name.toLowerCase().includes(query) ||
     (task.customId?.toLowerCase().includes(query) ?? false)
   );
 }
 
-export function matchesTask(task: Task, clauses: readonly Clause[], now: Date): boolean {
+export function matchesTask(task: FilterableTask, clauses: readonly Clause[], now: Date): boolean {
   for (const clause of clauses) {
     if (!matchesClause(task, clause, now)) return false;
   }
@@ -349,4 +363,42 @@ export function toggleValue(clause: Clause, value: string): Clause {
     ? clause.values.filter((existing) => existing !== value)
     : [...clause.values, value];
   return { ...clause, values };
+}
+
+/**
+ * Which rows a view shows, as one pure function.
+ *
+ * This is the most consequential predicate in the app and it used to live
+ * inline in a Solid memo, where nothing could test it: `bun test` resolves
+ * `solid-js` to its server build, so a memo never re-runs and a test of one
+ * passes without asserting anything. Every argument that used to be read from
+ * global state is now passed in.
+ *
+ * The three rules, in the order they matter:
+ *
+ * - A closed status hides the row unless closed rows are shown or the filter
+ *   named that status outright.
+ * - `member` is the set the server answered with, for views where membership is
+ *   not derivable from the row. A row this browser created a moment ago is not
+ *   in it — it did not exist when the question was asked — so a placeholder is
+ *   kept, or creating a task under a filter looks like the create failed.
+ * - The remaining clauses are answered from the row, which is what lets a
+ *   status change under the cursor take effect with no round trip.
+ */
+export function selectRows<T extends FilterableTask & { id: string; statusType: string | null }>(
+  rows: readonly T[],
+  options: {
+    clauses: readonly Clause[];
+    member: ReadonlySet<string> | null;
+    showClosed: boolean;
+    named: ReadonlySet<string>;
+    now: Date;
+  },
+): T[] {
+  const { clauses, member, showClosed, named, now } = options;
+  return rows.filter((row) => {
+    if (!statusVisible(row.status, row.statusType, showClosed, named)) return false;
+    if (member && !member.has(row.id) && !isPlaceholder(row.id)) return false;
+    return matchesTask(row, clauses, now);
+  });
 }

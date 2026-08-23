@@ -255,8 +255,9 @@ function SavedView(): JSX.Element {
     if (first) applyView(current);
 
     void loadViewTasks(current.id, serverFilter()).then((page) => {
-      // A second view was picked while this one was in flight.
-      if (loadedKey !== key) return;
+      // A second view was picked while this one was in flight. `null` is the
+      // store saying the same thing; either answer means these rows are stale.
+      if (!page || loadedKey !== key) return;
       setIds(page.ids);
       setViewTruncated(page.truncated);
     });

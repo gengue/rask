@@ -211,14 +211,17 @@ export async function load(query: TaskQuery): Promise<TaskPageResult | null> {
  * detail panel, edited from the palette, or updated over SSE in step with the
  * rest of the app: a view is a different set of the same rows, not a copy.
  */
-export async function loadViewTasks(
-  viewId: string,
-  filter = "",
-): Promise<{ ids: Set<string>; truncated: boolean }> {
+export async function loadViewTasks(viewId: string, filter = ""): Promise<TaskPageResult | null> {
   setViewLoading(true);
+  const ticket = ++loadTicket;
   try {
     const page = await api.viewTasks(viewId, filter);
     merge(page.tasks);
+    // Same ticket as `load`, and for the same reason: clicking through three
+    // view tabs faster than the network left whichever request happened to
+    // resolve last deciding what the tab shows. A view costs 1.8s a page, so
+    // this is the route where it is easiest to outrun.
+    if (ticket !== loadTicket) return null;
     return { ids: new Set(page.tasks.map((task) => task.id)), truncated: page.truncated };
   } catch (error) {
     pushToast({
@@ -226,9 +229,9 @@ export async function loadViewTasks(
       title: "Could not load this view",
       detail: error instanceof Error ? error.message : String(error),
     });
-    return { ids: new Set(), truncated: false };
+    return ticket === loadTicket ? { ids: new Set(), truncated: false } : null;
   } finally {
-    setViewLoading(false);
+    if (ticket === loadTicket) setViewLoading(false);
   }
 }
 

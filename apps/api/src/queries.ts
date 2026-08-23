@@ -179,6 +179,12 @@ export async function listTasks(db: Db, filters: TaskFilters) {
   }
   if (!filters.includeClosed) {
     where.push(
+      /*
+       * Spelled out rather than built from CLOSED_STATUS_TYPES on purpose. This
+       * predicate has to match `tasks_open_by_list_v2_idx` textually for the
+       * planner to use the partial index; bound parameters would not match, and
+       * the list query goes from 0.15ms back to 40ms. Change one, change both.
+       */
       or(isNull(tasks.statusType), sql`${tasks.statusType} not in ('closed', 'done')`) ?? sql`true`,
     );
   }
