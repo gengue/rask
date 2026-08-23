@@ -30,6 +30,15 @@ const GROUPS: Array<{ title: string; items: Array<[keys: string[], label: string
     ],
   },
   {
+    title: "Board",
+    items: [
+      [["b"], "List or board"],
+      [["h", "l"], "Previous, next column"],
+      [["H"], "Move card left"],
+      [["L"], "Move card right"],
+    ],
+  },
+  {
     title: "Anywhere",
     items: [
       [["⌘", "K"], "Command palette"],

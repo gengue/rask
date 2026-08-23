@@ -7,7 +7,9 @@ import {
   useSearch,
 } from "@tanstack/solid-router";
 import { createEffect, createMemo, createResource, type JSX, Match, Switch } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { AppShell } from "./App.tsx";
+import { Board } from "./components/Board.tsx";
 import { RouteError } from "./components/RouteError.tsx";
 import { TaskList } from "./components/TaskList.tsx";
 import { ListPicker, NotFound } from "./components/Unresolved.tsx";
@@ -202,8 +204,12 @@ function ListBody(): JSX.Element {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
 
+  // Rows or columns over the same tasks, the same cursor and the same writes.
+  // Nothing else here changes, which is the point of the two taking identical
+  // props: this stays one line the day a view decides which layout it wants.
   return (
-    <TaskList
+    <Dynamic
+      component={ui.layout === "board" ? Board : TaskList}
       openTaskId={(search() as { task?: string }).task ?? null}
       onOpen={(task) =>
         navigate({

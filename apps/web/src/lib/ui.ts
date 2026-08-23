@@ -1,6 +1,7 @@
 import { createStore } from "solid-js/store";
 
 export type GroupBy = "status" | "due" | "assignee" | "list" | "none";
+export type Layout = "list" | "board";
 
 /**
  * View state that the URL does not own.
@@ -14,6 +15,13 @@ export const [ui, setUi] = createStore({
   /** Cursor for j/k navigation. Index into the flattened, grouped row list. */
   cursor: 0,
   groupBy: "status" as GroupBy,
+  /**
+   * Rows or columns. Sits next to `groupBy` because it is the same kind of
+   * decision — how this view is arranged, per tab, not per link — and because
+   * the cursor above means the same thing in both: an index into the flattened
+   * row list, which the board reads as a column plus a depth.
+   */
+  layout: "list" as Layout,
   showClosed: false,
   search: "",
   palette: false,

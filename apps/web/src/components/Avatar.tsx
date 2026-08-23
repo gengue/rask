@@ -61,7 +61,13 @@ export function Avatar(props: {
 }
 
 /** Overlapping stack, capped so a task with nine assignees does not eat the row. */
-export function AvatarStack(props: { users: Assignee[]; max?: number }): JSX.Element {
+export function AvatarStack(props: {
+  users: Assignee[];
+  max?: number;
+  /** The surface the stack sits on: the gap between two overlapping discs is
+   *  painted in it, so a stack on a card has to say so. */
+  ring?: string;
+}): JSX.Element {
   const max = () => props.max ?? 3;
   const shown = () => props.users.slice(0, max());
   const extra = () => props.users.length - shown().length;
@@ -71,7 +77,7 @@ export function AvatarStack(props: { users: Assignee[]; max?: number }): JSX.Ele
       <Show when={props.users.length > 0} fallback={<Avatar user={null} />}>
         {shown().map((user, index) => (
           <div
-            class="rounded-full ring-2 ring-panel"
+            class={`rounded-full ring-2 ${props.ring ?? "ring-panel"}`}
             style={{ "margin-left": index === 0 ? "0" : "-5px", "z-index": String(10 - index) }}
           >
             <Avatar user={user} />
