@@ -65,6 +65,19 @@ export async function drainOutbox(db: Db, pool: TokenPool, limit = 20): Promise<
       const permanent = isPermanent(error) || row.attempts + 1 >= MAX_ATTEMPTS;
       const message = error instanceof Error ? error.message : String(error);
 
+      /*
+       * Repair the mirror before marking the row failed, not after.
+       *
+       * Marking it failed is what the API's change feed watches, and it pushes
+       * the news within a second. Reverting afterwards left a window where the
+       * user got told the write was rejected while still looking at the value
+       * it wrote. Small window, but it is the one moment the user is paying
+       * attention, and it makes the app look like it is arguing with itself.
+       *
+       * revert() swallows its own errors, so it cannot strand the row here.
+       */
+      if (permanent) await revert(db, pool, row);
+
       await db
         .update(outbox)
         .set({
@@ -76,12 +89,8 @@ export async function drainOutbox(db: Db, pool: TokenPool, limit = 20): Promise<
         })
         .where(eq(outbox.id, row.id));
 
-      if (permanent) {
-        await revert(db, pool, row);
-        result.failed++;
-      } else {
-        result.deferred++;
-      }
+      if (permanent) result.failed++;
+      else result.deferred++;
     }
   }
 
