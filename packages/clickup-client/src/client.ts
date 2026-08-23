@@ -677,7 +677,83 @@ export class ClickUpClient {
       },
     ).then((r) => r.webhook ?? clickUpWebhook.parse({ id: r.id }));
   }
+
+  /**
+   * The webhooks on a Workspace, with their health.
+   *
+   * Scoped to the token, not to the Workspace: the spec says it "returns
+   * webhooks created by the authenticated user", so asking with a different
+   * token than the one that created a webhook answers as if it did not exist.
+   * That is why the mirror records which user registered each one — see
+   * `webhooks.user_id` — rather than round-robining like every other read.
+   */
+  getWebhooks(teamId: string): Promise<ClickUpWebhook[]> {
+    return this.request(
+      z.looseObject({ webhooks: z.array(clickUpWebhook) }),
+      "GET",
+      `/v2/team/${teamId}/webhook`,
+    ).then((r) => r.webhooks);
+  }
+
+  /**
+   * Changes a webhook's endpoint, events or status. How a suspended webhook is
+   * brought back: ClickUp stops delivering at `fail_count` 100 and only a
+   * `status: "active"` update starts it again.
+   *
+   * All three fields are required even when one is changing, so the caller has
+   * to send back what it already knows. `events` is typed as a string in the
+   * vendored spec, with `"*"` as the example, while the create endpoint takes
+   * an array — so both shapes are allowed through here rather than guessed at.
+   */
+  updateWebhook(
+    webhookId: string,
+    input: { endpoint: string; events: string[] | "*"; status: "active" },
+  ): Promise<ClickUpWebhook> {
+    return this.request(
+      z.looseObject({ id: z.string(), webhook: clickUpWebhook.optional() }),
+      "PUT",
+      `/v2/webhook/${webhookId}`,
+      { body: { endpoint: input.endpoint, events: input.events, status: input.status } },
+    ).then((r) => r.webhook ?? clickUpWebhook.parse({ id: r.id }));
+  }
+
+  async deleteWebhook(webhookId: string): Promise<void> {
+    await this.request(z.unknown(), "DELETE", `/v2/webhook/${webhookId}`);
+  }
 }
+
+/**
+ * The events Rask subscribes to.
+ *
+ * Deliberately not `"*"`. Every delivery costs a `GET /task/{id}` to find out
+ * what changed, and Rask mirrors tasks — a Goal or a Space event would be
+ * fetched and thrown away, and would still count against the webhook's health
+ * if our endpoint choked on it.
+ *
+ * The specific `task*Updated` events overlap with `taskUpdated`, which is fine
+ * and is why they are all here. ClickUp sends several per change rather than
+ * choosing one: creating a single task produced `taskCreated`,
+ * `taskStatusUpdated` and `taskUpdated`, three deliveries within 300ms. The
+ * receiver coalesces by task id, so that was three deliveries, one queue row
+ * and one `GET /task/{id}`.
+ *
+ * Comment events are absent. Ingest re-reads the task, and a task payload
+ * carries no comments; the conversation is refreshed when somebody opens the
+ * task, exactly as it was before webhooks existed. Subscribing would buy a
+ * delivery that changes nothing.
+ */
+export const WEBHOOK_TASK_EVENTS = [
+  "taskCreated",
+  "taskUpdated",
+  "taskDeleted",
+  "taskStatusUpdated",
+  "taskPriorityUpdated",
+  "taskAssigneeUpdated",
+  "taskDueDateUpdated",
+  "taskTagUpdated",
+  "taskMoved",
+  "taskTimeEstimateUpdated",
+] as const;
 
 // --- helpers --------------------------------------------------------------
 

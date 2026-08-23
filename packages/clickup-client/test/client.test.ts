@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ClickUpClient, ClickUpError } from "../src/client.ts";
+import { ClickUpClient, ClickUpError, WEBHOOK_TASK_EVENTS } from "../src/client.ts";
 import { RateLimiter } from "../src/rate-limit.ts";
 import checklistFixture from "./fixtures/checklist.json" with { type: "json" };
 import taskFixture from "./fixtures/task.json" with { type: "json" };
@@ -505,5 +505,118 @@ describe("list pages lie about checklists", () => {
 
     const task = await client.getTask("9hz");
     expect(task.checklists).toHaveLength(1);
+  });
+});
+
+/**
+ * Webhook lifecycle.
+ *
+ * Endpoint and parameter names come from the vendored spec — GetWebhooks,
+ * CreateWebhook, UpdateWebhook, DeleteWebhook — and these tests are what keeps
+ * them from drifting back into guesses. The registration logic in the worker
+ * cannot be trusted about "is there already one of these" if the call it asks
+ * with is shaped wrong.
+ */
+describe("webhooks", () => {
+  const webhook = {
+    id: "4b67ac88-e506-4a29-9d42-26e504e3435e",
+    endpoint: "https://rask.example/webhooks/clickup",
+    events: ["taskUpdated"],
+    secret: "O94IM25S7PXBPYTMNXLLET230SRP0S89",
+    health: { status: "active", fail_count: 0 },
+  };
+
+  test("creates one scoped to a single list", async () => {
+    const { client, calls } = makeClient([{ body: { id: webhook.id, webhook } }]);
+
+    await client.createWebhook("9011", {
+      endpoint: webhook.endpoint,
+      events: ["taskUpdated", "taskDeleted"],
+      listId: "901300000001",
+    });
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toContain("/v2/team/9011/webhook");
+    // ClickUp types the scope ids as integers, unlike every other id it sends.
+    expect(calls[0]?.body).toEqual({
+      endpoint: webhook.endpoint,
+      events: ["taskUpdated", "taskDeleted"],
+      list_id: 901300000001,
+    });
+  });
+
+  test("returns the secret, which ClickUp only ever sends at creation", async () => {
+    const { client } = makeClient([{ body: { id: webhook.id, webhook } }]);
+
+    const created = await client.createWebhook("9011", {
+      endpoint: webhook.endpoint,
+      events: ["taskUpdated"],
+    });
+
+    expect(created.secret).toBe(webhook.secret);
+  });
+
+  test("survives a create response that is only an id", async () => {
+    // The spec's own example nests the webhook. A registration that threw on a
+    // response that did not would leave a live webhook nobody owns.
+    const { client } = makeClient([{ body: { id: webhook.id } }]);
+
+    const created = await client.createWebhook("9011", {
+      endpoint: webhook.endpoint,
+      events: ["taskUpdated"],
+    });
+
+    expect(created.id).toBe(webhook.id);
+    expect(created.secret ?? null).toBeNull();
+  });
+
+  test("lists them with their health", async () => {
+    const failing = { ...webhook, health: { status: "failing", fail_count: 5 } };
+    const { client, calls } = makeClient([{ body: { webhooks: [failing] } }]);
+
+    const [found] = await client.getWebhooks("9011");
+
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toContain("/v2/team/9011/webhook");
+    expect(found?.health).toEqual({ status: "failing", fail_count: 5 });
+  });
+
+  test("reactivates a suspended one, sending back all three required fields", async () => {
+    const { client, calls } = makeClient([{ body: { id: webhook.id, webhook } }]);
+
+    await client.updateWebhook(webhook.id, {
+      endpoint: webhook.endpoint,
+      events: ["taskUpdated"],
+      status: "active",
+    });
+
+    expect(calls[0]?.method).toBe("PUT");
+    expect(calls[0]?.url).toContain(`/v2/webhook/${webhook.id}`);
+    // The spec marks endpoint, events and status all required, even when only
+    // the status is changing. A partial body is a 400, not a patch.
+    expect(calls[0]?.body).toEqual({
+      endpoint: webhook.endpoint,
+      events: ["taskUpdated"],
+      status: "active",
+    });
+  });
+
+  test("deletes one", async () => {
+    const { client, calls } = makeClient([{ body: {} }]);
+
+    await client.deleteWebhook(webhook.id);
+
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toContain(`/v2/webhook/${webhook.id}`);
+  });
+
+  test("subscribes to task events rather than the wildcard", async () => {
+    // `"*"` would deliver Goal and Space events that cost a read-back and
+    // change nothing, and would count our shrugs against the webhook's health.
+    const events: readonly string[] = WEBHOOK_TASK_EVENTS;
+    expect(events).toContain("taskUpdated");
+    expect(events).toContain("taskDeleted");
+    expect(events).not.toContain("*");
+    for (const event of events) expect(event.startsWith("task")).toBe(true);
   });
 });

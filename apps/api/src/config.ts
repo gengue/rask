@@ -20,6 +20,22 @@ const schema = z.object({
    * and they stop fighting. Leave it alone unless you run more than one.
    */
   SESSION_COOKIE_NAME: z.string().min(1).default("rask_session"),
+  /**
+   * An extra secret the webhook endpoint will verify against.
+   *
+   * Not normally set. The worker stores the secret of every webhook it
+   * registers in the `webhooks` table, encrypted, and the endpoint reads them
+   * from there. This is for a webhook created outside Rask — by hand, or in
+   * another deployment — whose secret was never ours to store.
+   *
+   * The empty string means unset: `.env.example` documents it as `NAME=` with
+   * nothing after it, and an empty secret would otherwise be offered to the
+   * verifier as a real candidate.
+   */
+  CLICKUP_WEBHOOK_SECRET: z
+    .string()
+    .optional()
+    .transform((value) => (value?.trim() ? value.trim() : undefined)),
   NODE_ENV: z.string().default("development"),
 });
 

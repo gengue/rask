@@ -3,12 +3,15 @@ import { loadConfig } from "./config.ts";
 import { drainOutbox } from "./outbox.ts";
 import { activeLists, syncHierarchy, syncList } from "./sync.ts";
 import { TokenPool } from "./tokens.ts";
+import { drainWebhookEvents, ensureWebhook, NO_PUBLIC_URL } from "./webhooks.ts";
 
 /**
- * Three loops, no scheduler library.
+ * Five loops, no scheduler library.
  *
  *  - outbox: ship pending writes to ClickUp
+ *  - webhook: read back the tasks ClickUp's events named
  *  - poll: re-read every tracked list, because webhooks get lost and have no replay
+ *  - health: notice a webhook ClickUp has suspended, and revive it
  *  - reconcile: once a night, ignore the cursors and re-read everything
  *
  * Each loop reschedules itself only after the previous run finishes, so a slow
@@ -19,9 +22,20 @@ const config = loadConfig();
 const db = createDb(config.DATABASE_URL);
 const pool = new TokenPool(db, config.encryptionKey);
 
+/** Read-backs are the whole point of a webhook; a second of queueing is the budget. */
+const WEBHOOK_DRAIN_INTERVAL_MS = 1_000;
+/** How often the registration is re-checked against ClickUp. */
+const WEBHOOK_HEALTH_INTERVAL_MS = 5 * 60_000;
+
 let stopping = false;
 
-function every(ms: number, name: string, run: () => Promise<void>): void {
+/**
+ * `ms` may be a function, which is how the poll interval changes underneath a
+ * running loop: it is read after each tick, so a webhook going unhealthy at
+ * 04:00 speeds polling back up without a restart.
+ */
+function every(ms: number | (() => number), name: string, run: () => Promise<void>): void {
+  const next = () => (typeof ms === "function" ? ms() : ms);
   const tick = async () => {
     if (stopping) return;
     try {
@@ -29,9 +43,9 @@ function every(ms: number, name: string, run: () => Promise<void>): void {
     } catch (error) {
       console.error(`[${name}]`, error instanceof Error ? error.message : error);
     }
-    if (!stopping) setTimeout(tick, ms);
+    if (!stopping) setTimeout(tick, next());
   };
-  setTimeout(tick, ms);
+  setTimeout(tick, next());
 }
 
 async function pollOnce(full: boolean): Promise<void> {
@@ -95,9 +109,42 @@ async function refreshHierarchy(): Promise<boolean> {
   return false;
 }
 
+/**
+ * Whether a webhook is currently delivering, which is the only thing that
+ * decides how fast the backup poll runs.
+ *
+ * "Failing" counts as delivering: ClickUp keeps sending while `fail_count`
+ * climbs, and it resets itself once deliveries succeed again. Only "no usable
+ * webhook" puts polling back to the two-minute interval, which is exactly the
+ * behaviour Rask had before any of this existed.
+ */
+let webhookDelivering = false;
+
+async function checkWebhook(): Promise<void> {
+  await pool.refresh();
+  const state = await ensureWebhook(db, pool, config);
+  const delivering = state.kind !== "none";
+
+  if (delivering !== webhookDelivering) {
+    const interval = delivering ? config.POLL_INTERVAL_WEBHOOK_MS : config.POLL_INTERVAL_MS;
+    console.log(
+      `[webhook] ${delivering ? "delivering" : "not delivering"}; polling every ${Math.round(interval / 1000)}s`,
+    );
+  }
+  webhookDelivering = delivering;
+
+  if (state.kind === "failing") {
+    console.warn(`[webhook] ${state.webhook.id} is failing (fail_count ${state.failCount})`);
+  }
+  if (state.kind === "none" && state.reason !== NO_PUBLIC_URL) {
+    console.warn(`[webhook] not registered: ${state.reason}`);
+  }
+}
+
 const tokenCount = await pool.refresh();
 console.log(`[worker] ${tokenCount} ClickUp token(s) available`);
 await refreshHierarchy();
+await checkWebhook();
 
 every(config.OUTBOX_INTERVAL_MS, "outbox", async () => {
   await pool.refresh();
@@ -109,7 +156,28 @@ every(config.OUTBOX_INTERVAL_MS, "outbox", async () => {
   }
 });
 
-every(config.POLL_INTERVAL_MS, "poll", () => pollOnce(false));
+/*
+ * Runs whether or not a webhook is registered. The queue is a table, so rows
+ * can outlive the registration that produced them — a webhook deleted while
+ * events were in flight, or a synthetic delivery in dev — and draining an empty
+ * table is one indexed query.
+ */
+every(WEBHOOK_DRAIN_INTERVAL_MS, "webhook", async () => {
+  const result = await drainWebhookEvents(db, pool);
+  if (result.done + result.dropped > 0) {
+    console.log(
+      `[webhook] read back ${result.done}, deferred ${result.deferred}, dropped ${result.dropped}`,
+    );
+  }
+});
+
+every(WEBHOOK_HEALTH_INTERVAL_MS, "webhook-health", checkWebhook);
+
+every(
+  () => (webhookDelivering ? config.POLL_INTERVAL_WEBHOOK_MS : config.POLL_INTERVAL_MS),
+  "poll",
+  () => pollOnce(false),
+);
 
 // Checked every 15 minutes; runs when the clock first lands in the target hour.
 let lastReconcileDay = -1;
