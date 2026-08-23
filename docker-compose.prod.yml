@@ -27,6 +27,9 @@ services:
       CLICKUP_CLIENT_SECRET: ${CLICKUP_CLIENT_SECRET}
       CLICKUP_REDIRECT_URI: ${CLICKUP_REDIRECT_URI}
       WEB_ORIGIN: ${WEB_ORIGIN}
+      # Only for a webhook created outside Rask. The ones the worker registers
+      # keep their secret in the database, encrypted with TOKEN_ENCRYPTION_KEY.
+      CLICKUP_WEBHOOK_SECRET: ${CLICKUP_WEBHOOK_SECRET}
     ports:
       - "3000:3000"
     healthcheck:
@@ -46,9 +49,17 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
       CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID}
+      # Where ClickUp posts events, and the reason the two poll intervals
+      # differ. Blank means no webhook is registered and POLL_INTERVAL_MS is
+      # the only one that applies.
+      CLICKUP_WEBHOOK_URL: ${CLICKUP_WEBHOOK_URL}
+      CLICKUP_WEBHOOK_LIST_ID: ${CLICKUP_WEBHOOK_LIST_ID}
       POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-120000}
-    # One worker. The outbox claim uses FOR UPDATE SKIP LOCKED so more would be
-    # safe, but nothing here needs the throughput yet.
+      POLL_INTERVAL_WEBHOOK_MS: ${POLL_INTERVAL_WEBHOOK_MS:-600000}
+    # One worker, and now for a second reason. The outbox claim and the webhook
+    # queue both use FOR UPDATE SKIP LOCKED so more would be safe to drain with,
+    # but webhook registration is not idempotent across processes: two workers
+    # racing at boot would each see no webhook and register one.
     deploy:
       replicas: 1
     restart: unless-stopped

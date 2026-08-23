@@ -710,15 +710,70 @@ export const syncCursors = pgTable(
   (t) => [primaryKey({ columns: [t.scope, t.scopeId] })],
 );
 
+/**
+ * The webhooks Rask has registered with ClickUp.
+ *
+ * One row per live registration, which in practice means one row. The table
+ * exists so a restart re-adopts the webhook it already made instead of adding
+ * another one every boot, and so the receiving route has a secret to verify
+ * against without the secret ever being in the environment.
+ */
 export const webhooks = pgTable("webhooks", {
   id: text("id").primaryKey(),
   teamId: text("team_id").notNull(),
   endpoint: text("endpoint").notNull(),
+  /**
+   * Whose token registered it.
+   *
+   * `GET /team/{id}/webhook` only answers with webhooks created by the calling
+   * token, so this is not bookkeeping — it is the only way to find the thing
+   * again. Managing it under any other token reads as "there is no webhook"
+   * and registers a second one.
+   */
+  userId: text("user_id"),
   /** Verifies the X-Signature header on delivery. Encrypted like OAuth tokens. */
   ciphertext: bytea("ciphertext").notNull(),
   nonce: bytea("nonce").notNull(),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
+
+/**
+ * Tasks a webhook says have changed, waiting to be read back from ClickUp.
+ *
+ * ponytail: the table is the queue, exactly like `outbox`. The API process
+ * takes the delivery and the worker owns every call to ClickUp, so the hand-off
+ * has to cross a process boundary and survive the rolling deploy that restarts
+ * the API mid-burst. Doing the fetch inline in the request handler instead
+ * would put unbounded outbound HTTP on the one route with no session, and lose
+ * whatever was in flight on every restart.
+ *
+ * Keyed by task id rather than by delivery, and that is the whole design. A
+ * ClickUp event says only *which* task changed, never what, so the response to
+ * every event is identical: go and read the task. Two events for one task
+ * therefore collapse into one row and one request, and the order they arrived
+ * in cannot matter, because the fetch returns whatever ClickUp holds at the
+ * moment it runs rather than whatever the event described. Duplicates,
+ * reordering and bursts all reduce to the same cheap upsert.
+ *
+ * No foreign key onto `tasks`: a `taskCreated` event routinely names a task the
+ * mirror has never heard of, which is the point of hearing about it.
+ */
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    taskId: text("task_id").primaryKey(),
+    /** ClickUp's event name. Only `taskDeleted` is acted on differently. */
+    event: text("event").notNull(),
+    /** Which registration delivered it. Kept for tracing a bad webhook, not read. */
+    webhookId: text("webhook_id"),
+    receivedAt: ts("received_at").notNull().defaultNow(),
+    /** Rising on each failed read-back. Past the cap the row is dropped and polling repairs it. */
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: ts("next_attempt_at").notNull().defaultNow(),
+  },
+  // The claim query: due rows, oldest first.
+  (t) => [index("webhook_events_claim_idx").on(t.nextAttemptAt, t.receivedAt)],
+);
 
 // --- Shared JSON shapes ---------------------------------------------------
 

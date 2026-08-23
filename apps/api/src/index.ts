@@ -32,6 +32,7 @@ import {
   searchTasks,
   statusesForList,
 } from "./queries.ts";
+import { clickUpWebhookRoutes } from "./webhooks.ts";
 import {
   applyChecklistItemPatch,
   applyCommentPatch,
@@ -114,6 +115,17 @@ const app = new Hono<Env>();
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/auth", authRoutes(db, config));
+
+/*
+ * ClickUp's change feed. Registered here, before the SPA fallback below, and
+ * outside the `api` group on purpose: it carries no session cookie, so putting
+ * it behind `requireAuth` would 401 every delivery. Its own authentication is
+ * the X-Signature check in webhooks.ts.
+ */
+app.route(
+  "/webhooks",
+  clickUpWebhookRoutes(db, config.encryptionKey, config.CLICKUP_WEBHOOK_SECRET),
+);
 
 const api = new Hono<Env>();
 api.use("*", requireAuth);

@@ -28,6 +28,7 @@ import {
   taskCustomValues,
   tasks,
   users,
+  webhookEvents,
 } from "./schema.ts";
 
 /**
@@ -510,6 +511,40 @@ async function upsertCommentAuthors(db: Db, batch: CommentPayload[]): Promise<vo
         profilePicture: c.user?.profilePicture ?? null,
       })),
   );
+}
+
+/**
+ * Records that a webhook says this task changed.
+ *
+ * Called from the receiving route, which has no session behind it and so must
+ * stay cheap: one insert, no ClickUp traffic, no read. The conflict clause is
+ * the coalescing — a second event for a task already queued overwrites the
+ * first instead of queueing behind it, so a task somebody is editing quickly
+ * costs one read-back rather than one per keystroke.
+ *
+ * `attempts` and `nextAttemptAt` are deliberately left alone on conflict. A row
+ * that is already backing off after a failed read-back keeps its schedule; a
+ * task that keeps producing events would otherwise reset it forever and never
+ * reach the give-up point where polling takes over.
+ */
+export async function enqueueWebhookEvent(
+  db: Db,
+  input: { taskId: string; event: string; webhookId?: string | null },
+): Promise<void> {
+  await db
+    .insert(webhookEvents)
+    .values({ taskId: input.taskId, event: input.event, webhookId: input.webhookId ?? null })
+    .onConflictDoUpdate({
+      target: webhookEvents.taskId,
+      set: {
+        event: sql`excluded.event`,
+        // Only ever widen what we know. A delivery that named no webhook must
+        // not erase the id an earlier one did, since that id is the only thing
+        // pointing at which registration is misbehaving.
+        webhookId: sql`coalesce(excluded.webhook_id, ${webhookEvents.webhookId})`,
+        receivedAt: new Date(),
+      },
+    });
 }
 
 /** Marks a task gone without dropping the row, so open clients can reconcile. */

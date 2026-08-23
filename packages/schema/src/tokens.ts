@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Db } from "./db.ts";
-import { oauthTokens } from "./schema.ts";
+import { oauthTokens, webhooks } from "./schema.ts";
 
 /**
  * AES-256-GCM for ClickUp OAuth tokens and webhook secrets.
@@ -63,4 +63,83 @@ export async function loadToken(
   const [row] = await db.select().from(oauthTokens).where(eq(oauthTokens.userId, userId)).limit(1);
   if (!row) return null;
   return { token: decrypt(row.ciphertext, row.nonce, key), teamId: row.teamId };
+}
+
+// --- Webhook registrations ------------------------------------------------
+
+export interface StoredWebhook {
+  id: string;
+  teamId: string;
+  endpoint: string;
+  /** The token that registered it, and the only one that can manage it. */
+  userId: string | null;
+  secret: string;
+}
+
+export async function saveWebhook(
+  db: Db,
+  input: {
+    id: string;
+    teamId: string;
+    endpoint: string;
+    userId: string;
+    secret: string;
+    key: Buffer;
+  },
+): Promise<void> {
+  const { ciphertext, nonce } = encrypt(input.secret, input.key);
+  await db
+    .insert(webhooks)
+    .values({
+      id: input.id,
+      teamId: input.teamId,
+      endpoint: input.endpoint,
+      userId: input.userId,
+      ciphertext,
+      nonce,
+    })
+    .onConflictDoUpdate({
+      target: webhooks.id,
+      set: {
+        teamId: input.teamId,
+        endpoint: input.endpoint,
+        userId: input.userId,
+        ciphertext,
+        nonce,
+      },
+    });
+}
+
+/**
+ * Every webhook registration whose secret we can still read.
+ *
+ * A row that fails to decrypt is skipped rather than thrown, because the only
+ * way to get one is to change `TOKEN_ENCRYPTION_KEY` under a live database, and
+ * in that state the honest description of the row is "a webhook whose secret we
+ * do not have" — which is the same as not having it. It is logged so the cause
+ * is visible, and the worker re-registers on the next pass.
+ */
+export async function loadWebhooks(db: Db, key: Buffer): Promise<StoredWebhook[]> {
+  const rows = await db.select().from(webhooks);
+  const usable: StoredWebhook[] = [];
+
+  for (const row of rows) {
+    try {
+      usable.push({
+        id: row.id,
+        teamId: row.teamId,
+        endpoint: row.endpoint,
+        userId: row.userId,
+        secret: decrypt(row.ciphertext, row.nonce, key),
+      });
+    } catch {
+      console.error(`[webhooks] cannot decrypt the secret for ${row.id}; ignoring it`);
+    }
+  }
+
+  return usable;
+}
+
+export async function forgetWebhook(db: Db, id: string): Promise<void> {
+  await db.delete(webhooks).where(eq(webhooks.id, id));
 }

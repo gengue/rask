@@ -1,0 +1,66 @@
+{
+  "event": "taskCreated",
+  "history_items": [
+    {
+      "id": "5229108827618359749",
+      "type": 1,
+      "date": "1787475313794",
+      "field": "status",
+      "parent_id": "901506977564",
+      "data": {
+        "status_type": "open"
+      },
+      "source": null,
+      "user": {
+        "id": 2462555,
+        "username": "Sam Rivers",
+        "email": "sam.rivers@example.com",
+        "color": "#cddc39",
+        "initials": "GG",
+        "profilePicture": "https://attachments.clickup.com/profilePictures/2462555_DtT.jpg",
+        "role": 2,
+        "role_subtype": 0
+      },
+      "before": {
+        "status": null,
+        "color": "#000000",
+        "type": "removed",
+        "orderindex": -1
+      },
+      "after": {
+        "status": "to do",
+        "color": "#87909e",
+        "orderindex": 0,
+        "type": "open"
+      }
+    },
+    {
+      "id": "5229108827584805316",
+      "type": 1,
+      "date": "1787475313794",
+      "field": "task_creation",
+      "parent_id": "901506977564",
+      "data": {
+        "via": "api",
+        "trace_id": "8403805391017683139",
+        "subcategory_id": "901506977564"
+      },
+      "source": "api",
+      "user": {
+        "id": 2462555,
+        "username": "Sam Rivers",
+        "email": "sam.rivers@example.com",
+        "color": "#cddc39",
+        "initials": "GG",
+        "profilePicture": "https://attachments.clickup.com/profilePictures/2462555_DtT.jpg",
+        "role": 2,
+        "role_subtype": 0
+      },
+      "before": null,
+      "after": null
+    }
+  ],
+  "task_id": "86cb8rm0t",
+  "team_id": "529",
+  "webhook_id": "d8f7fbeb-7f3d-43b6-8104-bd24ba2ab535"
+}

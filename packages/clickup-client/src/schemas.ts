@@ -513,11 +513,28 @@ export const accessTokenResponse = z.looseObject({
   token_type: z.string().nullish(),
 });
 
-/** The shape of a task event delivered to our webhook endpoint. Only ever an id. */
+/**
+ * A task event delivered to our webhook endpoint.
+ *
+ * Confirmed against real deliveries rather than the docs: creating one task
+ * produced `taskCreated`, `taskStatusUpdated` and `taskUpdated`, and every one
+ * of them carried exactly these five keys.
+ *
+ * `history_items` is richer than "an event name and an id" suggests — each
+ * entry names the field that changed and carries `before` and `after`, plus
+ * the user who did it. Rask still re-reads the task rather than applying that
+ * diff, and deliberately: the array only describes the fields this event
+ * touched, so it can populate a task the mirror has never seen with a status
+ * and nothing else. Re-reading is one request and is correct for every event
+ * with one code path, which is what makes duplicates and reordering harmless.
+ * The array is kept as `unknown` because nothing reads inside it.
+ */
 export const webhookEvent = z.looseObject({
   event: z.string(),
   task_id: z.string().nullish(),
   webhook_id: z.string().nullish(),
+  /** The Workspace. Always present on a real delivery, though undocumented. */
+  team_id: z.string().nullish(),
   history_items: z.array(z.unknown()).nullish(),
 });
 export type WebhookEvent = z.infer<typeof webhookEvent>;
