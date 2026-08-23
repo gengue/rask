@@ -468,3 +468,42 @@ describe("getWorkspaceHierarchy", () => {
     expect(tree[0]?.lists[0]?.name).toBe("Inbox");
   });
 });
+
+describe("list pages lie about checklists", () => {
+  /**
+   * GET /list/{id}/task sends `checklists: []` on every task, including tasks
+   * that have two — only GET /task/{id} tells the truth. An empty array reads
+   * as "this task has none", so the ingest deleted the real ones on every poll.
+   */
+  test("drops the empty array a list page sends", async () => {
+    const { client } = makeClient([
+      { body: { tasks: [{ ...taskFixture, checklists: [] }], last_page: true } },
+    ]);
+
+    const { tasks } = await client.getListTasks("123");
+    expect(tasks[0] && "checklists" in tasks[0]).toBe(false);
+  });
+
+  test("drops it even when a list page claims to have one", async () => {
+    const { client } = makeClient([
+      {
+        body: {
+          tasks: [{ ...taskFixture, checklists: [{ id: "c1", name: "nope", items: [] }] }],
+          last_page: true,
+        },
+      },
+    ]);
+
+    const { tasks } = await client.getListTasks("123");
+    expect(tasks[0] && "checklists" in tasks[0]).toBe(false);
+  });
+
+  test("keeps what the task endpoint sends, which is the authority", async () => {
+    const { client } = makeClient([
+      { body: { ...taskFixture, checklists: [{ id: "c1", name: "real", items: [] }] } },
+    ]);
+
+    const task = await client.getTask("9hz");
+    expect(task.checklists).toHaveLength(1);
+  });
+});

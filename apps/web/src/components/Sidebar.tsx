@@ -145,11 +145,12 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
     <A
       to="/list/$listId"
       params={{ listId: props.id }}
-      class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-base"
-      classList={{
-        "row-selected text-ink": active(),
-        "text-ink-2 hover:bg-hover hover:text-ink": !active(),
-      }}
+      // One string, not classList: `A` is a component, so Solid hands it
+      // `classList` as an inert prop and nothing ever applies it. Every list
+      // link rendered at full-brightness ink with no hover, active or not.
+      class={`flex h-7 items-center gap-2 rounded-[5px] px-2 text-base ${
+        active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+      }`}
     >
       <svg
         width="14"
@@ -178,11 +179,12 @@ function NavItem(props: { to: string; label: string; children: JSX.Element }): J
   return (
     <A
       to={props.to}
-      class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-base"
-      classList={{
-        "row-selected text-ink": active(),
-        "text-ink-2 hover:bg-hover hover:text-ink": !active(),
-      }}
+      // One string, not classList: `A` is a component, so Solid hands it
+      // `classList` as an inert prop and nothing ever applies it. Every list
+      // link rendered at full-brightness ink with no hover, active or not.
+      class={`flex h-7 items-center gap-2 rounded-[5px] px-2 text-base ${
+        active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+      }`}
     >
       <svg
         width="15"

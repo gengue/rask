@@ -350,7 +350,10 @@ export class ClickUpClient {
     return this.request(taskPage, "GET", `/v2/view/${viewId}/task`, {
       // `page` is required on this endpoint, unlike the list one.
       query: { page: params.page ?? 0 },
-    }).then((r) => ({ tasks: r.tasks, lastPage: r.last_page ?? r.tasks.length === 0 }));
+    }).then((r) => ({
+      tasks: r.tasks.map(withoutListPageLies),
+      lastPage: r.last_page ?? r.tasks.length === 0,
+    }));
   }
 
   /** Walks every page of a view. Stops on the first page ClickUp flags as last. */
@@ -389,7 +392,10 @@ export class ClickUpClient {
         // Rask renders markdown, so always ask for the markdown body.
         include_markdown_description: true,
       },
-    }).then((r) => ({ tasks: r.tasks, lastPage: r.last_page ?? r.tasks.length === 0 }));
+    }).then((r) => ({
+      tasks: r.tasks.map(withoutListPageLies),
+      lastPage: r.last_page ?? r.tasks.length === 0,
+    }));
   }
 
   /** Walks every page of a list. Stops on the first page ClickUp flags as last. */
@@ -416,7 +422,10 @@ export class ClickUpClient {
         space_ids: params.spaceIds,
         include_markdown_description: true,
       },
-    }).then((r) => ({ tasks: r.tasks, lastPage: r.last_page ?? r.tasks.length === 0 }));
+    }).then((r) => ({
+      tasks: r.tasks.map(withoutListPageLies),
+      lastPage: r.last_page ?? r.tasks.length === 0,
+    }));
   }
 
   createTask(listId: string, input: NewTask): Promise<ClickUpTask> {
@@ -712,6 +721,24 @@ function byOrderindex(a: ClickUpView, b: ClickUpView): number {
 function commentBody(text: string): { comment: CommentSegment[] } | { comment_text: string } {
   const segments = toCommentSegments(text);
   return segments ? { comment: segments } : { comment_text: text };
+}
+
+/**
+ * Drops the fields a list page claims to have and does not.
+ *
+ * `GET /list/{id}/task` and its siblings send `checklists: []` on every task,
+ * including tasks that have two. Only `GET /task/{id}` tells the truth. Left
+ * alone, an empty array reads as "this task has no checklists" and the ingest
+ * deletes the real ones on every poll — so it is removed here, where the lie
+ * is, rather than guarded for at each place that stores it.
+ *
+ * `attachments` is the same story and needs no help: the list endpoints omit it
+ * entirely, which already means "no opinion".
+ */
+function withoutListPageLies<T extends { checklists?: unknown }>(task: T): T {
+  if (!("checklists" in task)) return task;
+  const { checklists: _dropped, ...rest } = task;
+  return rest as T;
 }
 
 /** Full jitter, capped at 30s. Keeps a fleet of workers from retrying in lockstep. */

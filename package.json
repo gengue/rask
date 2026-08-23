@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "bun run --filter '*' dev",
     "build": "bun run --filter '*' build",
-    "test": "bun run --filter '*' test",
+    "test": "TEST_DATABASE_URL=postgres://rask:rask@localhost:5432/rask_test bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
     "check": "biome check .",
     "check:fix": "biome check --write .",
