@@ -15,6 +15,7 @@ import { StatusIcon } from "./components/StatusIcon.tsx";
 import { TaskDetail } from "./components/TaskDetail.tsx";
 import { Toasts } from "./components/Toasts.tsx";
 import { api, type StatusDef, type Task } from "./lib/api.ts";
+import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
 import { lightboxOpen } from "./lib/lightbox.ts";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
@@ -176,16 +177,6 @@ export function AppShell(): JSX.Element {
     const max = Math.max(0, rowTasks().length - 1);
 
     switch (key) {
-      case "j":
-      case "ArrowDown":
-        event.preventDefault();
-        setUi("cursor", Math.min(max, ui.cursor + 1));
-        break;
-      case "k":
-      case "ArrowUp":
-        event.preventDefault();
-        setUi("cursor", Math.max(0, ui.cursor - 1));
-        break;
       case "g":
         // gg jumps to the top, vim style.
         if (lastKey === "g") {
@@ -242,6 +233,36 @@ export function AppShell(): JSX.Element {
         event.preventDefault();
         setUi("shortcuts", true);
         break;
+      case "b":
+        event.preventDefault();
+        setUi("layout", ui.layout === "board" ? "list" : "board");
+        break;
+      case "H":
+      case "L":
+        // The keyboard's drag: the same write, one column over.
+        if (task && ui.layout === "board") {
+          event.preventDefault();
+          shiftColumn(task, key === "L" ? 1 : -1);
+        }
+        break;
+      default: {
+        /*
+         * One cursor, two readings. In the list it is a position in a single
+         * flat run and only j/k move it; on the board the same index is a
+         * column plus a depth, so h/l cross to the neighbour at the same depth.
+         * Null means the key moves nothing here and belongs to the browser.
+         */
+        const next = nextCursor(
+          key,
+          ui.cursor,
+          rowTasks().length,
+          ui.layout === "board" ? boardColumns() : null,
+        );
+        if (next !== null) {
+          event.preventDefault();
+          setUi("cursor", next);
+        }
+      }
     }
 
     lastKey = key;
@@ -267,6 +288,13 @@ export function AppShell(): JSX.Element {
       section: "Go to",
       hint: "",
       run: () => navigate({ to: "/" }),
+    },
+    {
+      id: "view:layout",
+      label: ui.layout === "board" ? "List view" : "Board view",
+      section: "View",
+      hint: "b",
+      run: () => setUi("layout", ui.layout === "board" ? "list" : "board"),
     },
     ...(["status", "due", "assignee", "list", "none"] as const).map((groupBy) => ({
       id: `group:${groupBy}`,
