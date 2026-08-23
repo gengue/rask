@@ -202,10 +202,42 @@ export const flatItems = globalMemo(() => {
  */
 export const [viewStatuses, setViewStatuses] = createSignal<StatusDef[]>([]);
 
-/** The Space the current view belongs to, for its tag vocabulary. */
-export const viewSpaceId = globalMemo(() => viewTasks()[0]?.spaceId ?? null);
+/**
+ * Every Space the current view draws from, for the tag vocabulary.
+ *
+ * A set, not the first row's Space: My Tasks spans all of them, and answering
+ * with whichever Space the top row happened to be in offered a menu that could
+ * not name a tag on 118 of the rows below it while happily offering one used
+ * once. A single list resolves to one Space and costs one request, as before.
+ */
+export const viewSpaceIds = globalMemo(() => {
+  const ids = new Set<string>();
+  for (const task of viewTasks()) if (task.spaceId) ids.add(task.spaceId);
+  return [...ids].sort();
+});
 
 const [spaceTags, setSpaceTags] = createSignal<Tag[]>([]);
+
+/** One request per Space per session. A Space that fails contributes nothing. */
+const spaceTagCache = new Map<string, Promise<Tag[]>>();
+
+function tagsForSpace(spaceId: string): Promise<Tag[]> {
+  const cached = spaceTagCache.get(spaceId);
+  if (cached) return cached;
+  const pending = api.spaceTags(spaceId).catch(() => {
+    spaceTagCache.delete(spaceId);
+    return [] as Tag[];
+  });
+  spaceTagCache.set(spaceId, pending);
+  return pending;
+}
+
+/** Two Spaces can hold the same tag name; the menu should offer it once. */
+export function uniqueTags(tags: Tag[]): Tag[] {
+  const byName = new Map<string, Tag>();
+  for (const tag of tags) if (!byName.has(tag.name)) byName.set(tag.name, tag);
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 const [filterFields, setFilterFields] = createSignal<FilterField[]>([]);
 
 export { filterFields };
@@ -229,14 +261,17 @@ createRoot(() => {
   });
 
   /*
-   * The Space's tags, which is every tag somebody could filter by rather than
+   * The Spaces' tags, which is every tag somebody could filter by rather than
    * every tag that turned up in the rows. Straight from ClickUp through the
    * API, like the tag picker on a task, because a tag nobody has used yet still
    * exists and one request per Space beats another table to keep in sync.
+   *
+   * Cached per Space for the session: the set changes as rows load, and a view
+   * that spans six Spaces should not re-ask for all six each time it grows.
    */
   createEffect(() => {
-    const spaceId = viewSpaceId();
-    if (!spaceId) {
+    const spaceIds = viewSpaceIds();
+    if (spaceIds.length === 0) {
       setSpaceTags([]);
       return;
     }
@@ -244,10 +279,10 @@ createRoot(() => {
     onCleanup(() => {
       stale = true;
     });
-    void api
-      .spaceTags(spaceId)
-      .then((tags) => !stale && setSpaceTags(tags))
-      .catch(() => !stale && setSpaceTags([]));
+    void Promise.all(spaceIds.map(tagsForSpace)).then((results) => {
+      if (stale) return;
+      setSpaceTags(uniqueTags(results.flat()));
+    });
   });
 });
 
