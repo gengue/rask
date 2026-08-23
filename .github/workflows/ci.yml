@@ -72,6 +72,8 @@ jobs:
         run: bunx playwright install --with-deps chromium
         working-directory: apps/web
 
+      # The suite creates and seeds its own rask_e2e over a plain connection,
+      # so it does not need the job's DATABASE_URL and cannot touch it.
       - name: End-to-end
         run: bunx playwright test
         working-directory: apps/web
