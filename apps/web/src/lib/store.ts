@@ -1,4 +1,5 @@
 import { createCollection } from "@tanstack/solid-db";
+import { createRoot } from "solid-js";
 import { api, type Task, type TaskQuery } from "./api.ts";
 import { pushToast } from "./toast.ts";
 import { setViewLoading } from "./view.ts";
@@ -27,89 +28,99 @@ let syncApi: SyncApi | null = null;
 /** Rows that arrived before the collection started syncing. */
 let buffered: Task[] = [];
 
-export const tasks = createCollection<Task, string>({
-  id: "tasks",
-  getKey: (task) => task.id,
-  sync: {
-    // The API always sends whole rows, never patches.
-    rowUpdateMode: "full",
-    sync: ({ begin, write, commit, markReady }) => {
-      syncApi = { begin, write, commit } as SyncApi;
+/*
+ * Owned by a root of its own.
+ *
+ * The collection sets up computations when it is created, and at module scope
+ * those have no owner — which is the last of the "computations created outside
+ * a createRoot" warnings. It lives as long as the tab does, so a root that is
+ * never disposed states the intent rather than leaking by accident.
+ */
+export const tasks = createRoot(() =>
+  createCollection<Task, string>({
+    id: "tasks",
+    getKey: (task) => task.id,
+    sync: {
+      // The API always sends whole rows, never patches.
+      rowUpdateMode: "full",
+      sync: ({ begin, write, commit, markReady }) => {
+        syncApi = { begin, write, commit } as SyncApi;
 
-      if (buffered.length > 0) {
-        const rows = buffered;
-        buffered = [];
-        merge(rows);
-      }
+        if (buffered.length > 0) {
+          const rows = buffered;
+          buffered = [];
+          merge(rows);
+        }
 
-      /*
-       * Ready immediately, with nothing in it.
-       *
-       * The route that mounts decides what to load; fetching My Tasks here as
-       * well meant every cold boot of the default view issued the same 500-row
-       * query twice. But readiness cannot wait for that fetch: live queries
-       * suspend until the collection is ready, and the read is also what starts
-       * this sync, so deferring markReady deadlocks the two against each other
-       * and the view renders nothing at all.
-       *
-       * An empty ready collection is honest. `viewLoading` is what stops the
-       * first frame from claiming the list is empty.
-       */
-      markReady();
+        /*
+         * Ready immediately, with nothing in it.
+         *
+         * The route that mounts decides what to load; fetching My Tasks here as
+         * well meant every cold boot of the default view issued the same 500-row
+         * query twice. But readiness cannot wait for that fetch: live queries
+         * suspend until the collection is ready, and the read is also what starts
+         * this sync, so deferring markReady deadlocks the two against each other
+         * and the view renders nothing at all.
+         *
+         * An empty ready collection is honest. `viewLoading` is what stops the
+         * first frame from claiming the list is empty.
+         */
+        markReady();
 
-      return () => {
-        syncApi = null;
-      };
+        return () => {
+          syncApi = null;
+        };
+      },
     },
-  },
 
-  onUpdate: async ({ transaction }) => {
-    try {
-      for (const mutation of transaction.mutations) {
-        const patch = toApiPatch(mutation.changes as Partial<Task>);
-        if (Object.keys(patch).length === 0) continue;
-        await api.patchTask(String(mutation.key), patch);
+    onUpdate: async ({ transaction }) => {
+      try {
+        for (const mutation of transaction.mutations) {
+          const patch = toApiPatch(mutation.changes as Partial<Task>);
+          if (Object.keys(patch).length === 0) continue;
+          await api.patchTask(String(mutation.key), patch);
+        }
+      } catch (error) {
+        /*
+         * The collection rolls the row back on a throw and says nothing.
+         *
+         * So a dropped card slides back to where it was, a status flips and
+         * unflips, and the only account of it is a network entry. The README
+         * promises "revert and notify"; this is the notify. The `write-failed`
+         * channel covers the other half — a write ClickUp rejects after it
+         * reached the outbox — and never sees this one, because this one never
+         * got that far.
+         */
+        announceRollback("Could not save that change", error);
+        throw error;
       }
-    } catch (error) {
-      /*
-       * The collection rolls the row back on a throw and says nothing.
-       *
-       * So a dropped card slides back to where it was, a status flips and
-       * unflips, and the only account of it is a network entry. The README
-       * promises "revert and notify"; this is the notify. The `write-failed`
-       * channel covers the other half — a write ClickUp rejects after it
-       * reached the outbox — and never sees this one, because this one never
-       * got that far.
-       */
-      announceRollback("Could not save that change", error);
-      throw error;
-    }
-  },
+    },
 
-  onInsert: async ({ transaction }) => {
-    try {
-      for (const mutation of transaction.mutations) {
-        const task = mutation.modified as Task;
-        await api.createTask({
-          listId: task.listId,
-          name: task.name,
-          status: task.status ?? undefined,
-          priority: task.priority,
-          dueDate: task.dueDate ? Date.parse(task.dueDate) : null,
-          assignees: task.assignees.map((a) => a.id),
-          // The placeholder id doubles as the idempotency key the server matches
-          // ClickUp's reply back to.
-          clientId: task.id.replace(/^tmp_/, ""),
-        });
+    onInsert: async ({ transaction }) => {
+      try {
+        for (const mutation of transaction.mutations) {
+          const task = mutation.modified as Task;
+          await api.createTask({
+            listId: task.listId,
+            name: task.name,
+            status: task.status ?? undefined,
+            priority: task.priority,
+            dueDate: task.dueDate ? Date.parse(task.dueDate) : null,
+            assignees: task.assignees.map((a) => a.id),
+            // The placeholder id doubles as the idempotency key the server matches
+            // ClickUp's reply back to.
+            clientId: task.id.replace(/^tmp_/, ""),
+          });
+        }
+      } catch (error) {
+        // Same reason as onUpdate: the placeholder disappears on its own and the
+        // user is otherwise told nothing about why their task did not stick.
+        announceRollback("Could not create that task", error);
+        throw error;
       }
-    } catch (error) {
-      // Same reason as onUpdate: the placeholder disappears on its own and the
-      // user is otherwise told nothing about why their task did not stick.
-      announceRollback("Could not create that task", error);
-      throw error;
-    }
-  },
-});
+    },
+  }),
+);
 
 /** Says out loud what the collection just undid. */
 function announceRollback(title: string, error: unknown): void {

@@ -1,5 +1,6 @@
-import { createMemo, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import type { Task } from "./api.ts";
+import { globalMemo } from "./global-memo.ts";
 import { type FlatItem, groupTasks } from "./grouping.ts";
 import { ui } from "./ui.ts";
 
@@ -24,7 +25,7 @@ export const [viewTruncated, setViewTruncated] = createSignal(false);
 export const [viewLoading, setViewLoading] = createSignal(true);
 
 /** Search, facet filters and grouping, shared by the list and the keyboard. */
-export const flatItems = createMemo<FlatItem[]>(() => {
+export const flatItems = globalMemo(() => {
   const query = ui.search.trim().toLowerCase();
   const { status, assignee, tag } = ui.filters;
 
@@ -49,7 +50,7 @@ export const flatItems = createMemo<FlatItem[]>(() => {
 
 /** Facet values present in the current view. Filtering by a value with no rows
  *  is never useful, so the options come from the data rather than a config. */
-export const facets = createMemo(() => {
+export const facets = globalMemo(() => {
   const statuses = new Map<string, { value: string; color: string | null; type: string | null }>();
   const assignees = new Map<string, { value: string; label: string }>();
   const tags = new Map<string, { value: string; color: string | null }>();
@@ -80,7 +81,7 @@ export const facets = createMemo(() => {
 });
 
 /** Tasks in display order, headers removed. The cursor indexes into this. */
-export const rowTasks = createMemo(() =>
+export const rowTasks = globalMemo(() =>
   flatItems().flatMap((item) => (item.kind === "row" ? [item.task] : [])),
 );
 

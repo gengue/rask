@@ -1,5 +1,6 @@
-import { createMemo, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import type { StatusDef, Task } from "./api.ts";
+import { globalMemo } from "./global-memo.ts";
 import type { FlatItem } from "./grouping.ts";
 import { tasks } from "./store.ts";
 import { type GroupBy, setUi, ui } from "./ui.ts";
@@ -46,7 +47,7 @@ export const [boardStatuses, setBoardStatuses] = createSignal<StatusDef[]>([]);
 /** The card being dragged, so every column can dim and light up as it passes. */
 export const [draggingId, setDraggingId] = createSignal<string | null>(null);
 
-export const boardColumns = createMemo(() => toColumns(flatItems(), ui.groupBy, boardStatuses()));
+export const boardColumns = globalMemo(() => toColumns(flatItems(), ui.groupBy, boardStatuses()));
 
 /**
  * Whether a card can be moved between columns at all.
