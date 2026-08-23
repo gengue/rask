@@ -15,7 +15,8 @@ import {
   tasks,
   users,
 } from "@rask/schema";
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
+import { type Clause, filterConditions, textCondition } from "./filters.ts";
 
 /**
  * Read models for the UI.
@@ -53,6 +54,31 @@ const assigneesJson = sql<Assignee[]>`(
   where ta.task_id = ${tasks.id}
 )`;
 
+/**
+ * The values of the Custom Fields a filter mentions, as `{fieldId: rawJson}`.
+ *
+ * Null — not `{}` — when the query asked for none, and the difference carries
+ * meaning: the browser evaluates the same filter locally, and a row that has no
+ * values because nobody asked for any must not be shown to satisfy a
+ * `NOT ANY` clause it was never tested against.
+ *
+ * The values stay as the JSON text the column holds rather than being decoded,
+ * so the comparison the browser makes is the same string comparison this file
+ * hands to Postgres.
+ */
+function customValuesJson(fieldIds: readonly string[]): SQL<Record<string, string> | null> {
+  if (fieldIds.length === 0) return sql<Record<string, string> | null>`null::json`;
+  const wanted = sql.join(
+    fieldIds.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  return sql<Record<string, string> | null>`(
+    select coalesce(json_object_agg(v.field_id, v.value), '{}'::json)
+    from ${taskCustomValues} v
+    where v.task_id = ${tasks.id} and v.field_id in (${wanted})
+  )`;
+}
+
 const taskColumns = {
   id: tasks.id,
   customId: tasks.customId,
@@ -85,6 +111,24 @@ export interface TaskFilters {
   statuses?: string[];
   tag?: string;
   /**
+   * The filter the user built, in ClickUp's `{field, op, values}` vocabulary.
+   *
+   * ANDed with everything above. The plain parameters stay because they are the
+   * documented shape of `GET /api/tasks` and because "this list" and "closed
+   * tasks too" are properties of the view rather than of the filter — a list is
+   * where you are, not something you filtered down to.
+   */
+  clauses?: Clause[];
+  /**
+   * Custom Field ids whose values should ride along on each row.
+   *
+   * Only the fields the active filter mentions. The browser evaluates the same
+   * filter over the rows it holds so an edit under the cursor takes effect
+   * without a round trip, and a Custom Field is the one thing it cannot answer
+   * from a task alone.
+   */
+  fieldIds?: string[];
+  /**
    * An explicit set of tasks, in place of a predicate.
    *
    * This is how a view is read: ClickUp decided which tasks pass the view's
@@ -107,7 +151,7 @@ export interface TaskFilters {
  * one row.
  */
 export async function listTasks(db: Db, filters: TaskFilters) {
-  const where = [];
+  const where: Array<SQL | undefined> = [];
 
   if (!filters.syncedAfter) {
     // The change feed must see deletions and archives; normal views must not.
@@ -145,8 +189,10 @@ export async function listTasks(db: Db, filters: TaskFilters) {
     )`);
   }
 
+  where.push(...filterConditions(filters.clauses ?? []));
+
   return db
-    .select(taskColumns)
+    .select({ ...taskColumns, customValues: customValuesJson(filters.fieldIds ?? []) })
     .from(tasks)
     .leftJoin(lists, eq(lists.id, tasks.listId))
     .where(and(...where))
@@ -584,6 +630,103 @@ export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
   }));
 }
 
+export interface FilterFieldOption {
+  /** ClickUp's own key for the option, which is what a filter clause carries. */
+  value: string;
+  label: string;
+  color: string | null;
+}
+
+export interface FilterField {
+  id: string;
+  name: string;
+  type: string;
+  options: FilterFieldOption[];
+}
+
+/**
+ * The Custom Fields of one List that a filter can name, with their options.
+ *
+ * Only `drop_down`. The other twelve types in this workspace are not worth a
+ * facet: `formula` and the two progress types are computed and have no stable
+ * value to match, `number`, `date`, `currency`, `text`, `short_text` and `url`
+ * are free-form and want a comparison UI rather than a list of choices,
+ * `checkbox` is two values that nobody has set on more than a handful of rows,
+ * `users` duplicates the assignee facet, and `location` is a map pin. `labels`
+ * would belong here — it is the multi-select twin of `drop_down` and
+ * `clauseCondition` would need no change — except that the one `labels` field
+ * in the workspace has no values mirrored at all, so there is nothing to
+ * verify against and nothing for anyone to pick.
+ *
+ * The options live in `type_config`, and its shape is ClickUp's: `drop_down`
+ * options carry `name`, `labels` options carry `label`, and both are keyed by
+ * `orderindex` — which is also what `task_custom_values.value` stores, so that
+ * is what a clause matches on. Read through Drizzle rather than raw SQL because
+ * some rows hold `type_config` double-encoded and the column type unwraps them.
+ *
+ * ponytail: no list-scope join table, the one `custom_field_defs` said would be
+ * needed the day list-level filtering arrived. It is not. Asking each of the 35
+ * `drop_down` definitions whether any task in this list uses it is 28.7ms on
+ * the 5,696-task Bugs list — the same question as a `select distinct` over the
+ * join, which measures 189.8ms, because an `exists` stops at the first hit and
+ * a distinct does not. A table would be a third thing for ingest to keep in
+ * step, for a query nothing but an open menu ever runs.
+ */
+export async function listFilterFields(db: Db, listId: string): Promise<FilterField[]> {
+  const rows = await db
+    .select({
+      id: customFieldDefs.id,
+      name: customFieldDefs.name,
+      type: customFieldDefs.type,
+      typeConfig: customFieldDefs.typeConfig,
+    })
+    .from(customFieldDefs)
+    .where(
+      and(
+        inArray(customFieldDefs.type, ["drop_down"]),
+        sql`exists (
+          select 1 from ${taskCustomValues} v
+          join ${tasks} t on t.id = v.task_id
+          where v.field_id = ${customFieldDefs.id} and t.list_id = ${listId}
+        )`,
+      ),
+    )
+    .orderBy(asc(customFieldDefs.name));
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    options: optionsOf(row.typeConfig),
+  }));
+}
+
+interface RawOption {
+  name?: unknown;
+  label?: unknown;
+  color?: unknown;
+  orderindex?: unknown;
+}
+
+function optionsOf(typeConfig: unknown): FilterFieldOption[] {
+  const raw = (typeConfig as { options?: unknown } | null)?.options;
+  if (!Array.isArray(raw)) return [];
+
+  return raw.flatMap((entry, index): FilterFieldOption[] => {
+    const option = entry as RawOption;
+    const order = typeof option.orderindex === "number" ? option.orderindex : index;
+    const label = typeof option.name === "string" ? option.name : option.label;
+    if (typeof label !== "string") return [];
+    return [
+      {
+        value: String(order),
+        label,
+        color: typeof option.color === "string" ? option.color : null,
+      },
+    ];
+  });
+}
+
 /** Workspace directory, for the assignee filter and the command palette. */
 export async function listMembers(db: Db) {
   return db
@@ -602,20 +745,36 @@ export async function listMembers(db: Db) {
 /**
  * Workspace-wide task search, for the command palette.
  *
- * ponytail: a plain ILIKE with no index. At 17k tasks that is a 38ms sequential
- * scan, which is under the threshold where typing feels laggy, and the cost is
- * linear. Past roughly 60k tasks it needs `create extension pg_trgm` and a GIN
- * index on `name gin_trgm_ops`; the query does not change.
+ * The ponytail comment that used to sit here said this was a plain ILIKE with
+ * no index and that 60,000 tasks was where it would need one. The mirror is at
+ * 147,242 and the indexes landed; what it did not anticipate is that the answer
+ * differs per column. Names and custom ids get trigram, because people type the
+ * middle of a word and the number out of `TK-51829`. Descriptions get
+ * `tsvector`, because they are prose: 334ms unindexed, 15-24ms with a trigram
+ * index, 2.5-11ms with full text — and the trigram index over prose is no
+ * smaller. `textCondition` holds the split.
  *
- * Matches are ranked by where the hit lands: a title that starts with the query
- * beats one that merely contains it, and recent activity breaks ties.
+ * Comments are not searched, and that is a decision rather than an omission.
+ * They are only mirrored when somebody opens a task — the list poll does not
+ * carry them — so the mirror holds 50 comments against 147,242 tasks. Searching
+ * them would answer "not found" for every conversation nobody has opened, which
+ * is a new lie in place of the one this change removes. The prerequisite is
+ * pulling comments during list sync, which is the worker's ground, not this
+ * file's.
+ *
+ * Matches are ranked by where the hit lands, and recent activity breaks ties. A
+ * description-only hit sorts last: the query matched something, but not
+ * anything the row on screen is showing.
  */
 export async function searchTasks(db: Db, query: string, limit = 12) {
   const term = query.trim();
   if (term.length < 2) return [];
 
-  const like = `%${term}%`;
+  const matches = textCondition(term);
+  if (!matches) return [];
+
   const prefix = `${term}%`;
+  const like = `%${term}%`;
 
   return db
     .select({
@@ -630,17 +789,12 @@ export async function searchTasks(db: Db, query: string, limit = 12) {
     })
     .from(tasks)
     .leftJoin(lists, eq(lists.id, tasks.listId))
-    .where(
-      and(
-        isNull(tasks.deletedAt),
-        eq(tasks.archived, false),
-        or(ilike(tasks.name, like), ilike(tasks.customId, like)) ?? sql`false`,
-      ),
-    )
+    .where(and(isNull(tasks.deletedAt), eq(tasks.archived, false), matches))
     .orderBy(
       sql`case when ${tasks.customId} ilike ${prefix} then 0
                 when ${tasks.name} ilike ${prefix} then 1
-                else 2 end`,
+                when ${tasks.name} ilike ${like} then 2
+                else 3 end`,
       desc(tasks.dateUpdated),
     )
     .limit(limit);

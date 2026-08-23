@@ -46,12 +46,16 @@ const STATUSES: StatusDef[] = [
 
 const ROWS = [task("a", "todo"), task("b", "done"), task("c", "todo"), task("d", "in progress")];
 
+/** Which statuses get a column. In the app this is `statusShown` in lib/view.ts. */
+const ALL = () => true;
+const OPEN_ONLY = (def: StatusDef) => def.type !== "done" && def.type !== "closed";
+
 const shape = (columns: BoardColumn[]) =>
   columns.map((column) => [column.label, column.tasks.map((t) => t.id), column.offset]);
 
 describe("columns", () => {
   test("a column is one run of the flattened list", () => {
-    const columns = toColumns(groupTasks(ROWS, "status"), "status", []);
+    const columns = toColumns(groupTasks(ROWS, "status"), "status", [], ALL);
     // First appearance, which is all grouping knows without the list's statuses.
     expect(shape(columns)).toEqual([
       ["todo", ["a", "c"], 0],
@@ -63,7 +67,7 @@ describe("columns", () => {
   test("offsets index the same flat row list the cursor walks", () => {
     const items = groupTasks(ROWS, "status");
     const rows = items.flatMap((item) => (item.kind === "row" ? [item.task] : []));
-    for (const column of toColumns(items, "status", [])) {
+    for (const column of toColumns(items, "status", [], ALL)) {
       for (const [index, card] of column.tasks.entries()) {
         expect(rows[column.offset + index]?.id).toBe(card.id);
       }
@@ -71,7 +75,7 @@ describe("columns", () => {
   });
 
   test("status definitions put the columns in ClickUp's order", () => {
-    const columns = toColumns(groupTasks(ROWS, "status"), "status", STATUSES);
+    const columns = toColumns(groupTasks(ROWS, "status"), "status", STATUSES, ALL);
     expect(columns.map((column) => column.label)).toEqual([
       "todo",
       "in progress",
@@ -81,7 +85,7 @@ describe("columns", () => {
   });
 
   test("a status nobody is in is still a column, and can be dropped into", () => {
-    const columns = toColumns(groupTasks(ROWS, "status"), "status", STATUSES);
+    const columns = toColumns(groupTasks(ROWS, "status"), "status", STATUSES, ALL);
     const empty = columns.find((column) => column.label === "in review");
     expect(empty?.tasks).toEqual([]);
     expect(empty?.status?.status).toBe("in review");
@@ -94,18 +98,33 @@ describe("columns", () => {
   });
 
   test("the status written on a drop is a name, not a display label", () => {
-    const known = toColumns(groupTasks([task("a", "In Progress")], "status"), "status", STATUSES);
+    const known = toColumns(
+      groupTasks([task("a", "In Progress")], "status"),
+      "status",
+      STATUSES,
+      ALL,
+    );
     // The list's own spelling wins where the list has one...
     expect(known.find((column) => column.tasks.length > 0)?.status?.status).toBe("in progress");
 
-    const unknown = toColumns(groupTasks([task("a", "Shipped")], "status"), "status", STATUSES);
+    const unknown = toColumns(
+      groupTasks([task("a", "Shipped")], "status"),
+      "status",
+      STATUSES,
+      ALL,
+    );
     // ...and where it does not, the task's, untouched. Never the capitalised
     // label, which is display text.
     expect(unknown.find((column) => column.tasks.length > 0)?.status?.status).toBe("Shipped");
   });
 
   test("tasks with no status make a column nothing can be dropped into", () => {
-    const columns = toColumns(groupTasks([...ROWS, task("e", null)], "status"), "status", STATUSES);
+    const columns = toColumns(
+      groupTasks([...ROWS, task("e", null)], "status"),
+      "status",
+      STATUSES,
+      ALL,
+    );
     const none = columns.find((column) => column.label === "No status");
     expect(none?.status).toBeNull();
     // And it sorts after every real status rather than jumping to the front.
@@ -113,18 +132,68 @@ describe("columns", () => {
   });
 
   test("another grouping still makes columns, just unwritable ones", () => {
-    const columns = toColumns(groupTasks(ROWS, "list"), "list", STATUSES);
+    const columns = toColumns(groupTasks(ROWS, "list"), "list", STATUSES, ALL);
     expect(shape(columns)).toEqual([["List", ["a", "b", "c", "d"], 0]]);
     expect(columns[0]?.status).toBeNull();
   });
 
   test("no grouping is one column, not none", () => {
-    const columns = toColumns(groupTasks(ROWS, "none"), "none", STATUSES);
+    const columns = toColumns(groupTasks(ROWS, "none"), "none", STATUSES, ALL);
     expect(shape(columns)).toEqual([["All tasks", ["a", "b", "c", "d"], 0]]);
   });
 
   test("an empty view has no columns to draw", () => {
-    expect(toColumns([], "status", [])).toEqual([]);
+    expect(toColumns([], "status", [], ALL)).toEqual([]);
+  });
+});
+
+/**
+ * `showClosed` on the board governs the columns, not the cards.
+ *
+ * The list reads the same flag as "hide closed rows". The board cannot: it
+ * draws a column per status from the list definition, so with the old reading
+ * it drew an empty "done" column that the very same flag emptied again. A card
+ * dropped there was written, closed, and then filtered out from under the
+ * pointer — which reads as the app losing the task rather than finishing it.
+ *
+ * So the rule is: a column is drawn or it is not, and whatever is in a drawn
+ * column stays in it. `statusShown` in lib/view.ts is the other half, and the
+ * two are the same predicate so the sets cannot disagree.
+ */
+describe("closed columns", () => {
+  const OPEN_ROWS = [task("a", "todo"), task("d", "in progress")];
+
+  test("a closed status is not a column when closed tasks are hidden", () => {
+    const columns = toColumns(groupTasks(OPEN_ROWS, "status"), "status", STATUSES, OPEN_ONLY);
+    expect(columns.map((column) => column.label)).toEqual(["todo", "in progress", "in review"]);
+  });
+
+  test("and is one when they are shown", () => {
+    const columns = toColumns(groupTasks(OPEN_ROWS, "status"), "status", STATUSES, ALL);
+    expect(columns.map((column) => column.label)).toEqual([
+      "todo",
+      "in progress",
+      "in review",
+      "done",
+    ]);
+  });
+
+  test("a card in a drawn closed column stays in it", () => {
+    // What a drop produces: the task is closed now, and its column is on screen.
+    const columns = toColumns(
+      groupTasks([...OPEN_ROWS, task("b", "done")], "status"),
+      "status",
+      STATUSES,
+      ALL,
+    );
+    const done = columns.find((column) => column.label === "done");
+    expect(done?.tasks.map((row) => row.id)).toEqual(["b"]);
+    expect(done?.status?.status).toBe("done");
+  });
+
+  test("no closed column means nothing to drop into", () => {
+    const columns = toColumns(groupTasks(OPEN_ROWS, "status"), "status", STATUSES, OPEN_ONLY);
+    expect(columns.some((column) => column.status?.type === "done")).toBe(false);
   });
 });
 

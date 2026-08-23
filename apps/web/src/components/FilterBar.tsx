@@ -1,133 +1,265 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { batch, createEffect, createSignal, For, type JSX, on, Show } from "solid-js";
+import {
+  applyChoice,
+  choicesFor,
+  describeClause,
+  fieldsFor,
+  isChosen,
+  type Lookup,
+  type OptionSources,
+} from "../lib/filter-menu.ts";
+import {
+  type Clause,
+  CUSTOM_FIELD_PREFIX,
+  findClause,
+  isCustomField,
+  negate,
+  removeClause,
+  setClause,
+} from "../lib/filters.ts";
 import { setUi, ui } from "../lib/ui.ts";
-import { facets } from "../lib/view.ts";
-import { Menu, type MenuItem } from "./Menu.tsx";
-import { StatusIcon } from "./StatusIcon.tsx";
-
-type Facet = "status" | "assignee" | "tag";
+import {
+  filterFields,
+  filterOptions,
+  filterRequest,
+  loadFilterFields,
+  viewListId,
+} from "../lib/view.ts";
+import { FilterMenu } from "./FilterMenu.tsx";
 
 /**
- * Status, assignee and tag filters.
+ * The filter, as a row of chips plus one way to add another.
  *
- * A facet with nothing to choose from is hidden rather than shown empty: on a
- * list where nobody uses tags, a permanently disabled Tag button is furniture.
+ * This used to be three buttons holding one value each — status, assignee, tag
+ * — so "assigned to either of us" and "not tagged template" were both
+ * unsayable. A chip is a clause now: a field, an operator and a set of values,
+ * in ClickUp's own vocabulary, and the row of them is the filter.
+ *
+ * Nothing here needs a mouse. `F` opens the builder, Enter toggles a value,
+ * Tab negates the clause, Backspace goes back a step, Escape clears. The chips
+ * are clickable because they are on screen anyway, not because they are the way
+ * in.
  */
 export function FilterBar(): JSX.Element {
-  const [open, setOpen] = createSignal<{ facet: Facet; anchor: { x: number; y: number } } | null>(
-    null,
-  );
+  const [open, setOpen] = createSignal<{
+    field: string | null;
+    anchor: { x: number; y: number };
+  } | null>(null);
 
-  const options = (facet: Facet): MenuItem[] => {
-    const data = facets();
-    if (facet === "status") {
-      return data.statuses.map((status) => ({
-        id: status.value,
-        label: status.value,
-        icon: <StatusIcon type={status.type} color={status.color} size={13} />,
-      }));
-    }
-    if (facet === "assignee") {
-      return data.assignees.map((user) => ({ id: user.value, label: user.label }));
-    }
-    return data.tags.map((tag) => ({ id: tag.value, label: tag.value }));
+  const sources = (): OptionSources => {
+    const data = filterOptions();
+    return {
+      statuses: data.statuses,
+      assignees: data.assignees,
+      tags: data.tags,
+      lists: data.lists,
+      customFields: filterFields().map((field) => ({
+        id: field.id,
+        name: field.name.trim(),
+        options: field.options,
+      })),
+    };
   };
 
-  const label = (facet: Facet): string | null => {
-    const value = ui.filters[facet];
-    if (!value) return null;
-    if (facet === "assignee") {
-      return facets().assignees.find((user) => user.value === value)?.label ?? value;
+  const fields = () =>
+    fieldsFor({
+      // Only worth offering where rows can come from more than one list.
+      crossList: viewListId() === null,
+      customFields: filterFields().map((field) => ({ id: field.id, name: field.name.trim() })),
+    });
+
+  /**
+   * Ids are not words. This turns one into the thing it names.
+   *
+   * `value` is null when the caller wants the field's own name, which only a
+   * Custom Field needs — every other field's name is a constant.
+   */
+  const lookup: Lookup = (field, value) => {
+    const custom = isCustomField(field)
+      ? filterFields().find((entry) => entry.id === field.slice(CUSTOM_FIELD_PREFIX.length))
+      : undefined;
+
+    if (value === null) return custom?.name.trim() ?? "Field";
+    if (custom) return custom.options.find((option) => option.value === value)?.label ?? value;
+    if (field === "assignee") {
+      return filterOptions().assignees.find((option) => option.value === value)?.label ?? value;
+    }
+    if (field === "list") {
+      return filterOptions().lists.find((option) => option.value === value)?.label ?? value;
     }
     return value;
   };
 
+  /** The field being edited, or null while one is still being chosen. */
+  const openField = () => open()?.field ?? null;
+  const anchorOf = () => open()?.anchor ?? { x: 0, y: 0 };
+
+  const current = () => {
+    const field = openField();
+    return field ? findClause(ui.filters, field) : undefined;
+  };
+
+  const partial = () => {
+    const field = openField();
+    const flags = filterOptions().partial;
+    if (field === "status") return flags.status;
+    if (field === "tag") return flags.tag;
+    if (field === "assignee") return flags.assignee;
+    return false;
+  };
+
+  /*
+   * Both writes in one batch, or the popover opens and shuts in the same tick.
+   *
+   * `open` and `ui.menu` say the same thing to two different audiences — this
+   * component and the shell's keyboard layer — and the effect below keeps them
+   * in step. Written one after the other outside a batch, Solid flushes that
+   * effect between them: it sees an open popover and a `ui.menu` that has not
+   * caught up yet, and closes what was just opened. Opening from `F` hid it,
+   * because a write inside an effect is already batched.
+   */
+  const openAt = (field: string | null, anchor: { x: number; y: number }) => {
+    loadFilterFields();
+    batch(() => {
+      setOpen({ field, anchor });
+      setUi("menu", "filter");
+    });
+  };
+
+  const close = () =>
+    batch(() => {
+      setOpen(null);
+      setUi("menu", null);
+    });
+
+  // The shell closes every overlay at once — Escape, ⌘K, opening a task — and
+  // says so by clearing `ui.menu`. This popover has to hear that, or it stays
+  // on screen with nothing left that thinks it is open.
+  createEffect(() => {
+    if (ui.menu !== "filter" && open()) setOpen(null);
+  });
+
+  // `F` from the shell. The button is the anchor, so the popover lands where a
+  // click would have put it and the keyboard and the mouse agree.
+  let addButton: HTMLButtonElement | undefined;
+  createEffect(
+    on(filterRequest, (count) => {
+      if (count === 0) return;
+      const rect = addButton?.getBoundingClientRect();
+      openAt(null, { x: rect?.left ?? 200, y: (rect?.bottom ?? 40) + 6 });
+    }),
+  );
+
   return (
     <>
-      <For each={["status", "assignee", "tag"] as Facet[]}>
-        {(facet) => (
-          <Show when={options(facet).length > 1 || ui.filters[facet]}>
-            <FacetButton
-              facet={facet}
-              value={label(facet)}
-              onOpen={(anchor) => setOpen({ facet, anchor })}
-              onClear={() => setUi("filters", facet, null)}
+      <div class="flex min-w-0 items-center gap-1">
+        <For each={ui.filters}>
+          {(clause) => (
+            <Chip
+              label={describeClause(clause, lookup)}
+              onOpen={(anchor) => openAt(clause.field, anchor)}
+              onClear={() => setUi("filters", removeClause(ui.filters, clause.field))}
             />
-          </Show>
-        )}
-      </For>
+          )}
+        </For>
 
+        <button
+          ref={addButton}
+          type="button"
+          aria-label="Add a filter"
+          title="F"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            openAt(null, { x: rect.left, y: rect.bottom + 6 });
+          }}
+          class="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-ink-4 text-xs transition-colors hover:bg-hover hover:text-ink-2"
+        >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M2.5 4h11l-4.2 5v3.6L6.7 14V9L2.5 4Z"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <Show when={ui.filters.length === 0}>Filter</Show>
+        </button>
+      </div>
+
+      {/*
+        Deliberately not `<Show when={open()}>{(state) => …}`.
+
+        That form hands the child a keyed accessor which throws the moment it is
+        read after the popover has closed — and every callback below reads the
+        open state, including the one that closes it. Solid treats the throw as
+        an error inside the owner and tears the whole subtree's reactivity down,
+        which looks like a menu that has stopped responding to anything:
+        typing no longer filters, Escape no longer closes, and the only clue is
+        one line in the console. Reading `open()` directly costs nothing and
+        cannot go stale.
+      */}
       <Show when={open()}>
-        {(current) => (
-          <Menu
-            items={options(current().facet)}
-            anchor={current().anchor}
-            placeholder={`Filter by ${current().facet}…`}
-            onSelect={(id) => {
-              setUi("filters", current().facet, id);
-              setOpen(null);
-            }}
-            onClose={() => setOpen(null)}
-          />
-        )}
+        <FilterMenu
+          anchor={open()?.anchor ?? { x: 0, y: 0 }}
+          field={open()?.field ?? null}
+          fields={fields()}
+          choices={openField() ? choicesFor(openField() ?? "", sources()) : []}
+          clause={current()}
+          partial={partial()}
+          chosen={(value) => isChosen(current(), openField() ?? "", value)}
+          onPickField={(field) => setOpen({ anchor: anchorOf(), field })}
+          onBack={() => setOpen({ anchor: anchorOf(), field: null })}
+          onToggle={(value) => {
+            const field = openField();
+            if (!field) return;
+            setUi("filters", setClause(ui.filters, applyChoice(current(), field, value)));
+          }}
+          onNegate={() => {
+            const field = openField();
+            if (!field) return;
+            const base: Clause = current() ?? { field, op: "ANY", values: [] };
+            setUi("filters", setClause(ui.filters, { ...base, op: negate(base.op) }));
+          }}
+          onClose={close}
+        />
       </Show>
     </>
   );
 }
 
-function FacetButton(props: {
-  facet: Facet;
-  value: string | null;
+function Chip(props: {
+  label: string;
   onOpen: (anchor: { x: number; y: number }) => void;
   onClear: () => void;
 }): JSX.Element {
   return (
-    <div
-      class="flex h-[22px] items-center rounded-[5px] transition-colors"
-      classList={{
-        "bg-accent-soft text-ink": Boolean(props.value),
-        "text-ink-4 hover:bg-hover hover:text-ink-2": !props.value,
-      }}
-    >
+    <div class="flex h-[22px] min-w-0 items-center rounded-[5px] bg-accent-soft text-ink">
       <button
         type="button"
-        aria-label={`Filter by ${props.facet}`}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           props.onOpen({ x: rect.left, y: rect.bottom + 6 });
         }}
-        class="flex h-full items-center gap-1 truncate px-1.5 text-xs capitalize"
+        class="flex h-full min-w-0 items-center truncate px-1.5 text-xs"
       >
-        {props.value ?? props.facet}
-        <Show when={!props.value}>
-          <svg width="9" height="9" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="m4 6.5 4 4 4-4"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </Show>
+        <span class="truncate">{props.label}</span>
       </button>
 
-      <Show when={props.value}>
-        <button
-          type="button"
-          aria-label={`Clear ${props.facet} filter`}
-          onClick={props.onClear}
-          class="flex h-full w-4 items-center justify-center text-ink-3 hover:text-ink"
-        >
-          <svg width="9" height="9" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="m4 4 8 8M12 4l-8 8"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </svg>
-        </button>
-      </Show>
+      <button
+        type="button"
+        aria-label={`Remove ${props.label}`}
+        onClick={props.onClear}
+        class="flex h-full w-4 shrink-0 items-center justify-center text-ink-3 hover:text-ink"
+      >
+        <svg width="9" height="9" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="m4 4 8 8M12 4l-8 8"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
     </div>
   );
 }

@@ -37,21 +37,36 @@ test("changes a task's status from the list and persists it", async ({ page }) =
   await expect(detail.getByLabel("Status: in review")).toBeVisible();
 });
 
-test("filters the list by status", async ({ page }) => {
+/**
+ * A filter is a clause now, and it is applied by Postgres rather than by the
+ * browser over whatever happened to load. Two values in one clause is the part
+ * worth covering: it is what the three single-value facet buttons this replaces
+ * could not say at all.
+ */
+test("filters the list by two statuses at once", async ({ page }) => {
   await page.goto("/__dev-login");
   await page.goto("/list/L1");
 
   const list = page.getByRole("listbox", { name: "Tasks" });
   await expect(list.getByRole("option").first()).toBeVisible();
 
-  await page.getByLabel("Filter by status").click();
-  // Closed and done tasks are excluded from the query, so they are not offered
-  // as facet values either. Pick one that is actually in the view.
-  await page.getByRole("option", { name: "in progress" }).click();
+  const menu = page.locator("[data-menu]");
+  await page.getByLabel("Add a filter").click();
+  await menu.getByRole("option", { name: "Status" }).click();
+  // The options come from the list's own status set, not from the rows on
+  // screen, so a status nobody in the first page is in is still offered.
+  await menu.getByRole("option", { name: "in progress", exact: true }).click();
+  await menu.getByRole("option", { name: "in review", exact: true }).click();
+  await page.keyboard.press("Escape");
 
-  await expect(page.getByRole("button", { name: "Clear status filter" })).toBeVisible();
-  await expect(list.getByText("in progress", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /^Remove Status/ })).toBeVisible();
   await expect(list.getByText("todo", { exact: true })).toHaveCount(0);
+  const kept = await list.getByRole("option").count();
+  expect(kept).toBeGreaterThan(0);
+
+  // Escape with nothing else open is the way out, and it takes the clause with it.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: /^Remove Status/ })).toHaveCount(0);
 });
 
 test("creates a task from the quick add dialog", async ({ page }) => {
@@ -72,6 +87,6 @@ test("creates a task from the quick add dialog", async ({ page }) => {
   // The new task lands in the list's first status group, which may be below the
   // fold in a 140-row list. Search for it rather than assuming it is on screen.
   await page.keyboard.press("/");
-  await page.getByPlaceholder("Filter tasks…").fill(title);
+  await page.getByPlaceholder(/^Search name/).fill(title);
   await expect(page.getByText(title)).toBeVisible();
 });

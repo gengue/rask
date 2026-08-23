@@ -90,6 +90,18 @@ const jsonText = <T>(name: string) =>
     fromDriver: (value) => (value === null ? null : JSON.parse(value)) as T,
   })(name);
 
+/**
+ * A Postgres `tsvector`, written by the database and never by us.
+ *
+ * Only ever generated, so there is no `toDriver`: nothing binds a value to a
+ * column Postgres computes. Reads come back as the text rendering of the
+ * vector, which nothing looks at — the column exists to be matched against with
+ * `@@`, not to be selected.
+ */
+const tsvector = customType<{ data: string; driverData: string }>({
+  dataType: () => "tsvector",
+});
+
 /** Local-clock timestamp column. ClickUp sends epoch ms; the client converts. */
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
@@ -220,8 +232,14 @@ export const lists = pgTable(
  *  - `publicUrl` is only ever set on a form, and is the only address at which a
  *    form can be opened. Every other type is addressed by id.
  *
- * The day Rask filters locally — offline, or a facet that has to survive the
- * 500-row cap — this grows a `filters` jsonb column and a migration.
+ * That day came for Rask's own filters and this column did not grow, which is
+ * worth writing down because the comment above predicted otherwise. A facet
+ * that has to survive the 500-row cap is now pushed into SQL over the mirror
+ * (`apps/api/src/filters.ts`) using the same `{field, op, values}` vocabulary
+ * ClickUp writes its view filters in. What did not change is who evaluates a
+ * *view's* filters: still ClickUp, through `GET /view/{id}/task`. Sharing a
+ * vocabulary is not the same as owning the rules, and mirroring rules nobody
+ * here runs would still be a second copy of ClickUp's filter engine.
  */
 export const listViews = pgTable(
   "list_views",
@@ -291,6 +309,31 @@ export const tasks = pgTable(
     points: real("points"),
     url: text("url"),
 
+    /**
+     * The description, tokenised, for search.
+     *
+     * Generated and stored rather than computed by an expression index, which
+     * is a 23MB column on the 147,000-task mirror and buys the worst case
+     * rather than the common one. Both forms let a GIN index answer
+     * `description @@ query`; the difference is what happens when the planner
+     * decides not to use it. `ORDER BY date_updated DESC LIMIT 12` over a
+     * two-word query is such a case — it walks the date index expecting to fill
+     * the limit early — and with an expression index every row it walks pays
+     * for a `to_tsvector` over a description that can be 31kB. Measured on the
+     * mirror: 93ms as an expression index, 5.5ms as a stored column.
+     *
+     * `simple`, not `english`: the workspace writes tasks in Spanish, German
+     * and English, and an English stemmer applied to Spanish is not a
+     * translation, it is damage. `simple` also keeps stop words, which is what
+     * makes "the" findable in a title that is a quotation.
+     *
+     * The name is indexed by trigram instead and is deliberately not in here —
+     * see `tasks_name_trgm_idx`.
+     */
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      sql`to_tsvector('simple', coalesce(description, ''))`,
+    ),
+
     syncedAt: ts("synced_at").notNull().defaultNow(),
     /** Set when ClickUp reports the task gone. Rows are kept so open tabs can reconcile. */
     deletedAt: ts("deleted_at"),
@@ -306,6 +349,45 @@ export const tasks = pgTable(
     index("tasks_parent_idx").on(t.parentId),
     // Tag filtering is `tags @> '[{"name":"..."}]'`, which needs jsonb_path_ops.
     index("tasks_tags_idx").using("gin", sql`${t.tags} jsonb_path_ops`),
+
+    /**
+     * The list view, exactly.
+     *
+     * Partial on the rows a view can show, because hiding closed tasks
+     * otherwise defeats the due-date index and walks the table: the query was
+     * 40.6ms with "Rows Removed by Filter: 54,246" before this existed and
+     * 0.15ms after. Being partial it is also 1.2MB rather than the 2.5MB the
+     * same three columns cost over every row.
+     *
+     * The predicate has to be written out rather than referenced because
+     * Postgres matches a partial index by proving the query's WHERE implies the
+     * index's; `listTasks` emits these three conditions verbatim for that
+     * reason.
+     */
+    index("tasks_open_by_list_v2_idx")
+      .on(t.listId, t.dueDate, t.dateUpdated.desc())
+      .where(
+        sql`deleted_at is null and archived = false and (status_type is null or status_type <> all (array['closed', 'done']))`,
+      ),
+
+    /**
+     * Substring search on the two short identifying columns.
+     *
+     * Trigram rather than full text, and the split is the point: a name is a
+     * handful of words where somebody types the middle of one ("auth" for
+     * "reauthorize"), and a custom id is a token where they type the number
+     * without the prefix. Neither is prose, and word-boundary matching answers
+     * the wrong question on both. Descriptions are prose, and get `tsvector`.
+     *
+     * Both columns need one. With only `name` indexed the OR falls back to a
+     * scan and a miss gets slower than it was with no index at all: 38ms for a
+     * hit and 51ms for a miss before, everything measured under 1.5ms after.
+     */
+    index("tasks_name_trgm_idx").using("gin", sql`${t.name} gin_trgm_ops`),
+    index("tasks_custom_id_trgm_idx").using("gin", sql`${t.customId} gin_trgm_ops`),
+
+    /** Description search. See `searchVector` for why the column is stored. */
+    index("tasks_search_idx").using("gin", t.searchVector),
   ],
 );
 

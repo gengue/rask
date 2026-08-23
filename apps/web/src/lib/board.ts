@@ -4,7 +4,7 @@ import { globalMemo } from "./global-memo.ts";
 import type { FlatItem } from "./grouping.ts";
 import { tasks } from "./store.ts";
 import { type GroupBy, setUi, ui } from "./ui.ts";
-import { flatItems, rowTasks, viewListId } from "./view.ts";
+import { flatItems, rowTasks, statusShown, viewListId, viewStatuses } from "./view.ts";
 
 /**
  * The board, as data.
@@ -41,13 +41,14 @@ export interface BoardColumn {
   offset: number;
 }
 
-/** The current list's statuses, or empty in a view that spans several lists. */
-export const [boardStatuses, setBoardStatuses] = createSignal<StatusDef[]>([]);
-
 /** The card being dragged, so every column can dim and light up as it passes. */
 export const [draggingId, setDraggingId] = createSignal<string | null>(null);
 
-export const boardColumns = globalMemo(() => toColumns(flatItems(), ui.groupBy, boardStatuses()));
+export const boardColumns = globalMemo(() =>
+  toColumns(flatItems(), ui.groupBy, viewStatuses(), (def) =>
+    statusShown(def.status, def.type ?? null),
+  ),
+);
 
 /**
  * Whether a card can be moved between columns at all.
@@ -67,6 +68,8 @@ export function toColumns(
   items: FlatItem[],
   groupBy: GroupBy,
   statuses: StatusDef[],
+  /** Whether a status gets a column. The same rule the rows are filtered by. */
+  shown: (def: StatusDef) => boolean,
 ): BoardColumn[] {
   const columns: BoardColumn[] = [];
   let row = 0;
@@ -103,7 +106,7 @@ export function toColumns(
     row++;
   }
 
-  return groupBy === "status" ? asStatusColumns(columns, statuses) : columns;
+  return groupBy === "status" ? asStatusColumns(columns, statuses, shown) : columns;
 }
 
 /**
@@ -115,8 +118,23 @@ export function toColumns(
  * A group whose tasks have no status at all is the "No status" column and stays
  * unwritable.
  */
-function asStatusColumns(columns: BoardColumn[], statuses: StatusDef[]): BoardColumn[] {
-  const defs = [...statuses].sort((a, b) => (a.orderindex ?? 0) - (b.orderindex ?? 0));
+function asStatusColumns(
+  columns: BoardColumn[],
+  statuses: StatusDef[],
+  shown: (def: StatusDef) => boolean,
+): BoardColumn[] {
+  /*
+   * A column is drawn or it is not, and the same predicate decides which rows
+   * survive it — see `statusShown` in lib/view.ts.
+   *
+   * Drawing an empty "done" column while the same rule removes every task that
+   * lands in it is a trap: the drop succeeds, the write succeeds, and the card
+   * disappears, which reads as the app losing the task rather than as finishing
+   * it. Either the column is here and what lands in it stays, or it is not here
+   * and there was nothing to drop into.
+   */
+  const visible = statuses.filter(shown);
+  const defs = [...visible].sort((a, b) => (a.orderindex ?? 0) - (b.orderindex ?? 0));
   const byName = new Map(defs.map((def) => [def.status.toLowerCase(), def]));
 
   const known = columns.map((column) => {

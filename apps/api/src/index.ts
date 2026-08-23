@@ -19,10 +19,12 @@ import { z } from "zod";
 import { authRoutes, currentUser, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
+import { fieldIdsIn, parseFilter } from "./filters.ts";
 import {
   findListView,
   getHierarchy,
   getTaskDetail,
+  listFilterFields,
   listMembers,
   listTasks,
   listViewsFor,
@@ -165,6 +167,15 @@ const taskFilters = z.object({
   status: z.string().optional(),
   tag: z.string().optional(),
   closed: z.enum(["0", "1"]).optional(),
+  /**
+   * The user's filter, as JSON: `[{field, op, values}, ...]`.
+   *
+   * JSON in a query parameter rather than a flat encoding of its own, because
+   * this is exactly the shape ClickUp writes a view's filters in and inventing
+   * a second spelling of it would mean two parsers and one of them being wrong.
+   * `parseFilter` rejects a field it does not know rather than ignoring it.
+   */
+  filter: z.string().max(8000).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
 
@@ -173,6 +184,13 @@ api.get("/tasks", async (c) => {
   if (!query.success) return c.json({ error: z.prettifyError(query.error) }, 400);
   const f = query.data;
 
+  let clauses: ReturnType<typeof parseFilter>;
+  try {
+    clauses = parseFilter(f.filter);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "bad filter" }, 400);
+  }
+
   const limit = f.limit ?? 500;
   const rows = await listTasks(db, {
     listId: f.list,
@@ -180,6 +198,8 @@ api.get("/tasks", async (c) => {
     assigneeId: f.assignee === "me" ? c.get("user").id : f.assignee,
     statuses: f.status ? f.status.split(",") : undefined,
     tag: f.tag,
+    clauses,
+    fieldIds: fieldIdsIn(clauses),
     includeClosed: f.closed === "1",
     limit,
   });
@@ -199,6 +219,17 @@ api.get("/tasks", async (c) => {
 });
 
 api.get("/lists/:id/statuses", async (c) => c.json(await statusesForList(db, c.req.param("id"))));
+
+/**
+ * The Custom Fields of one List that a filter can name.
+ *
+ * Its own route rather than part of the list payload: the filter menu is the
+ * only thing that wants it, it is opened by a fraction of the people who open a
+ * list, and the answer is the same for everyone looking at that list.
+ */
+api.get("/lists/:id/filter-fields", async (c) =>
+  c.json(await listFilterFields(db, c.req.param("id"))),
+);
 
 /**
  * The tabs above a List.
@@ -246,6 +277,22 @@ api.get("/views/:id/tasks", async (c) => {
   const view = await findListView(db, c.req.param("id"));
   if (!view) return c.json({ error: "not found" }, 404);
 
+  /*
+   * The filter is read for one thing only: which Custom Field values to send.
+   *
+   * Applying its clauses here would shrink the membership set the browser keeps
+   * for this view, so clearing a filter would mean asking ClickUp for the view
+   * again — 1.8s a page — rather than showing rows already in hand. The rows
+   * come back whole and the browser narrows them, which is also what the whole
+   * ≤500-row set already allows it to do honestly.
+   */
+  let fieldIds: string[] = [];
+  try {
+    fieldIds = fieldIdsIn(parseFilter(c.req.query("filter")));
+  } catch {
+    return c.json({ error: "bad filter" }, 400);
+  }
+
   const client = await clientFor(c.get("user").id);
   if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
@@ -274,6 +321,7 @@ api.get("/views/:id/tasks", async (c) => {
   // and filtering again here would drop rows the view deliberately keeps.
   const rows = await listTasks(db, {
     taskIds: page.tasks.map((task) => task.id),
+    fieldIds,
     includeClosed: true,
     limit: VIEW_TASK_LIMIT,
   });
