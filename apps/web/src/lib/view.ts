@@ -1,7 +1,17 @@
-import { createSignal } from "solid-js";
-import type { Task } from "./api.ts";
+import { createEffect, createRoot, createSignal, onCleanup } from "solid-js";
+import { api, type FilterField, type StatusDef, type Tag, type Task } from "./api.ts";
+import {
+  type Clause,
+  isCustomField,
+  matchesTask,
+  namedStatuses,
+  needsClosed,
+  statusVisible,
+  toWire,
+} from "./filters.ts";
 import { globalMemo } from "./global-memo.ts";
 import { type FlatItem, groupTasks } from "./grouping.ts";
+import { members, spaces } from "./session.ts";
 import { ui } from "./ui.ts";
 
 /**
@@ -24,70 +34,352 @@ export const [viewTruncated, setViewTruncated] = createSignal(false);
  */
 export const [viewLoading, setViewLoading] = createSignal(true);
 
-/** Search, facet filters and grouping, shared by the list and the keyboard. */
+// --- the filter -------------------------------------------------------------
+
+/**
+ * The filter as the browser evaluates it: the clauses plus the search box.
+ *
+ * `/` is a clause here rather than a second mechanism. It used to be a
+ * substring match over the rows already loaded while ⌘K searched the whole
+ * workspace, which meant the same keystrokes answered two different questions
+ * depending on which one you happened to press. They are still two entry
+ * points, because "narrow what I am looking at" and "find that thing anywhere"
+ * are different intents, but they are now the same search: one matcher on the
+ * server over name, custom id and description, scoped to this view for `/` and
+ * to the workspace for ⌘K.
+ */
+export const activeClauses = globalMemo<Clause[]>(() => {
+  const text = ui.search.trim();
+  if (!text) return [...ui.filters];
+  return [...ui.filters, { field: "search", op: "EQ", values: [text] }];
+});
+
+/**
+ * The search box, one keystroke behind.
+ *
+ * The clauses go to the server, and a request per character typed is what a
+ * debounce is for. 140ms is the interval the command palette already uses for
+ * the same reason, and matching it means both searches feel the same.
+ *
+ * The undebounced text still narrows the rows already on screen through
+ * `activeClauses`, so typing looks immediate and the server's wider answer
+ * arrives underneath it.
+ */
+const SEARCH_DEBOUNCE_MS = 140;
+
+const [settledSearch, setSettledSearch] = createSignal("");
+
+createRoot(() => {
+  createEffect(() => {
+    const text = ui.search.trim();
+    if (text === settledSearch()) return;
+    const timer = setTimeout(() => setSettledSearch(text), SEARCH_DEBOUNCE_MS);
+    onCleanup(() => clearTimeout(timer));
+  });
+});
+
+/**
+ * The filter as the API wants it, or an empty string when there is none.
+ *
+ * Routes read this and refetch when it changes. Date buckets are resolved to
+ * instants here, against this browser's clock, because "due this week" is a
+ * question about the calendar on the wall behind the person asking and the
+ * server has no way to see it.
+ */
+export const serverFilter = globalMemo(() => {
+  const text = settledSearch();
+  const clauses = text
+    ? [...ui.filters, { field: "search", op: "EQ" as const, values: [text] }]
+    : [...ui.filters];
+  if (clauses.length === 0) return "";
+  return JSON.stringify(toWire(clauses, new Date()));
+});
+
+/**
+ * The Custom Field ids the filter names, as a stable key.
+ *
+ * A saved view re-reads its rows when this changes and at no other time; see
+ * the effect in `routes.tsx`.
+ */
+export const filterFieldIds = globalMemo(() =>
+  ui.filters
+    .filter((clause) => isCustomField(clause.field))
+    .map((clause) => clause.field)
+    .sort()
+    .join(","),
+);
+
+/** Whether the query has to ask for closed rows. See `needsClosed`. */
+export const includeClosed = globalMemo(() => needsClosed(ui.filters, ui.showClosed));
+
+/** `statusVisible` against the filter on screen. The rule itself is in filters.ts. */
+export function statusShown(status: string | null, statusType: string | null | undefined): boolean {
+  return statusVisible(status, statusType, ui.showClosed, namedStatuses(ui.filters));
+}
+
+/**
+ * The rows the last filtered fetch returned, or null when there was no filter.
+ *
+ * The task collection is additive: it keeps every row any view has ever loaded.
+ * That is what makes navigating back instant, and it is also why a filter
+ * cannot be evaluated over it alone. On the Bugs list, 500 unfiltered rows plus
+ * 500 filtered ones made the header count go *up* when a filter was added —
+ * honest about what was on screen and a lie about what filtering does.
+ *
+ * So a filtered view shows what the server answered, narrowed further by the
+ * clauses evaluated here. The narrowing is what keeps an edit immediate: change
+ * a status under the cursor and the row leaves before the write is even sent,
+ * without the set widening to rows the server excluded.
+ *
+ * Null with no filter, which is exactly the behaviour that was there before:
+ * everything loaded for this view, including rows SSE brought in since.
+ */
+export const [viewMembership, setViewMembership] = createSignal<ReadonlySet<string> | null>(null);
+
+/**
+ * Where `/` can look.
+ *
+ * `server` on a list and on My Tasks: the clauses go into the query, so the
+ * text is matched against name, custom id and description over every row in the
+ * list rather than the page of it that happens to be loaded.
+ *
+ * `loaded` on a saved ClickUp view, where the rows are a set ClickUp computed
+ * and re-asking it costs 1.8s a page. There the text narrows what is already in
+ * hand, by name and custom id, because a row does not carry its description.
+ * The placeholder in the header says which of the two you are getting.
+ */
+export const [searchScope, setSearchScope] = createSignal<"server" | "loaded">("server");
+
+/**
+ * The clauses the browser evaluates, which is not always all of them.
+ *
+ * The text clause is the exception, and it is the one that has to be got right:
+ * a row carries no description, so matching text here can only ever look at its
+ * name. Where the server applied the same text — over the description too —
+ * re-applying the name-only half would hide exactly the rows the search was
+ * for. Every other clause is answerable from the row and stays local, which is
+ * what makes a status change under the cursor take effect without a round trip.
+ */
+const localClauses = globalMemo(() =>
+  searchScope() === "loaded"
+    ? activeClauses()
+    : activeClauses().filter((clause) => clause.field !== "search"),
+);
+
+/** Search, filter clauses and grouping, shared by the list, the board and the keyboard. */
 export const flatItems = globalMemo(() => {
-  const query = ui.search.trim().toLowerCase();
-  const { status, assignee, tag } = ui.filters;
+  const clauses = localClauses();
+  const member = viewMembership();
+  const now = new Date();
 
   const filtered = viewTasks().filter((task) => {
     // The collection is additive on purpose, so turning "show closed" back off
     // has to filter here. Without this, closed tasks load once and never leave.
-    if (!ui.showClosed && (task.statusType === "closed" || task.statusType === "done")) {
-      return false;
-    }
-    if (status && task.status !== status) return false;
-    if (assignee && !task.assignees.some((user) => user.id === assignee)) return false;
-    if (tag && !task.tags.some((t) => t.name === tag)) return false;
-    if (!query) return true;
-    return (
-      task.name.toLowerCase().includes(query) ||
-      (task.customId?.toLowerCase().includes(query) ?? false)
-    );
+    if (!statusShown(task.status, task.statusType)) return false;
+    // A row this browser created a moment ago cannot be in the server's answer:
+    // it did not exist when the question was asked. Dropping it would make
+    // creating a task under a filter look like the create had failed.
+    if (member && !member.has(task.id) && !task.id.startsWith("tmp_")) return false;
+    return matchesTask(task, clauses, now);
   });
 
   return groupTasks(filtered, ui.groupBy);
 });
 
-/** Facet values present in the current view. Filtering by a value with no rows
- *  is never useful, so the options come from the data rather than a config. */
-export const facets = globalMemo(() => {
-  const statuses = new Map<string, { value: string; color: string | null; type: string | null }>();
-  const assignees = new Map<string, { value: string; label: string }>();
-  const tags = new Map<string, { value: string; color: string | null }>();
+// --- what a filter can be built out of --------------------------------------
 
-  for (const task of viewTasks()) {
-    if (task.status && !statuses.has(task.status)) {
-      statuses.set(task.status, {
-        value: task.status,
-        color: task.statusColor,
-        type: task.statusType,
-      });
+/**
+ * The statuses of the list on screen, from its definition rather than its rows.
+ *
+ * This is the difference between a status menu that offers what the workspace
+ * has and one that offers what happened to load. On the 5,696-task Bugs list a
+ * view holds 500 rows, and a facet built from those 500 is a menu that silently
+ * cannot name a status nobody in the first page is in.
+ *
+ * Empty for My Tasks and for any view spanning several lists, where there is no
+ * single status set to be authoritative about — `filterOptions` falls back to
+ * the rows there and says so.
+ */
+export const [viewStatuses, setViewStatuses] = createSignal<StatusDef[]>([]);
+
+/** The Space the current view belongs to, for its tag vocabulary. */
+export const viewSpaceId = globalMemo(() => viewTasks()[0]?.spaceId ?? null);
+
+const [spaceTags, setSpaceTags] = createSignal<Tag[]>([]);
+const [filterFields, setFilterFields] = createSignal<FilterField[]>([]);
+
+export { filterFields };
+
+createRoot(() => {
+  createEffect(() => {
+    const listId = viewListId();
+    setFilterFields([]);
+    if (!listId) {
+      setViewStatuses([]);
+      return;
     }
-    for (const user of task.assignees) {
-      if (!assignees.has(user.id)) {
-        assignees.set(user.id, { value: user.id, label: user.username ?? user.id });
-      }
+    let stale = false;
+    onCleanup(() => {
+      stale = true;
+    });
+    void api
+      .statuses(listId)
+      .then((defs) => !stale && setViewStatuses(defs))
+      .catch(() => !stale && setViewStatuses([]));
+  });
+
+  /*
+   * The Space's tags, which is every tag somebody could filter by rather than
+   * every tag that turned up in the rows. Straight from ClickUp through the
+   * API, like the tag picker on a task, because a tag nobody has used yet still
+   * exists and one request per Space beats another table to keep in sync.
+   */
+  createEffect(() => {
+    const spaceId = viewSpaceId();
+    if (!spaceId) {
+      setSpaceTags([]);
+      return;
     }
-    for (const tag of task.tags) {
-      if (!tags.has(tag.name)) tags.set(tag.name, { value: tag.name, color: tag.bg ?? null });
-    }
-  }
+    let stale = false;
+    onCleanup(() => {
+      stale = true;
+    });
+    void api
+      .spaceTags(spaceId)
+      .then((tags) => !stale && setSpaceTags(tags))
+      .catch(() => !stale && setSpaceTags([]));
+  });
+});
+
+/**
+ * Reads the list's Custom Fields, once per list, when something asks.
+ *
+ * Not loaded with the list: it costs 28.7ms on the Bugs list and only the
+ * filter menu wants it, which most people never open.
+ */
+let fieldsFor: string | null = null;
+
+export function loadFilterFields(): void {
+  const listId = viewListId();
+  if (!listId || fieldsFor === listId) return;
+  fieldsFor = listId;
+  void api
+    .filterFields(listId)
+    .then((fields) => viewListId() === listId && setFilterFields(fields))
+    .catch(() => setFilterFields([]));
+}
+
+export interface FacetOption {
+  value: string;
+  label: string;
+  color?: string | null;
+  statusType?: string | null;
+}
+
+/**
+ * What each facet can be filtered by, and whether that answer is complete.
+ *
+ * `partial` is the honest bit. Every source here is authoritative — the list's
+ * own status set, the Space's tags, the workspace directory, the sidebar tree —
+ * except when there is no single list to be authoritative about, and then the
+ * options come from the rows that happen to be loaded and the menu says so
+ * rather than presenting a truncated vocabulary as the whole one.
+ */
+export const filterOptions = globalMemo(() => {
+  const rows = viewTasks();
+
+  const defs = viewStatuses();
+  const statusesFromRows = defs.length === 0;
+  const statuses: FacetOption[] = statusesFromRows
+    ? uniqueBy(
+        rows.flatMap((task) =>
+          task.status
+            ? [
+                {
+                  value: task.status,
+                  label: task.status,
+                  color: task.statusColor,
+                  statusType: task.statusType,
+                },
+              ]
+            : [],
+        ),
+      )
+    : defs.map((def) => ({
+        value: def.status,
+        label: def.status,
+        color: def.color ?? null,
+        statusType: def.type ?? null,
+      }));
+
+  const known = spaceTags();
+  const tagsFromRows = known.length === 0;
+  const tags: FacetOption[] = tagsFromRows
+    ? uniqueBy(
+        rows.flatMap((task) =>
+          task.tags.map((tag) => ({ value: tag.name, label: tag.name, color: tag.bg ?? null })),
+        ),
+      )
+    : known.map((tag) => ({ value: tag.name, label: tag.name, color: tag.bg ?? null }));
+
+  const directory = members();
+  const assigneesFromRows = directory.length === 0;
+  const assignees: FacetOption[] = assigneesFromRows
+    ? uniqueBy(
+        rows.flatMap((task) =>
+          task.assignees.map((user) => ({ value: user.id, label: user.username ?? user.id })),
+        ),
+      )
+    : directory.map((user) => ({ value: user.id, label: user.username ?? user.id }));
+
+  const lists: FacetOption[] = spaces().flatMap((space) => [
+    ...space.lists.map((list) => ({ value: list.id, label: list.name })),
+    ...space.folders.flatMap((folder) =>
+      folder.lists.map((list) => ({ value: list.id, label: `${folder.name} / ${list.name}` })),
+    ),
+  ]);
 
   return {
-    statuses: [...statuses.values()],
-    assignees: [...assignees.values()].sort((a, b) => a.label.localeCompare(b.label)),
-    tags: [...tags.values()].sort((a, b) => a.value.localeCompare(b.value)),
+    statuses: statuses.sort(byLabel),
+    tags: tags.sort(byLabel),
+    assignees: assignees.sort(byLabel),
+    lists: lists.sort(byLabel),
+    partial: {
+      status: statusesFromRows,
+      tag: tagsFromRows,
+      assignee: assigneesFromRows,
+    },
   };
 });
 
+function byLabel(a: FacetOption, b: FacetOption): number {
+  return a.label.localeCompare(b.label);
+}
+
+function uniqueBy(options: FacetOption[]): FacetOption[] {
+  const seen = new Map<string, FacetOption>();
+  for (const option of options) if (!seen.has(option.value)) seen.set(option.value, option);
+  return [...seen.values()];
+}
+
 /** Tasks in display order, headers removed. The cursor indexes into this. */
 export const rowTasks = globalMemo(() =>
-  flatItems().flatMap((item) => (item.kind === "row" ? [item.task] : [])),
+  flatItems().flatMap((item: FlatItem) => (item.kind === "row" ? [item.task] : [])),
 );
 
 export function cursorTask(): Task | null {
   return rowTasks()[ui.cursor] ?? null;
 }
+
+/**
+ * A keystroke asking the filter bar to open its builder.
+ *
+ * A counter rather than a boolean: pressing `F` twice in a row is two requests
+ * and the second has to reopen the menu the first one left. The bar owns where
+ * the popover goes, because the popover hangs off a button only the bar knows
+ * the position of.
+ */
+export const [filterRequest, setFilterRequest] = createSignal(0);
 
 /**
  * A row asking the shell to open the status menu for it.

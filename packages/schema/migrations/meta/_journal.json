@@ -64,6 +64,13 @@
       "when": 1787446152449,
       "tag": "0008_list_views",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787451529737,
+      "tag": "0009_search_and_filter_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store";
+import type { Clause } from "./filters.ts";
 
 export type GroupBy = "status" | "due" | "assignee" | "priority" | "list" | "none";
 export type Layout = "list" | "board";
@@ -38,20 +39,28 @@ export const [ui, setUi] = createStore({
    */
   sidebarOpen: false,
   /** Set while a keystroke-driven menu is open, so j/k stop moving the cursor. */
-  menu: null as null | "status" | "assignee" | "priority",
+  menu: null as null | "status" | "assignee" | "priority" | "filter",
   /**
-   * Facet filters, applied client-side over the tasks already loaded.
+   * The filter, as a list of clauses.
    *
-   * ponytail: no round trip. A view holds at most a few hundred rows in memory
-   * and filtering them is a single pass, so narrowing by status is instant and
-   * cannot show a stale server answer. Push these into the query the day a view
-   * needs more rows than one request returns.
+   * The ponytail comment this replaces said no round trip: a view holds a few
+   * hundred rows, filtering them is one pass, and narrowing by status is
+   * instant. It was right about the cost and wrong about the answer, and it
+   * named its own expiry — "push these into the query the day a view needs more
+   * rows than one request returns". The Bugs list holds 5,696 tasks and a view
+   * loads 500 of them, so "filter by status" meant "filter by the statuses that
+   * happened to be in the first 500" and said nothing about it.
+   *
+   * So the clauses go to the server, which applies them over the whole list,
+   * and the browser evaluates the same clauses over the rows it holds. The
+   * round trip that comment was avoiding is 0.2-2ms on the mirror; what it
+   * bought was a filter that lied about how much it had seen.
+   *
+   * `search` — the text from `/` — is deliberately not in here. It lives in
+   * `search` below because an input field wants a plain string, and joins the
+   * clauses in `lib/view.ts` where the filter is assembled.
    */
-  filters: {
-    status: null as string | null,
-    assignee: null as string | null,
-    tag: null as string | null,
-  },
+  filters: [] as Clause[],
 });
 
 export function closeOverlays(): void {
@@ -59,9 +68,9 @@ export function closeOverlays(): void {
 }
 
 export function clearFilters(): void {
-  setUi("filters", { status: null, assignee: null, tag: null });
+  setUi("filters", []);
 }
 
 export function activeFilterCount(): number {
-  return Object.values(ui.filters).filter(Boolean).length;
+  return ui.filters.length;
 }

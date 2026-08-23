@@ -26,6 +26,8 @@ import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
   cursorTask,
   rowTasks,
+  searchScope,
+  setFilterRequest,
   setStatusRequest,
   statusRequest,
   viewListId,
@@ -147,7 +149,12 @@ export function AppShell(): JSX.Element {
     }
 
     if (event.key === "Escape") {
-      if (ui.palette || ui.quickAdd || ui.shortcuts || menu()) {
+      // `ui.menu` and not just `menu()`: the second is the shell's own status
+      // and priority popovers, the first is any keystroke-driven menu including
+      // the filter builder, which lives in the header. Without it, Escape out
+      // of a half-built clause fell through to the last branch and threw away
+      // every filter on screen.
+      if (ui.palette || ui.quickAdd || ui.shortcuts || ui.menu || menu()) {
         closeOverlays();
         closeMenu();
       } else if (ui.sidebarOpen) {
@@ -169,7 +176,7 @@ export function AppShell(): JSX.Element {
     }
 
     // Everything below is a bare key. Typing in a field always wins.
-    if (typing || ui.palette || ui.quickAdd || ui.shortcuts || menu()) return;
+    if (typing || ui.palette || ui.quickAdd || ui.shortcuts || ui.menu || menu()) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
 
     const key = event.key;
@@ -228,6 +235,12 @@ export function AppShell(): JSX.Element {
           event.preventDefault();
           setUi("taskExpanded", !ui.taskExpanded);
         }
+        break;
+      case "F":
+        // Shifted because `f` already expands the open task. Both are "f for
+        // …" and only one of them can have the bare key.
+        event.preventDefault();
+        setFilterRequest((count) => count + 1);
         break;
       case "?":
         event.preventDefault();
@@ -303,14 +316,21 @@ export function AppShell(): JSX.Element {
       run: () => setUi("groupBy", groupBy),
     })),
     {
-      id: "view:filter",
-      label: "Filter this view",
+      id: "view:search",
+      label: "Search this view",
       section: "View",
       hint: "/",
       run: () => {
         setSearching(true);
         queueMicrotask(() => searchInput?.focus());
       },
+    },
+    {
+      id: "view:filter",
+      label: "Add a filter",
+      section: "View",
+      hint: "F",
+      run: () => setFilterRequest((count) => count + 1),
     },
     {
       id: "view:clear-filters",
@@ -473,6 +493,9 @@ export function AppShell(): JSX.Element {
               </svg>
             </button>
 
+            {/* The chips stay on screen while the box is open. A filter you
+                cannot see is a filter you forget you set, and typing in `/` is
+                exactly when the row of clauses above the results matters. */}
             <Show
               when={searching()}
               fallback={
@@ -481,16 +504,17 @@ export function AppShell(): JSX.Element {
                     {viewTitle()}
                   </h1>
                   <span
-                    class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums"
-                    title={viewTruncated() ? "More tasks exist than were loaded" : undefined}
+                    class="shrink-0 rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums"
+                    title={
+                      viewTruncated()
+                        ? "More tasks match than were loaded"
+                        : "Tasks matching this filter"
+                    }
                   >
                     {rowTasks().length}
                     {viewTruncated() ? "+" : ""}
                   </span>
                   <div class="flex-1" />
-                  <FilterBar />
-                  <span class="h-3.5 w-px bg-line-strong" />
-                  <GroupPicker />
                 </>
               }
             >
@@ -521,8 +545,16 @@ export function AppShell(): JSX.Element {
                   }
                   event.stopPropagation();
                 }}
-                placeholder="Filter tasks…"
-                class="h-full flex-1 text-base"
+                /* Says what it reads, and the two answers are different. It
+                   used to match the loaded rows by name and nothing else, so a
+                   word that only appears in a description found nothing and
+                   looked like an answer. */
+                placeholder={
+                  searchScope() === "server"
+                    ? "Search name, id and description…"
+                    : "Search these results by name or id…"
+                }
+                class="h-full min-w-0 flex-1 text-base"
               />
               <button
                 type="button"
@@ -530,11 +562,15 @@ export function AppShell(): JSX.Element {
                   setSearching(false);
                   setUi("search", "");
                 }}
-                class="text-ink-4 text-xs hover:text-ink-2"
+                class="shrink-0 text-ink-4 text-xs hover:text-ink-2"
               >
                 esc
               </button>
             </Show>
+
+            <FilterBar />
+            <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+            <GroupPicker />
           </header>
 
           <Outlet />

@@ -25,8 +25,17 @@ const GROUPS: Array<{ title: string; items: Array<[keys: string[], label: string
       [["c"], "New task"],
       [["s"], "Change status"],
       [["p"], "Set priority"],
-      [["/"], "Filter this view"],
+      [["/"], "Search this view"],
+      [["F"], "Add a filter"],
       [["f"], "Expand the open task"],
+    ],
+  },
+  {
+    title: "In the filter menu",
+    items: [
+      [["↵"], "Add or remove a value"],
+      [["Tab"], '"is" or "is not"'],
+      [["⌫"], "Back to the field list"],
     ],
   },
   {

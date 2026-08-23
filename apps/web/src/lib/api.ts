@@ -50,6 +50,16 @@ export interface Task {
   deletedAt: string | null;
   archived: boolean;
   assignees: Assignee[];
+  /**
+   * Values of the Custom Fields the active filter names, keyed by field id and
+   * held as the raw JSON text the mirror stores — `"1"` for the second option
+   * of a drop-down, which is what ClickUp puts there.
+   *
+   * Null when the query asked for none, which is not the same as `{}`. A row
+   * carrying no values was never tested against a Custom Field clause, so
+   * `lib/filters.ts` fails it rather than letting it through a `NOT ANY`.
+   */
+  customValues?: Record<string, string> | null;
 }
 
 export interface Comment {
@@ -240,6 +250,22 @@ export interface TaskQuery {
   tag?: string;
   closed?: boolean;
   limit?: number;
+  /**
+   * The user's filter, already serialised by `lib/filters.ts`.
+   *
+   * Sent as a string rather than as clauses so this layer never has to know
+   * that a date bucket has to be resolved against the browser's clock before it
+   * crosses the wire.
+   */
+  filter?: string;
+}
+
+/** One Custom Field of a list that a filter can name, with its options. */
+export interface FilterField {
+  id: string;
+  name: string;
+  type: string;
+  options: Array<{ value: string; label: string; color: string | null }>;
 }
 
 export class ApiError extends Error {
@@ -315,9 +341,13 @@ export const api = {
     if (query.tag) params.set("tag", query.tag);
     if (query.closed) params.set("closed", "1");
     if (query.limit) params.set("limit", String(query.limit));
+    if (query.filter) params.set("filter", query.filter);
 
     return requestPage(`/api/tasks?${params}`);
   },
+
+  /** The Custom Fields of a list that a filter can name. Read when the menu opens. */
+  filterFields: (listId: string) => request<FilterField[]>(`/api/lists/${listId}/filter-fields`),
 
   /** The tabs above a list, in ClickUp's own order. */
   views: (listId: string) => request<ListView[]>(`/api/lists/${listId}/views`),
@@ -329,7 +359,10 @@ export const api = {
    * evaluate. That makes this the one read in the app that is not answered from
    * the mirror alone, and the one that fails when ClickUp is unreachable.
    */
-  viewTasks: (viewId: string) => requestPage(`/api/views/${viewId}/tasks`),
+  viewTasks: (viewId: string, filter = "") =>
+    requestPage(
+      `/api/views/${viewId}/tasks${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`,
+    ),
 
   task: (id: string) => request<TaskDetail>(`/api/tasks/${id}`),
 

@@ -35,12 +35,17 @@ import {
 } from "./lib/clickup-views.ts";
 import { useLiveTasks } from "./lib/live.ts";
 import { listName, me } from "./lib/session.ts";
-import { load, loadViewTasks } from "./lib/store.ts";
+import { load, loadViewTasks, type TaskPageResult } from "./lib/store.ts";
 import { ui } from "./lib/ui.ts";
 import {
+  filterFieldIds,
+  includeClosed,
+  serverFilter,
+  setSearchScope,
   setStatusRequest,
   setViewListId,
   setViewLoading,
+  setViewMembership,
   setViewTasks,
   setViewTitle,
   setViewTruncated,
@@ -100,12 +105,34 @@ const clickUpRoute = createRoute({
   component: ClickUpView,
 });
 
+/**
+ * What a finished fetch tells the view.
+ *
+ * Two things: whether more rows matched than were sent, and — only when a
+ * filter was asked for — which rows those were. Without a filter the view keeps
+ * showing everything loaded for it, including rows SSE brought in afterwards,
+ * which is what it has always done. With one, the set is the server's answer;
+ * see `viewMembership`.
+ */
+function applyPage(filter: string) {
+  return (page: TaskPageResult | null) => {
+    if (!page) return;
+    setViewTruncated(page.truncated);
+    setViewMembership(filter ? page.ids : null);
+  };
+}
+
 function MyTasksView(): JSX.Element {
   createEffect(() => {
     setViewTitle("My Tasks");
     setViewListId(null);
+    setSearchScope("server");
     clearListViews();
-    void load({ assignee: "me", closed: ui.showClosed }).then(setViewTruncated);
+    // Reading `serverFilter()` here is what makes a filter change refetch: the
+    // clauses are applied over the whole set, not over the page already loaded.
+    void load({ assignee: "me", closed: includeClosed(), filter: serverFilter() }).then(
+      applyPage(serverFilter()),
+    );
   });
 
   const rows = useLiveTasks(
@@ -127,10 +154,13 @@ function ListView(): JSX.Element {
   createEffect(() => {
     const listId = params().listId;
     setViewListId(listId);
+    setSearchScope("server");
     // The tabs are loaded here too, so they are already on screen when somebody
     // arrives from the sidebar rather than appearing a round trip later.
     void loadListViews(listId);
-    void load({ list: listId, closed: ui.showClosed }).then(setViewTruncated);
+    void load({ list: listId, closed: includeClosed(), filter: serverFilter() }).then(
+      applyPage(serverFilter()),
+    );
   });
 
   const rows = useLiveTasks(
@@ -179,25 +209,38 @@ function SavedView(): JSX.Element {
   createEffect(() => {
     const listId = params().listId;
     setViewListId(listId);
+    // A saved view's rows are ClickUp's answer, so `/` narrows what is in hand
+    // rather than going back for more.
+    setSearchScope("loaded");
+    // A view already has a membership set of its own — the ids ClickUp
+    // returned — and the filter is evaluated over those rows here rather than
+    // pushed down, so the shared one must not also be in force.
+    setViewMembership(null);
     setViewTitle(listName(listId) ?? "List");
     void loadListViews(listId);
   });
 
   /**
-   * One fetch per view.
+   * One fetch per view, and one more when the filter names a Custom Field.
    *
    * The tabs signal is replaced wholesale every time a list is opened, so the
    * effect below re-runs on an array that says the same thing. Without the
    * guard that is another round trip to ClickUp per navigation.
+   *
+   * The key carries the Custom Field ids rather than the whole filter, because
+   * a view's rows have to be re-read to carry values for a field nobody asked
+   * about before — and re-reading means asking ClickUp, at 1.8s a page. Every
+   * other clause is answered from the rows already here, so typing in `/` costs
+   * nothing on a saved view.
    */
-  let loadedViewId: string | null = null;
+  let loadedKey: string | null = null;
 
   createEffect(() => {
     const current = view();
     if (current === undefined) return;
 
     if (!current || !isRenderable(current.type)) {
-      loadedViewId = null;
+      loadedKey = null;
       setIds(new Set<string>());
       setViewTasks([]);
       setViewTruncated(false);
@@ -205,13 +248,15 @@ function SavedView(): JSX.Element {
       return;
     }
 
-    if (loadedViewId === current.id) return;
-    loadedViewId = current.id;
-    applyView(current);
+    const key = `${current.id}|${filterFieldIds()}`;
+    if (loadedKey === key) return;
+    const first = loadedKey === null || !loadedKey.startsWith(`${current.id}|`);
+    loadedKey = key;
+    if (first) applyView(current);
 
-    void loadViewTasks(current.id).then((page) => {
+    void loadViewTasks(current.id, serverFilter()).then((page) => {
       // A second view was picked while this one was in flight.
-      if (loadedViewId !== current.id) return;
+      if (loadedKey !== key) return;
       setIds(page.ids);
       setViewTruncated(page.truncated);
     });
@@ -288,6 +333,7 @@ function ClickUpView(): JSX.Element {
     setViewTasks([]);
     setViewListId(null);
     setViewTruncated(false);
+    setViewMembership(null);
     clearListViews();
   });
 

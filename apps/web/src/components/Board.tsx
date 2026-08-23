@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
-import { api, type Task } from "../lib/api.ts";
+import type { Task } from "../lib/api.ts";
 import {
   type BoardColumn,
   boardColumns,
@@ -8,12 +8,11 @@ import {
   cardOffsets,
   draggingId,
   moveToColumn,
-  setBoardStatuses,
   visibleRange,
 } from "../lib/board.ts";
 import { tasks } from "../lib/store.ts";
 import { setUi, ui } from "../lib/ui.ts";
-import { viewListId, viewLoading } from "../lib/view.ts";
+import { viewLoading } from "../lib/view.ts";
 import { BoardCard } from "./BoardCard.tsx";
 import { StatusIcon } from "./StatusIcon.tsx";
 
@@ -36,30 +35,12 @@ export function Board(props: {
   openTaskId: string | null;
 }): JSX.Element {
   /*
-   * A status nobody is in has no tasks, so grouping cannot know it exists.
-   * The list definition can, and it is also what puts the columns in the
-   * workspace's own order rather than alphabetically.
+   * A status nobody is in has no tasks, so grouping cannot know it exists. The
+   * list definition can, and it is also what puts the columns in the
+   * workspace's own order rather than alphabetically. It is read once per list
+   * in `lib/view.ts` — the filter menu needs the same set, and two components
+   * fetching the same four rows was one fetch too many.
    */
-  createEffect(() => {
-    const listId = viewListId();
-    if (!listId) {
-      setBoardStatuses([]);
-      return;
-    }
-    let stale = false;
-    onCleanup(() => {
-      stale = true;
-    });
-    void api
-      .statuses(listId)
-      .then((defs) => {
-        if (!stale) setBoardStatuses(defs);
-      })
-      .catch(() => {
-        if (!stale) setBoardStatuses([]);
-      });
-  });
-
   return (
     <div class="flex flex-1 gap-2.5 overflow-x-auto overflow-y-hidden px-4 pt-3 pb-4">
       <Show

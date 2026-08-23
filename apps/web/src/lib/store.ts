@@ -154,14 +154,38 @@ export function merge(rows: Task[]): void {
  *
  * Deliberately additive: it never drops rows that fall outside the query, so
  * navigating back to a view already has its data. The cost is that a task that
- * left a list stays visible until the next SSE frame corrects it.
+ * left a list stays visible until the next SSE frame corrects it — and, now
+ * that the filter is part of the query, that a row loaded under a looser filter
+ * is still in here under a tighter one. That is what the browser's copy of the
+ * filter is for: the server decides which of 147,000 rows arrive, this decides
+ * which of the ones in hand are on screen, and neither has to trust the other.
  */
-export async function load(query: TaskQuery): Promise<boolean> {
+export interface TaskPageResult {
+  /** The rows the server sent, which is what a filtered view shows. */
+  ids: Set<string>;
+  /** True when more rows matched than the server was willing to send. */
+  truncated: boolean;
+}
+
+/**
+ * Null means "somebody asked for something newer, ignore me".
+ *
+ * Not an empty result, which is a different answer and looks identical from the
+ * caller's side: two requests for the same filter can come back in either
+ * order, and a superseded one reporting "no rows" emptied the view. The
+ * distinction only started to matter when the answer became a set of rows
+ * rather than a boolean.
+ */
+let loadTicket = 0;
+
+export async function load(query: TaskQuery): Promise<TaskPageResult | null> {
   setViewLoading(true);
+  const ticket = ++loadTicket;
   try {
     const page = await api.tasks({ limit: 500, ...query });
     merge(page.tasks);
-    return page.truncated;
+    if (ticket !== loadTicket) return null;
+    return { ids: new Set(page.tasks.map((task) => task.id)), truncated: page.truncated };
   } catch (error) {
     // Silently showing an empty list is how a failed fetch reads as "no tasks".
     pushToast({
@@ -169,9 +193,9 @@ export async function load(query: TaskQuery): Promise<boolean> {
       title: "Could not load tasks",
       detail: error instanceof Error ? error.message : String(error),
     });
-    return false;
+    return ticket === loadTicket ? { ids: new Set(), truncated: false } : null;
   } finally {
-    setViewLoading(false);
+    if (ticket === loadTicket) setViewLoading(false);
   }
 }
 
@@ -189,10 +213,11 @@ export async function load(query: TaskQuery): Promise<boolean> {
  */
 export async function loadViewTasks(
   viewId: string,
+  filter = "",
 ): Promise<{ ids: Set<string>; truncated: boolean }> {
   setViewLoading(true);
   try {
-    const page = await api.viewTasks(viewId);
+    const page = await api.viewTasks(viewId, filter);
     merge(page.tasks);
     return { ids: new Set(page.tasks.map((task) => task.id)), truncated: page.truncated };
   } catch (error) {
