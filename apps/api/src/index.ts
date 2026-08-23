@@ -1,4 +1,4 @@
-import { ClickUpClient, RateLimiter } from "@rask/clickup-client";
+import { ClickUpClient, type ClickUpTask, RateLimiter } from "@rask/clickup-client";
 import {
   comments,
   createDb,
@@ -6,9 +6,11 @@ import {
   ingestReplies,
   ingestTasks,
   loadToken,
+  replaceListViews,
   syncCursors,
+  tasks,
 } from "@rask/schema";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
@@ -18,10 +20,12 @@ import { authRoutes, currentUser, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
 import {
+  findListView,
   getHierarchy,
   getTaskDetail,
   listMembers,
   listTasks,
+  listViewsFor,
   resolveRefs,
   searchTasks,
   statusesForList,
@@ -195,6 +199,87 @@ api.get("/tasks", async (c) => {
 });
 
 api.get("/lists/:id/statuses", async (c) => c.json(await statusesForList(db, c.req.param("id"))));
+
+/**
+ * The tabs above a List.
+ *
+ * Answered from the mirror and re-read from ClickUp behind the response, the
+ * same bargain as task detail. Unlike task detail there is no SSE push for the
+ * result: somebody adding a view is a once-a-month event, and a tab bar that is
+ * one navigation behind costs nothing next to a new event type that every
+ * client has to understand.
+ *
+ * A List nobody has opened has no tabs to draw at all, so that one fetch is
+ * worth waiting for.
+ */
+api.get("/lists/:id/views", async (c) => {
+  const listId = c.req.param("id");
+  const mirrored = await listViewsFor(db, listId);
+
+  if (mirrored.length === 0) {
+    await refreshListViews(c.get("user").id, listId);
+    return c.json(await listViewsFor(db, listId));
+  }
+
+  void refreshListViews(c.get("user").id, listId);
+  return c.json(mirrored);
+});
+
+/**
+ * The tasks a view shows.
+ *
+ * The one read in the app that goes to ClickUp before it answers, and it has to:
+ * a view's filters are ClickUp's to evaluate (`{field:"tag", op:"NOT ANY"}` and
+ * a dozen operators besides), and reimplementing them over the mirror would be
+ * rebuilding a filter engine that is wrong the first time somebody uses one we
+ * had not met.
+ *
+ * What comes back is used as membership, not as data. `GET /view/{id}/task`
+ * sends no `description` and no `text_content` and ignores
+ * `include_markdown_description`, so ingesting it wholesale would blank the
+ * description of every task in the view. Tasks the mirror has never seen are
+ * ingested anyway — a row with no description beats a hole in the view, and the
+ * list poll fills it in — and everything else is read from the mirror, which the
+ * poll keeps current.
+ */
+api.get("/views/:id/tasks", async (c) => {
+  const view = await findListView(db, c.req.param("id"));
+  if (!view) return c.json({ error: "not found" }, 404);
+
+  const client = await clientFor(c.get("user").id);
+  if (!client) return c.json({ error: "no ClickUp token" }, 409);
+
+  let page: { tasks: ClickUpTask[]; truncated: boolean };
+  try {
+    page = await walkViewTasks(client, view.id);
+  } catch (error) {
+    // No mirrored fallback exists: without ClickUp there is no way to know
+    // which tasks the view's filters keep. Say so rather than showing the
+    // whole list and calling it a filtered view.
+    return c.json(
+      { error: error instanceof Error ? error.message : "ClickUp did not answer" },
+      502,
+    );
+  }
+
+  await ingestUnseen(page.tasks, view.listId);
+
+  // Opening a view registers its list for polling, exactly like opening the list.
+  await db
+    .insert(syncCursors)
+    .values({ scope: "list", scopeId: view.listId })
+    .onConflictDoNothing();
+
+  // `includeClosed`, always: ClickUp already applied the view's `show_closed`,
+  // and filtering again here would drop rows the view deliberately keeps.
+  const rows = await listTasks(db, {
+    taskIds: page.tasks.map((task) => task.id),
+    includeClosed: true,
+    limit: VIEW_TASK_LIMIT,
+  });
+  c.header("X-Rask-Truncated", page.truncated ? "1" : "0");
+  return c.json(rows);
+});
 
 api.get("/tasks/:id", async (c) => {
   const detail = await getTaskDetail(db, c.req.param("id"));
@@ -473,6 +558,63 @@ if (config.WEB_DIST) {
   // match falls back to the shell. Read once at boot rather than per request.
   const shell = await Bun.file(`${config.WEB_DIST}/index.html`).text();
   app.get("*", (c) => c.html(shell));
+}
+
+/**
+ * How many rows one view will send.
+ *
+ * The same cap the list route uses, for the same reason: the browser holds the
+ * whole view in memory and filters it there. A view over a 5,696-task list says
+ * `500+` in the header rather than truncating quietly.
+ */
+const VIEW_TASK_LIMIT = 500;
+
+/** Re-reads a List's tabs. Failure is logged, never surfaced: the mirror answers. */
+async function refreshListViews(userId: string, listId: string): Promise<void> {
+  try {
+    const client = await clientFor(userId);
+    if (!client) return;
+    await replaceListViews(db, listId, await client.getListViews(listId));
+  } catch (error) {
+    console.error("[views]", listId, error instanceof Error ? error.message : error);
+  }
+}
+
+/** Walks a view's pages up to the cap, and says whether it stopped early. */
+async function walkViewTasks(
+  client: ClickUpClient,
+  viewId: string,
+): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
+  const collected: ClickUpTask[] = [];
+  for await (const batch of client.iterateViewTasks(viewId)) {
+    collected.push(...batch);
+    if (collected.length > VIEW_TASK_LIMIT) {
+      return { tasks: collected.slice(0, VIEW_TASK_LIMIT), truncated: true };
+    }
+  }
+  return { tasks: collected, truncated: false };
+}
+
+/**
+ * Mirrors only the tasks in a view that the mirror has never heard of.
+ *
+ * See the route: the view payload is thinner than a list page, so re-ingesting
+ * a task we already hold would replace a real description with a null.
+ */
+async function ingestUnseen(batch: ClickUpTask[], listId: string): Promise<void> {
+  if (batch.length === 0) return;
+  const known = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(
+      inArray(
+        tasks.id,
+        batch.map((task) => task.id),
+      ),
+    );
+  const seen = new Set(known.map((row) => row.id));
+  const unseen = batch.filter((task) => !seen.has(task.id));
+  if (unseen.length > 0) await ingestTasks(db, unseen, { listId });
 }
 
 /**

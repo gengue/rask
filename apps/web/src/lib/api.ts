@@ -199,9 +199,34 @@ export interface Space {
   lists: Array<{ id: string; name: string }>;
 }
 
+/**
+ * One tab above a list.
+ *
+ * Deliberately not the whole ClickUp view. `GET /view/{id}/task` applies the
+ * view's filters upstream, so the rules never reach the browser and there is
+ * nothing here to evaluate — see the `list_views` table for the full argument.
+ * `groupField` is ClickUp's own vocabulary and is mapped in `lib/clickup-views.ts`,
+ * where the fallback for a field Rask cannot group by is visible.
+ */
+export interface ListView {
+  id: string;
+  listId: string;
+  name: string;
+  /** list, board, calendar, gantt, form, conversation, … Not an enum: ClickUp adds types. */
+  type: string;
+  /** The tab ClickUp opens the list on. */
+  isDefault: boolean;
+  groupField: string | null;
+  /** Whether the rows ClickUp returns for this view already include closed ones. */
+  showClosed: boolean;
+  /** Forms only, and the only address at which one can be filled in. */
+  publicUrl: string | null;
+}
+
 /** What an id lifted out of a ClickUp URL turned out to be. */
 export type ResolvedRef =
   | { kind: "task"; taskId: string; listId: string }
+  | { kind: "view"; viewId: string; listId: string; name: string }
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
   | { kind: "space"; spaceId: string; name: string }
@@ -252,12 +277,36 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * A list of tasks plus the header saying whether the server held more.
+ *
+ * Separate from `request` because the count is carried out of band: the body is
+ * a bare array, and a wrapper object would mean every consumer unwrapping one.
+ */
+async function requestPage(path: string): Promise<TaskPage> {
+  const response = await fetch(path, { headers: { "Content-Type": "application/json" } });
+
+  if (response.status === 401) {
+    window.location.href = "/auth/clickup";
+    throw new ApiError(401, "unauthenticated");
+  }
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(response.status, body.error ?? response.statusText);
+  }
+
+  return {
+    tasks: (await response.json()) as Task[],
+    truncated: response.headers.get("X-Rask-Truncated") === "1",
+  };
+}
+
 export const api = {
   me: () => request<Me>("/api/me"),
   hierarchy: () => request<Space[]>("/api/hierarchy"),
   members: () => request<Assignee[]>("/api/members"),
 
-  async tasks(query: TaskQuery = {}): Promise<TaskPage> {
+  tasks(query: TaskQuery = {}): Promise<TaskPage> {
     const params = new URLSearchParams();
     if (query.list) params.set("list", query.list);
     if (query.space) params.set("space", query.space);
@@ -267,20 +316,20 @@ export const api = {
     if (query.closed) params.set("closed", "1");
     if (query.limit) params.set("limit", String(query.limit));
 
-    const response = await fetch(`/api/tasks?${params}`, {
-      headers: { "Content-Type": "application/json" },
-    });
-    if (response.status === 401) {
-      window.location.href = "/auth/clickup";
-      throw new ApiError(401, "unauthenticated");
-    }
-    if (!response.ok) throw new ApiError(response.status, response.statusText);
-
-    return {
-      tasks: (await response.json()) as Task[],
-      truncated: response.headers.get("X-Rask-Truncated") === "1",
-    };
+    return requestPage(`/api/tasks?${params}`);
   },
+
+  /** The tabs above a list, in ClickUp's own order. */
+  views: (listId: string) => request<ListView[]>(`/api/lists/${listId}/views`),
+
+  /**
+   * The tasks one view shows.
+   *
+   * The server asks ClickUp, because the view's filters are ClickUp's to
+   * evaluate. That makes this the one read in the app that is not answered from
+   * the mirror alone, and the one that fails when ClickUp is unreachable.
+   */
+  viewTasks: (viewId: string) => requestPage(`/api/views/${viewId}/tasks`),
 
   task: (id: string) => request<TaskDetail>(`/api/tasks/${id}`),
 

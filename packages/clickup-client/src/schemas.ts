@@ -360,6 +360,88 @@ export const createdComment = z.looseObject({ id: id });
 /** The reply endpoint is documented as answering `{}`, so the id is optional. */
 export const threadedCommentCreated = z.looseObject({ id: id.optional() });
 
+/**
+ * How a view groups the tasks under it.
+ *
+ * `field` is ClickUp's own vocabulary — "status", "assignee", "priority",
+ * "dueDate", a Custom Field id — and is the only part Rask evaluates itself,
+ * since the filters are applied upstream by `GET /view/{id}/task`. `dir` is
+ * 1 or -1, `collapsed` holds the group keys folded shut in ClickUp's UI, and
+ * `single` and `ignore` are its own bookkeeping. Null on the view types that
+ * hold no tasks: forms and conversations send `grouping: null` outright.
+ */
+export const clickUpViewGrouping = z.looseObject({
+  field: z.string().nullish(),
+  dir: z.number().nullish(),
+  collapsed: z.array(z.string()).nullish(),
+  ignore: z.boolean().nullish(),
+  single: z.boolean().nullish(),
+});
+
+/**
+ * A view's filter set.
+ *
+ * Kept whole for the shape, read for one field. `fields` is the rule list
+ * (`[{field:"tag", op:"ANY", values:[...]}]`) and Rask never evaluates it:
+ * `GET /view/{id}/task` does that server-side. `show_closed` is different —
+ * it says what the answer already contains, which is something Rask's own
+ * show-closed toggle has to agree with rather than re-decide.
+ */
+export const clickUpViewFilters = z.looseObject({
+  op: z.string().nullish(),
+  fields: z.array(z.unknown()).nullish(),
+  search: z.string().nullish(),
+  show_closed: z.boolean().nullish(),
+});
+
+/**
+ * A view on a List, Folder, Space or Team.
+ *
+ * `type` is ClickUp's tab kind: list, board, calendar, gantt, timeline,
+ * workload, table, box, activity, map, mind_map, doc, form, conversation.
+ * Loose, not an enum: ClickUp ships new view types and a sync that throws on
+ * one would break the tab bar for every list that has it.
+ *
+ * `orderindex` is one sequence across the saved views and the built-in ones,
+ * which is what makes merging the two response buckets into one tab row work.
+ *
+ * `public_url` only ever appears on a form. It is the address the form is
+ * published at (forms.clickup.com, not app.clickup.com), so it is the only
+ * link that opens a form where a person can fill it in.
+ */
+export const clickUpView = z.looseObject({
+  id: z.string(),
+  name: z.string(),
+  type: z.string(),
+  parent: z.looseObject({ id: id, type: z.number().nullish() }).nullish(),
+  orderindex: z
+    .union([z.string(), z.number()])
+    .nullish()
+    .transform((v) => (v == null || v === "" ? null : Number(v))),
+  protected: z.boolean().nullish(),
+  grouping: clickUpViewGrouping.nullish(),
+  filters: clickUpViewFilters.nullish(),
+  public_url: z.string().nullish(),
+});
+export type ClickUpView = z.infer<typeof clickUpView>;
+
+/**
+ * What `GET /{container}/{id}/view` answers with.
+ *
+ * Three buckets carrying the same objects. `views` is what somebody saved,
+ * `required_views` is a map keyed by view type holding the built-ins the
+ * container actually has — every other key is present and `null`, which the
+ * published schema does not mention at all. `default_view` is the tab ClickUp
+ * opens the container on, serialised as the full row rather than the trimmed
+ * one, with `type` as a number instead of the string the other two use. Only
+ * its id is read here, so that disagreement never has to be reconciled.
+ */
+export const listViewsResponse = z.looseObject({
+  views: z.array(clickUpView).default([]),
+  required_views: z.record(z.string(), clickUpView.nullish()).default({}),
+  default_view: z.looseObject({ id: z.string() }).nullish(),
+});
+
 export const clickUpList = z.looseObject({
   id: z.string(),
   name: z.string(),

@@ -195,6 +195,58 @@ export const lists = pgTable(
   (t) => [index("lists_space_idx").on(t.spaceId), index("lists_folder_idx").on(t.folderId)],
 );
 
+/**
+ * The tabs above a List: "All", "Board", every saved view, every form.
+ *
+ * Deliberately not the whole view object. ClickUp sends `filters`, `sorting`,
+ * `columns`, `divide`, `settings` and `team_sidebar` on every view, and Rask
+ * evaluates none of them — `GET /view/{id}/task` applies the filters upstream
+ * and hands back the tasks that survived. Mirroring a rule nobody runs would
+ * be a second representation of ClickUp's filter engine, stale the moment
+ * somebody edits the view and impossible to notice was stale.
+ *
+ * So what is here is exactly what it takes to draw a tab and act on it:
+ *
+ *  - `name`, `type`, `orderindex`, `isDefault` draw the tab bar. `type` decides
+ *    whether the tab opens a Rask route or ClickUp, and it is text rather than
+ *    an enum because ClickUp keeps adding view types.
+ *  - `groupField` is the one part of a view Rask does apply itself, since the
+ *    tasks arrive already filtered but not already grouped. Stored raw, in
+ *    ClickUp's vocabulary ("status", "dueDate", a Custom Field id), and mapped
+ *    to Rask's grouping in the client where the fallback is visible.
+ *  - `showClosed` is `filters.show_closed`, kept because it describes what the
+ *    answer already contains: Rask's own show-closed toggle has to agree with
+ *    the view rather than filter its rows again.
+ *  - `publicUrl` is only ever set on a form, and is the only address at which a
+ *    form can be opened. Every other type is addressed by id.
+ *
+ * The day Rask filters locally — offline, or a facet that has to survive the
+ * 500-row cap — this grows a `filters` jsonb column and a migration.
+ */
+export const listViews = pgTable(
+  "list_views",
+  {
+    /** ClickUp's view id: "gh-96335" for a saved view, "6-{list}-1" for a built-in. */
+    id: text("id").primaryKey(),
+    listId: text("list_id").notNull(),
+    name: text("name").notNull(),
+    /** list, board, calendar, gantt, timeline, workload, table, form, ... */
+    type: text("type").notNull(),
+    /** One sequence across the saved views and the built-in ones. Drives tab order. */
+    orderindex: integer("orderindex"),
+    /** The tab ClickUp opens the List on. Exactly one per list, or none. */
+    isDefault: boolean("is_default").notNull().default(false),
+    /** ClickUp's `grouping.field`, verbatim. Null on forms and conversations. */
+    groupField: text("group_field"),
+    /** `filters.show_closed`: whether the rows ClickUp returns include closed ones. */
+    showClosed: boolean("show_closed").notNull().default(false),
+    /** Forms only. forms.clickup.com, not app.clickup.com. */
+    publicUrl: text("public_url"),
+    syncedAt: ts("synced_at").notNull().defaultNow(),
+  },
+  (t) => [index("list_views_list_idx").on(t.listId, t.orderindex)],
+);
+
 // --- Tasks ----------------------------------------------------------------
 
 export const tasks = pgTable(

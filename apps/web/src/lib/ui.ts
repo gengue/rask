@@ -1,6 +1,6 @@
 import { createStore } from "solid-js/store";
 
-export type GroupBy = "status" | "due" | "assignee" | "list" | "none";
+export type GroupBy = "status" | "due" | "assignee" | "priority" | "list" | "none";
 export type Layout = "list" | "board";
 
 /**

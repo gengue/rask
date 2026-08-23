@@ -1,0 +1,236 @@
+{
+  "views": [
+    {
+      "id": "gh-96195",
+      "name": "Ventura AI",
+      "type": "board",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 2,
+      "protected": false,
+      "grouping": {
+        "field": "status",
+        "dir": 1,
+        "collapsed": [],
+        "ignore": false,
+        "single": false
+      },
+      "filters": {
+        "op": "AND",
+        "fields": [
+          {
+            "field": "tag",
+            "op": "ANY",
+            "determinor": null,
+            "idx": 0,
+            "values": ["ventura ai", "vai-audit"]
+          },
+          {
+            "field": "tag",
+            "op": "NOT ANY",
+            "determinor": null,
+            "idx": 1,
+            "values": ["template"]
+          }
+        ],
+        "search": "",
+        "search_custom_fields": false,
+        "search_description": false,
+        "search_name": true,
+        "show_closed": false,
+        "filter_groups": [[0, [1]]],
+        "filter_group_ops": ["AND"]
+      },
+      "visibility": "public"
+    },
+    {
+      "id": "gh-84055",
+      "name": "All",
+      "type": "board",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 3,
+      "protected": false,
+      "grouping": {
+        "field": "status",
+        "dir": 1,
+        "collapsed": [],
+        "ignore": false,
+        "single": false
+      },
+      "filters": {
+        "op": "AND",
+        "fields": [],
+        "search": "",
+        "search_custom_fields": false,
+        "search_description": false,
+        "search_name": true,
+        "show_closed": false
+      },
+      "visibility": "public"
+    },
+    {
+      "id": "gh-96335",
+      "name": "Ventura AI list",
+      "type": "list",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 4,
+      "protected": false,
+      "grouping": {
+        "field": "status",
+        "dir": 1,
+        "collapsed": [],
+        "ignore": false,
+        "single": false
+      },
+      "filters": {
+        "op": "AND",
+        "fields": [
+          {
+            "field": "tag",
+            "op": "ANY",
+            "determinor": null,
+            "idx": 0,
+            "values": ["ventura ai", "vai-audit"]
+          },
+          {
+            "field": "tag",
+            "op": "NOT ANY",
+            "determinor": null,
+            "idx": 1,
+            "values": ["template"]
+          }
+        ],
+        "search": "",
+        "search_custom_fields": false,
+        "search_description": false,
+        "search_name": true,
+        "show_closed": false,
+        "filter_groups": [[0, [1]]],
+        "filter_group_ops": ["AND"]
+      },
+      "visibility": "public"
+    },
+    {
+      "id": "6-901516038590-8",
+      "name": "AI Tasks",
+      "type": "conversation",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 7,
+      "protected": false,
+      "visibility": "public"
+    },
+    {
+      "id": "gh-91895",
+      "name": "AI wish form",
+      "type": "form",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 8,
+      "protected": false,
+      "public_url": "https://forms.clickup.com/529/f/gh-91895/C3T1KMW9RPMCKW1539",
+      "visibility": "public"
+    },
+    {
+      "id": "gh-96215",
+      "name": "vAI Feedback Form",
+      "type": "form",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 9,
+      "protected": false,
+      "public_url": "https://forms.clickup.com/529/f/gh-96215/OKQBHT8TWSVZJVAA0P",
+      "visibility": "public"
+    }
+  ],
+  "required_views": {
+    "board": {
+      "id": "6-901516038590-2",
+      "name": "Board",
+      "type": "board",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 1,
+      "protected": false,
+      "grouping": {
+        "field": "status",
+        "dir": 1,
+        "collapsed": [],
+        "ignore": false,
+        "single": false
+      },
+      "filters": {
+        "op": "AND",
+        "fields": [],
+        "search": "",
+        "search_custom_fields": true,
+        "search_description": true,
+        "search_name": true,
+        "show_closed": false
+      },
+      "visibility": "public"
+    },
+    "list": {
+      "id": "6-901516038590-1",
+      "name": "All",
+      "type": "list",
+      "parent": {
+        "id": "901516038590",
+        "type": 6
+      },
+      "orderindex": 5,
+      "protected": false,
+      "grouping": {
+        "field": "status",
+        "dir": 1,
+        "collapsed": [],
+        "ignore": false,
+        "single": false
+      },
+      "filters": {
+        "op": "AND",
+        "fields": [],
+        "search": "",
+        "search_custom_fields": false,
+        "search_description": false,
+        "search_name": true,
+        "show_closed": false
+      },
+      "visibility": "public"
+    },
+    "calendar": null,
+    "gantt_type": null,
+    "box": null,
+    "activity": null,
+    "timeline": null,
+    "workload": null,
+    "mind_map": null,
+    "table": null,
+    "map": null,
+    "dashboard": null
+  },
+  "default_view": {
+    "id": "gh-84055",
+    "name": "All",
+    "type": 2,
+    "orderindex": 3,
+    "default": true,
+    "pinned": true
+  }
+}

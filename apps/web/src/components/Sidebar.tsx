@@ -137,7 +137,9 @@ function FolderNode(props: {
 
 function ListItem(props: { id: string; name: string }): JSX.Element {
   const matchRoute = useMatchRoute();
-  const active = () => Boolean(matchRoute({ to: "/list/$listId", params: { listId: props.id } }));
+  // Fuzzy, so the list stays marked while one of its views is open.
+  const active = () =>
+    Boolean(matchRoute({ to: "/list/$listId", params: { listId: props.id }, fuzzy: true }));
 
   return (
     <A

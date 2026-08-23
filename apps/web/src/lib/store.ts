@@ -164,6 +164,38 @@ export async function load(query: TaskQuery): Promise<boolean> {
   }
 }
 
+/**
+ * Pulls a view's tasks into the collection and reports which rows it holds.
+ *
+ * The membership set is the point. Every other route recovers "what am I
+ * showing" from the collection with a predicate — this list, this assignee —
+ * but a view is a subset ClickUp computed from filters the browser never sees,
+ * so the ids are the only thing that says which rows belong to it.
+ *
+ * Merging into the shared collection anyway is what keeps a task open in the
+ * detail panel, edited from the palette, or updated over SSE in step with the
+ * rest of the app: a view is a different set of the same rows, not a copy.
+ */
+export async function loadViewTasks(
+  viewId: string,
+): Promise<{ ids: Set<string>; truncated: boolean }> {
+  setViewLoading(true);
+  try {
+    const page = await api.viewTasks(viewId);
+    merge(page.tasks);
+    return { ids: new Set(page.tasks.map((task) => task.id)), truncated: page.truncated };
+  } catch (error) {
+    pushToast({
+      tone: "error",
+      title: "Could not load this view",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    return { ids: new Set(), truncated: false };
+  } finally {
+    setViewLoading(false);
+  }
+}
+
 function toApiPatch(changes: Partial<Task>): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   if (changes.name !== undefined) patch.name = changes.name;

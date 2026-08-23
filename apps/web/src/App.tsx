@@ -296,7 +296,7 @@ export function AppShell(): JSX.Element {
       hint: "b",
       run: () => setUi("layout", ui.layout === "board" ? "list" : "board"),
     },
-    ...(["status", "due", "assignee", "list", "none"] as const).map((groupBy) => ({
+    ...(["status", "due", "assignee", "priority", "list", "none"] as const).map((groupBy) => ({
       id: `group:${groupBy}`,
       label: `Group by ${groupBy === "none" ? "nothing" : groupBy}`,
       section: "View",
@@ -635,7 +635,7 @@ export function AppShell(): JSX.Element {
  *  the status filter, which is the kind of thing that reads as clutter. */
 function GroupPicker(): JSX.Element {
   const [anchor, setAnchor] = createSignal<{ x: number; y: number } | null>(null);
-  const options = ["status", "due", "assignee", "list", "none"] as const;
+  const options = ["status", "due", "assignee", "priority", "list", "none"] as const;
 
   return (
     <>

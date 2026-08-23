@@ -6,22 +6,41 @@ import {
   useParams,
   useSearch,
 } from "@tanstack/solid-router";
-import { createEffect, createMemo, createResource, type JSX, Match, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  type JSX,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { AppShell } from "./App.tsx";
 import { Board } from "./components/Board.tsx";
 import { RouteError } from "./components/RouteError.tsx";
 import { TaskList } from "./components/TaskList.tsx";
 import { ListPicker, NotFound } from "./components/Unresolved.tsx";
-import { api, type ResolvedRef, type Task } from "./lib/api.ts";
+import { UnsupportedView, ViewTabs } from "./components/ViewTabs.tsx";
+import { api, type ListView as ListViewRow, type ResolvedRef, type Task } from "./lib/api.ts";
 import { parseClickUpPath } from "./lib/clickup-url.ts";
+import {
+  applyView,
+  clearListViews,
+  isRenderable,
+  listViews,
+  listViewsOf,
+  loadListViews,
+} from "./lib/clickup-views.ts";
 import { useLiveTasks } from "./lib/live.ts";
 import { listName, me } from "./lib/session.ts";
-import { load } from "./lib/store.ts";
+import { load, loadViewTasks } from "./lib/store.ts";
 import { ui } from "./lib/ui.ts";
 import {
   setStatusRequest,
   setViewListId,
+  setViewLoading,
   setViewTasks,
   setViewTitle,
   setViewTruncated,
@@ -62,6 +81,19 @@ const listRoute = createRoute({
   component: ListView,
 });
 
+/**
+ * One of the list's ClickUp views.
+ *
+ * A sibling of the list route rather than a child of it, because the two load
+ * different things: the list reads the mirror, a view reads ClickUp through it.
+ * The view id is in the path so a filtered view is a link somebody can send.
+ */
+const savedViewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/list/$listId/view/$viewId",
+  component: SavedView,
+});
+
 const clickUpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -72,6 +104,7 @@ function MyTasksView(): JSX.Element {
   createEffect(() => {
     setViewTitle("My Tasks");
     setViewListId(null);
+    clearListViews();
     void load({ assignee: "me", closed: ui.showClosed }).then(setViewTruncated);
   });
 
@@ -85,7 +118,7 @@ function MyTasksView(): JSX.Element {
 
   createEffect(() => setViewTasks(rows()));
 
-  return <ListBody />;
+  return <ListBody listId={null} activeViewId={null} />;
 }
 
 function ListView(): JSX.Element {
@@ -94,6 +127,9 @@ function ListView(): JSX.Element {
   createEffect(() => {
     const listId = params().listId;
     setViewListId(listId);
+    // The tabs are loaded here too, so they are already on screen when somebody
+    // arrives from the sidebar rather than appearing a round trip later.
+    void loadListViews(listId);
     void load({ list: listId, closed: ui.showClosed }).then(setViewTruncated);
   });
 
@@ -109,7 +145,114 @@ function ListView(): JSX.Element {
     setViewTitle(listName(params().listId) ?? rows()[0]?.listName ?? "List");
   });
 
-  return <ListBody />;
+  // No tab is current: this is the whole list, which is not one of ClickUp's
+  // views. The sidebar entry is what points here.
+  return <ListBody listId={params().listId} activeViewId={null} />;
+}
+
+/**
+ * One ClickUp view of a list.
+ *
+ * The tasks come from `GET /view/{id}/task` through the API, already filtered
+ * by ClickUp, and arrive as an explicit set of ids rather than as a predicate:
+ * a view is a subset the browser has no way to recompute. The grouping is the
+ * one part Rask applies itself.
+ */
+function SavedView(): JSX.Element {
+  const params = useParams({ from: savedViewRoute.id });
+
+  /**
+   * The view this route is showing.
+   *
+   * `undefined` while the list's tabs are in flight, `null` once they have
+   * arrived without it. Without the distinction a slow tab fetch would render
+   * "not found" for a view that exists.
+   */
+  const view = createMemo(() => {
+    const { listId, viewId } = params();
+    if (listViewsOf() !== listId) return undefined;
+    return listViews().find((candidate) => candidate.id === viewId) ?? null;
+  });
+
+  const [ids, setIds] = createSignal<ReadonlySet<string>>(new Set<string>());
+
+  createEffect(() => {
+    const listId = params().listId;
+    setViewListId(listId);
+    setViewTitle(listName(listId) ?? "List");
+    void loadListViews(listId);
+  });
+
+  /**
+   * One fetch per view.
+   *
+   * The tabs signal is replaced wholesale every time a list is opened, so the
+   * effect below re-runs on an array that says the same thing. Without the
+   * guard that is another round trip to ClickUp per navigation.
+   */
+  let loadedViewId: string | null = null;
+
+  createEffect(() => {
+    const current = view();
+    if (current === undefined) return;
+
+    if (!current || !isRenderable(current.type)) {
+      loadedViewId = null;
+      setIds(new Set<string>());
+      setViewTasks([]);
+      setViewTruncated(false);
+      setViewLoading(false);
+      return;
+    }
+
+    if (loadedViewId === current.id) return;
+    loadedViewId = current.id;
+    applyView(current);
+
+    void loadViewTasks(current.id).then((page) => {
+      // A second view was picked while this one was in flight.
+      if (loadedViewId !== current.id) return;
+      setIds(page.ids);
+      setViewTruncated(page.truncated);
+    });
+  });
+
+  const rows = useLiveTasks(
+    createMemo(() => {
+      const member = ids();
+      return (task: Task) => member.has(task.id);
+    }),
+  );
+
+  createEffect(() => setViewTasks(rows()));
+
+  /** A view of a type Rask draws nothing for. Null for the ones it does. */
+  const unsupported = (): ListViewRow | null => {
+    const current = view();
+    return current && !isRenderable(current.type) ? current : null;
+  };
+
+  // The tabs stay above every outcome, including the ones that render no
+  // tasks: a view Rask cannot draw is still a place in the list, and the way
+  // out of it is the tab next to it.
+  return (
+    <>
+      <ViewTabs activeViewId={view() === null ? null : params().viewId} />
+      <Switch
+        fallback={
+          /* `list` renders as the list, and so does `board` until the board
+             component lands — the view's `type` is already here, so switching
+             it on is one branch and no further plumbing. */
+          <ListBody listId={null} activeViewId={null} />
+        }
+      >
+        <Match when={view() === null}>
+          <NotFound path={`/list/${params().listId}/view/${params().viewId}`} />
+        </Match>
+        <Match when={unsupported()}>{(current) => <UnsupportedView view={current()} />}</Match>
+      </Switch>
+    </>
+  );
 }
 
 type Target = ResolvedRef | { kind: "my-work" };
@@ -145,6 +288,7 @@ function ClickUpView(): JSX.Element {
     setViewTasks([]);
     setViewListId(null);
     setViewTruncated(false);
+    clearListViews();
   });
 
   /**
@@ -169,6 +313,13 @@ function ClickUpView(): JSX.Element {
           to: "/list/$listId",
           params: { listId: found.listId },
           search: { task: found.taskId },
+          replace: true,
+        });
+        break;
+      case "view":
+        void navigate({
+          to: "/list/$listId/view/$viewId",
+          params: { listId: found.listId, viewId: found.viewId },
           replace: true,
         });
         break;
@@ -200,7 +351,7 @@ function ClickUpView(): JSX.Element {
   );
 }
 
-function ListBody(): JSX.Element {
+function ListBody(props: { listId: string | null; activeViewId: string | null }): JSX.Element {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
 
@@ -208,27 +359,32 @@ function ListBody(): JSX.Element {
   // Nothing else here changes, which is the point of the two taking identical
   // props: this stays one line the day a view decides which layout it wants.
   return (
-    <Dynamic
-      component={ui.layout === "board" ? Board : TaskList}
-      openTaskId={(search() as { task?: string }).task ?? null}
-      onOpen={(task) =>
-        navigate({
-          to: ".",
-          search: (prev: Record<string, unknown>) => ({ ...prev, task: task.id }),
-        })
-      }
-      onStatusClick={(task, event) => {
-        const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
-        setStatusRequest({
-          task,
-          anchor: { x: rect?.left ?? event.clientX, y: (rect?.bottom ?? event.clientY) + 6 },
-        });
-      }}
-    />
+    <>
+      <Show when={props.listId}>
+        <ViewTabs activeViewId={props.activeViewId} />
+      </Show>
+      <Dynamic
+        component={ui.layout === "board" ? Board : TaskList}
+        openTaskId={(search() as { task?: string }).task ?? null}
+        onOpen={(task) =>
+          navigate({
+            to: ".",
+            search: (prev: Record<string, unknown>) => ({ ...prev, task: task.id }),
+          })
+        }
+        onStatusClick={(task, event) => {
+          const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+          setStatusRequest({
+            task,
+            anchor: { x: rect?.left ?? event.clientX, y: (rect?.bottom ?? event.clientY) + 6 },
+          });
+        }}
+      />
+    </>
   );
 }
 
-const routeTree = rootRoute.addChildren([myTasksRoute, listRoute, clickUpRoute]);
+const routeTree = rootRoute.addChildren([myTasksRoute, listRoute, savedViewRoute, clickUpRoute]);
 
 export const router = createRouter({ routeTree, defaultPreload: "intent" });
 
