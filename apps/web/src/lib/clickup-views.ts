@@ -71,9 +71,10 @@ export function clearListViews(): void {
 /**
  * View types Rask renders itself.
  *
- * `list` is the list. `board` is being built separately and renders as a list
- * until it lands — the seam is exactly this predicate plus the `type` the route
- * already has, so turning it on is one branch in the route and no plumbing.
+ * `list` and `board`, each rendered as itself: `applyView` reads the type and
+ * picks the layout. Everything else — calendar, gantt, form, conversation —
+ * gets a tab that opens it in ClickUp, because rendering it here as something
+ * it is not is worse than not rendering it.
  */
 export function isRenderable(type: string): boolean {
   return type === "list" || type === "board";
@@ -118,6 +119,18 @@ export function applyView(view: ListView): void {
   setUi({
     groupBy: groupByForField(view.groupField),
     showClosed: view.showClosed,
+    /*
+     * A board tab draws a board.
+     *
+     * The rows are the same either way — `GET /view/{id}/task` has already
+     * applied the view's filters — so the type only decides how they are laid
+     * out. Rendering ClickUp's Kanban as a flat list was the tab lying about
+     * what it was: the name said board, the columns were headings.
+     *
+     * Set on every view, not only boards, so switching from a board tab back to
+     * a list tab returns to a list instead of leaving the board behind.
+     */
+    layout: view.type === "board" ? "board" : "list",
     // Row 12 of the previous tab is a different task in this one. The shell
     // resets the cursor when the title changes, and switching tabs within a
     // list does not change the title.

@@ -1,6 +1,14 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createMemo, For, type JSX, Show } from "solid-js";
 import type { Me, Space } from "../lib/api.ts";
-import { A, useMatchRoute } from "../lib/nav.tsx";
+import { A, useMatchRoute, useParams } from "../lib/nav.tsx";
+import {
+  isOpen,
+  isPinned,
+  pinned,
+  revealPath,
+  toggleOpen,
+  togglePinned,
+} from "../lib/sidebar-state.ts";
 import { connected } from "../lib/sse.ts";
 import { Avatar } from "./Avatar.tsx";
 
@@ -32,6 +40,8 @@ export function Sidebar(props: {
   onSearch: () => void;
   onQuickAdd: () => void;
 }): JSX.Element {
+  useRevealActiveList(() => props.spaces);
+
   return (
     <aside
       class="flex w-[236px] shrink-0 flex-col max-dock:absolute max-dock:inset-y-0 max-dock:left-0 max-dock:z-40 max-dock:border-line max-dock:border-r max-dock:bg-app"
@@ -55,7 +65,8 @@ export function Sidebar(props: {
       </nav>
 
       <div class="mt-5 flex-1 overflow-y-auto px-2 pb-3">
-        <div class="px-2 pb-1 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
+        <PinnedLists spaces={props.spaces} />
+        <div class="px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em]">
           Workspace
         </div>
         <For each={props.spaces}>{(space) => <SpaceNode space={space} />}</For>
@@ -85,21 +96,20 @@ export function Sidebar(props: {
 }
 
 function SpaceNode(props: { space: Space }): JSX.Element {
-  const [open, setOpen] = createSignal(false);
   const empty = () => props.space.folders.length === 0 && props.space.lists.length === 0;
 
   return (
     <div>
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => toggleOpen(props.space.id)}
         class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
-        <Chevron open={open()} muted={empty()} />
+        <Chevron open={isOpen(props.space.id)} muted={empty()} />
         <span class="truncate text-base">{props.space.name}</span>
       </button>
 
-      <Show when={open()}>
+      <Show when={isOpen(props.space.id)}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
           <For each={props.space.folders}>{(folder) => <FolderNode folder={folder} />}</For>
           <For each={props.space.lists}>{(list) => <ListItem id={list.id} name={list.name} />}</For>
@@ -112,19 +122,17 @@ function SpaceNode(props: { space: Space }): JSX.Element {
 function FolderNode(props: {
   folder: { id: string; name: string; lists: Array<{ id: string; name: string }> };
 }): JSX.Element {
-  const [open, setOpen] = createSignal(false);
-
   return (
     <div>
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => toggleOpen(props.folder.id)}
         class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
-        <Chevron open={open()} muted={props.folder.lists.length === 0} />
+        <Chevron open={isOpen(props.folder.id)} muted={props.folder.lists.length === 0} />
         <span class="truncate text-base">{props.folder.name}</span>
       </button>
-      <Show when={open()}>
+      <Show when={isOpen(props.folder.id)}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
           <For each={props.folder.lists}>
             {(list) => <ListItem id={list.id} name={list.name} />}
@@ -142,33 +150,115 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
     Boolean(matchRoute({ to: "/list/$listId", params: { listId: props.id }, fuzzy: true }));
 
   return (
-    <A
-      to="/list/$listId"
-      params={{ listId: props.id }}
-      // One string, not classList: `A` is a component, so Solid hands it
-      // `classList` as an inert prop and nothing ever applies it. Every list
-      // link rendered at full-brightness ink with no hover, active or not.
-      class={`flex h-7 items-center gap-2 rounded-[5px] px-2 text-base ${
-        active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+    <div class="group/list relative">
+      <A
+        to="/list/$listId"
+        params={{ listId: props.id }}
+        // One string, not classList: `A` is a component, so Solid hands it
+        // `classList` as an inert prop and nothing ever applies it. Every list
+        // link rendered at full-brightness ink with no hover, active or not.
+        class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-7 pl-2 text-base ${
+          active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+        }`}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          class="shrink-0 text-ink-4"
+          aria-hidden="true"
+        >
+          <path
+            d="M3 4.5h10M3 8h10M3 11.5h6"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span class="truncate">{props.name}</span>
+      </A>
+
+      {/*
+        Outside the link, not inside it: a button nested in an anchor is invalid
+        and the click would navigate before the star ever fired.
+
+        Hidden until hover, except when it is on — an off star on every row is
+        forty pieces of chrome saying nothing, while an on one is the answer to
+        "is this pinned".
+      */}
+      <PinButton id={props.id} name={props.name} />
+    </div>
+  );
+}
+
+function PinButton(props: { id: string; name: string }): JSX.Element {
+  const on = () => isPinned(props.id);
+
+  return (
+    <button
+      type="button"
+      aria-label={on() ? `Unpin ${props.name}` : `Pin ${props.name}`}
+      aria-pressed={on()}
+      title={on() ? "Unpin" : "Pin to the top"}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePinned(props.id);
+      }}
+      class={`-translate-y-1/2 absolute top-1/2 right-1 grid size-5 place-items-center rounded transition-opacity hover:bg-hover ${
+        on()
+          ? "text-accent opacity-100"
+          : "text-ink-4 opacity-0 hover:text-ink-2 focus-visible:opacity-100 group-hover/list:opacity-100"
       }`}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 16 16"
-        fill="none"
-        class="shrink-0 text-ink-4"
-        aria-hidden="true"
-      >
+      <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
         <path
-          d="M3 4.5h10M3 8h10M3 11.5h6"
+          d="m8 1.8 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6L8 1.8Z"
+          fill={on() ? "currentColor" : "none"}
           stroke="currentColor"
-          stroke-width="1.4"
-          stroke-linecap="round"
+          stroke-width="1.3"
+          stroke-linejoin="round"
         />
       </svg>
-      <span class="truncate">{props.name}</span>
-    </A>
+    </button>
+  );
+}
+
+/**
+ * Pinned lists, above the tree.
+ *
+ * ClickUp's own Favorites are not in the public API — there is no endpoint for
+ * them in the v2 spec, only `/team/{id}/shared`, which is a different thing —
+ * so these are Rask's, kept in this browser. They are ids resolved against the
+ * tree, so a pin survives a rename and disappears with the list itself.
+ */
+function PinnedLists(props: { spaces: Space[] }): JSX.Element {
+  const all = createMemo(() => {
+    const byId = new Map<string, string>();
+    for (const space of props.spaces) {
+      for (const list of space.lists) byId.set(list.id, list.name);
+      for (const folder of space.folders) {
+        for (const list of folder.lists) byId.set(list.id, list.name);
+      }
+    }
+    return [...pinned()]
+      .flatMap((id) => {
+        const name = byId.get(id);
+        return name ? [{ id, name }] : [];
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  return (
+    <Show when={all().length > 0}>
+      <div class="mb-4">
+        <div class="px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em]">
+          Pinned
+        </div>
+        <For each={all()}>{(list) => <ListItem id={list.id} name={list.name} />}</For>
+      </div>
+    </Show>
   );
 }
 
@@ -245,4 +335,42 @@ function Chevron(props: { open: boolean; muted: boolean }): JSX.Element {
       />
     </svg>
   );
+}
+
+/**
+ * Unfolds the branch the open list is on.
+ *
+ * Rask answers ClickUp's own URLs with the domain swapped, so the common way in
+ * is a link from somebody else rather than a walk down the tree — and a tree
+ * that shows nothing about where you are is a tree you have to search to find
+ * out. Opening the ancestors is also what makes the next click, to a sibling
+ * list, one click.
+ *
+ * Only ever opens. Collapsing what someone deliberately closed, because the
+ * route happens to be inside it, is the sidebar arguing with the person using
+ * it.
+ */
+function useRevealActiveList(spaces: () => Space[]): void {
+  // `strict: false` because the sidebar renders on every route and most have no
+  // listId. `matchRoute` answers whether a route matches, not what its
+  // parameters are, which is the question here.
+  const params = useParams({ strict: false });
+
+  createEffect(() => {
+    const listId = (params() as { listId?: string }).listId;
+    if (!listId) return;
+
+    for (const space of spaces()) {
+      if (space.lists.some((list) => list.id === listId)) {
+        revealPath([space.id]);
+        return;
+      }
+      for (const folder of space.folders) {
+        if (folder.lists.some((list) => list.id === listId)) {
+          revealPath([space.id, folder.id]);
+          return;
+        }
+      }
+    }
+  });
 }
