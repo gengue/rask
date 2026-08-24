@@ -53,6 +53,12 @@ export default defineConfig({
   server: {
     port: WEB_PORT,
     strictPort: true,
+    // Loopback, but the v4 one: the default resolves to ::1 only, and a proxy
+    // in front of it (tailscale serve) dials 127.0.0.1 and gets nothing.
+    host: "127.0.0.1",
+    // Reachable from other machines on the tailnet (MagicDNS names end in
+    // .ts.net); Vite rejects any Host header it was not told about.
+    allowedHosts: [".ts.net"],
     // Same-origin in dev, exactly like production behind Coolify. Keeps the
     // session cookie SameSite=Lax instead of forcing SameSite=None.
     proxy: {
