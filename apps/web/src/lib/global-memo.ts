@@ -12,6 +12,6 @@ import { type Accessor, createMemo, createRoot } from "solid-js";
  * Giving each one its own root says that on purpose, and stops the warning from
  * burying the ones that mean something.
  */
-export function globalMemo<T>(compute: () => T): Accessor<T> {
+export function globalMemo<T>(compute: (prev: T | undefined) => T): Accessor<T> {
   return createRoot(() => createMemo(compute));
 }

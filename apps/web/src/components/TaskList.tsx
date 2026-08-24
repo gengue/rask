@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import { flatItems, viewListId, viewLoading } from "../lib/view.ts";
@@ -142,68 +142,78 @@ export function TaskList(props: {
           class="relative w-full outline-none"
           style={{ height: `${totalHeight()}px` }}
         >
-          {renderWindow()}
+          {/*
+           * `<Index>` rather than an imperative loop. The loop built fresh DOM
+           * for every item on every re-run, and Solid's array reconciler keys
+           * on node identity, so one task changing anywhere in the loaded set
+           * tore down and recreated every visible row — avatars re-decoded,
+           * :hover dropped, text selection died. Index gives each position a
+           * signal instead: a data change re-renders only the positions whose
+           * item actually changed (see `reuseItems`), and a scroll shifts
+           * content through existing nodes instead of replacing them.
+           *
+           * The `<Show>` decides row-versus-header per position. Non-keyed, so
+           * it only rebuilds when a position changes kind — which regrouping
+           * can do — and an unchanged branch updates through prop getters.
+           */}
+          <Index each={items().slice(range().start, range().end)}>
+            {(item, offset) => {
+              const index = () => range().start + offset;
+              const row = () => {
+                const value = item();
+                return value.kind === "row" ? value : null;
+              };
+              const header = () => {
+                const value = item();
+                return value.kind === "header" ? value : null;
+              };
+              return (
+                <div
+                  class="absolute top-0 left-0 w-full"
+                  style={{ transform: `translateY(${offsets()[index()] ?? 0}px)` }}
+                >
+                  <Show
+                    when={row()}
+                    fallback={
+                      <div class="flex h-[34px] items-center gap-2 border-line/45 border-b bg-wash px-5">
+                        <Show when={ui.groupBy === "status"}>
+                          <StatusIcon
+                            type={header()?.statusType ?? null}
+                            color={header()?.color ?? null}
+                            size={13}
+                          />
+                        </Show>
+                        <span class="font-medium text-sm text-ink capitalize tracking-[-0.005em]">
+                          {header()?.label}
+                        </span>
+                        <span class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums">
+                          {header()?.count}
+                        </span>
+                      </div>
+                    }
+                  >
+                    {(current) => (
+                      <TaskRow
+                        task={current().task}
+                        showList={viewListId() === null}
+                        active={rowIndices()[ui.cursor] === index()}
+                        selected={props.openTaskId === current().task.id}
+                        onOpen={() => {
+                          setUi("cursor", rowIndices().indexOf(index()));
+                          props.onOpen(current().task);
+                        }}
+                        onStatusClick={(event) => props.onStatusClick(current().task, event)}
+                      />
+                    )}
+                  </Show>
+                </div>
+              );
+            }}
+          </Index>
         </div>
       </Show>
     </div>
   );
-
-  function renderWindow(): JSX.Element {
-    const { start, end } = range();
-    const list = items();
-    const tops = offsets();
-    const nodes: JSX.Element[] = [];
-
-    for (let index = start; index < end; index++) {
-      const item = list[index];
-      if (!item) continue;
-
-      /*
-       * A plain branch rather than two nested `<Show>`.
-       *
-       * `kind` is a field of a `FlatItem` that is built once and never edited,
-       * so there is no reactivity for a `Show` to serve: when an item becomes
-       * the other kind it is a different object at a different index and this
-       * loop has already re-run. What the two cost is two components and two
-       * memos per item per rebuild, to decide a ternary. Every prop below is
-       * still a getter, so a row keeps tracking the cursor on its own.
-       */
-      nodes.push(
-        <div
-          class="absolute top-0 left-0 w-full"
-          style={{ transform: `translateY(${tops[index] ?? 0}px)` }}
-        >
-          {item.kind === "row" ? (
-            <TaskRow
-              task={item.task}
-              showList={viewListId() === null}
-              active={rowIndices()[ui.cursor] === index}
-              selected={props.openTaskId === item.task.id}
-              onOpen={() => {
-                setUi("cursor", rowIndices().indexOf(index));
-                props.onOpen(item.task);
-              }}
-              onStatusClick={(event) => props.onStatusClick(item.task, event)}
-            />
-          ) : (
-            <div class="flex h-[34px] items-center gap-2 border-line/45 border-b bg-wash px-5">
-              <Show when={ui.groupBy === "status"}>
-                <StatusIcon type={item.statusType} color={item.color} size={13} />
-              </Show>
-              <span class="font-medium text-sm text-ink capitalize tracking-[-0.005em]">
-                {item.label}
-              </span>
-              <span class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums">
-                {item.count}
-              </span>
-            </div>
-          )}
-        </div>,
-      );
-    }
-
-    return nodes;
-  }
 }
 
 /**

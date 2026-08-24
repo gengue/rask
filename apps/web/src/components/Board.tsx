@@ -189,7 +189,39 @@ function Column(props: {
         }}
       >
         <div class="relative w-full" style={{ height: `${height()}px` }}>
-          {renderCards()}
+          {/*
+           * `<Index>` for the same reason the column list above uses it, one
+           * level down: the imperative loop this replaces rebuilt every card
+           * in the window whenever any task in the loaded set changed, which
+           * also detached a card mid-drag. Column task references are stable
+           * for unchanged tasks, so only the card that changed re-renders.
+           */}
+          <Index each={props.column.tasks.slice(range().start, range().end)}>
+            {(task, offset) => {
+              const index = () => range().start + offset;
+              return (
+                <div
+                  class="absolute inset-x-0"
+                  style={{
+                    transform: `translateY(${offsets()[index()] ?? 0}px)`,
+                    "padding-bottom": `${CARD_GAP}px`,
+                  }}
+                >
+                  <BoardCard
+                    task={task()}
+                    active={ui.cursor === props.column.offset + index()}
+                    selected={props.openTaskId === task().id}
+                    draggable={boardWritable()}
+                    onOpen={() => {
+                      setUi("cursor", props.column.offset + index());
+                      props.onOpen(task());
+                    }}
+                    onStatusClick={(event) => props.onStatusClick(task(), event)}
+                  />
+                </div>
+              );
+            }}
+          </Index>
         </div>
 
         <Show when={props.column.tasks.length === 0}>
@@ -200,41 +232,6 @@ function Column(props: {
       </div>
     </section>
   );
-
-  function renderCards(): JSX.Element {
-    const { start, end } = range();
-    const list = props.column.tasks;
-    const tops = offsets();
-    const nodes: JSX.Element[] = [];
-
-    for (let index = start; index < end; index++) {
-      const task = list[index];
-      if (!task) continue;
-      nodes.push(
-        <div
-          class="absolute inset-x-0"
-          style={{
-            transform: `translateY(${tops[index] ?? 0}px)`,
-            "padding-bottom": `${CARD_GAP}px`,
-          }}
-        >
-          <BoardCard
-            task={task}
-            active={ui.cursor === props.column.offset + index}
-            selected={props.openTaskId === task.id}
-            draggable={boardWritable()}
-            onOpen={() => {
-              setUi("cursor", props.column.offset + index);
-              props.onOpen(task);
-            }}
-            onStatusClick={(event) => props.onStatusClick(task, event)}
-          />
-        </div>,
-      );
-    }
-
-    return nodes;
-  }
 }
 
 /**
