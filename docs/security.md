@@ -22,7 +22,14 @@ Two gates, in order:
    member of the Workspace, which is usually what a team wants. Use it for a
    pilot, or where the Workspace has guests who should not be here.
 
-Both are enforced in the OAuth callback, before any session is issued.
+Both are enforced in the OAuth callback, before any session is issued. A
+refusal redirects back to the sign-in page carrying a reason code, so the
+person who hit it reads a sentence rather than a page of plain text with no way
+back.
+
+Signing out is `POST /auth/logout`, which deletes the session row. The cookie is
+`httpOnly`, so only the server can clear it — a client-side forget would leave a
+live session in the database that the next visit picks straight back up.
 
 ### What this does not give you
 

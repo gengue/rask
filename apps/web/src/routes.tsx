@@ -62,6 +62,8 @@ import {
 
 interface AppSearch {
   task?: string;
+  /** Why the OAuth callback refused, when it did. See `components/Login.tsx`. */
+  signin?: string;
 }
 
 const rootRoute = createRootRoute({
@@ -71,6 +73,7 @@ const rootRoute = createRootRoute({
   errorComponent: (props) => <RouteError error={props.error} reset={props.reset} />,
   validateSearch: (search: Record<string, unknown>): AppSearch => ({
     task: typeof search.task === "string" ? search.task : undefined,
+    signin: typeof search.signin === "string" ? search.signin : undefined,
   }),
 });
 

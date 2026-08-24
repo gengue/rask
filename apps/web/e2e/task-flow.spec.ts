@@ -125,3 +125,41 @@ test("marks only the open list in the sidebar", async ({ page }) => {
   await expect(selected).toHaveCount(1);
   await expect(selected).toHaveAttribute("href", "/list/L2");
 });
+
+/**
+ * Signing out, and what a signed-out visit sees.
+ *
+ * Neither existed: `POST /auth/logout` was on the API and nothing called it,
+ * and a 401 sent the browser straight to ClickUp's consent screen with no page
+ * in between — which left a *refused* sign-in nowhere to land.
+ *
+ * Worth an end-to-end test rather than a unit one because the first attempt at
+ * the gate was `if (signedOut()) return <Login/>` at the top of the component,
+ * and a Solid component body runs once: signing out left the whole workspace on
+ * screen behind a dead session, and nothing but a browser would have said so.
+ */
+test("signs out, and a signed-out visit gets a way back in", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await expect(page.getByRole("heading", { name: "My Tasks" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+
+  const signIn = page.getByRole("link", { name: "Continue with ClickUp" });
+  await expect(signIn).toBeVisible();
+  await expect(signIn).toHaveAttribute("href", "/auth/clickup");
+  // The workspace is gone with it, not merely covered.
+  await expect(page.getByRole("heading", { name: "My Tasks" })).toHaveCount(0);
+
+  // And the session really ended: a reload does not walk back into it.
+  await page.reload();
+  await expect(page.getByRole("link", { name: "Continue with ClickUp" })).toBeVisible();
+});
+
+test("a refused sign-in says why, instead of a page of plain text", async ({ page }) => {
+  // What the OAuth callback redirects to when the workspace gate turns an
+  // account away. It used to answer 403 with a bare string and no way back.
+  await page.goto("/?signin=not_a_member");
+
+  await expect(page.getByRole("alert")).toContainText("not a member of this workspace");
+  await expect(page.getByRole("link", { name: "Continue with ClickUp" })).toBeVisible();
+});

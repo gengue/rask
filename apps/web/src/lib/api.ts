@@ -1,3 +1,5 @@
+import { markSignedOut } from "./signed-out.ts";
+
 /**
  * Typed wrapper over the Rask API.
  *
@@ -290,8 +292,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (response.status === 401) {
-    // The session is gone. Bounce to ClickUp rather than showing an empty app.
-    window.location.href = "/auth/clickup";
+    // The session is gone. The shell swaps to the sign-in page; bouncing
+    // straight to ClickUp left a refused sign-in with nowhere to land.
+    markSignedOut();
     throw new ApiError(401, "unauthenticated");
   }
 
@@ -313,7 +316,7 @@ async function requestPage(path: string): Promise<TaskPage> {
   const response = await fetch(path, { headers: { "Content-Type": "application/json" } });
 
   if (response.status === 401) {
-    window.location.href = "/auth/clickup";
+    markSignedOut();
     throw new ApiError(401, "unauthenticated");
   }
   if (!response.ok) {

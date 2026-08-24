@@ -171,8 +171,8 @@ describe("oauth callback", () => {
         headers: { cookie: "rask_oauth_state=ours" },
       });
 
-      expect(response.status).toBe(400);
-      expect(await response.text()).toBe("OAuth state mismatch");
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toContain("signin=state_mismatch");
       // Refused before the authorization code is spent, not after.
       expect(net.calls()).toBe(0);
     } finally {
@@ -188,7 +188,7 @@ describe("oauth callback", () => {
       const app = authRoutes(db, config);
       const response = await app.request("/clickup/callback?code=abc&state=attacker");
 
-      expect(response.status).toBe(400);
+      expect(response.headers.get("location")).toContain("signin=state_mismatch");
       expect(net.calls()).toBe(0);
     } finally {
       net.restore();
@@ -203,7 +203,7 @@ describe("oauth callback", () => {
         headers: { cookie: "rask_oauth_state=ours" },
       });
 
-      expect(response.status).toBe(400);
+      expect(response.headers.get("location")).toContain("signin=state_mismatch");
       expect(net.calls()).toBe(0);
     } finally {
       net.restore();
@@ -218,7 +218,7 @@ describe("oauth callback", () => {
         headers: { cookie: "rask_oauth_state=ours" },
       });
 
-      expect(response.status).toBe(400);
+      expect(response.headers.get("location")).toContain("signin=no_code");
       expect(net.calls()).toBe(0);
     } finally {
       net.restore();
@@ -308,7 +308,7 @@ describe("the session cookie", () => {
   test("refuses an account that is not in this deployment's workspace", async () => {
     const response = await completeLogin("production", { CLICKUP_TEAM_ID: "someone-else" });
 
-    expect(response.status).toBe(403);
+    expect(response.headers.get("location")).toContain("signin=not_a_member");
     expect(response.headers.getSetCookie().some((c) => c.startsWith("rask_session="))).toBe(false);
   });
 
@@ -317,7 +317,7 @@ describe("the session cookie", () => {
       RASK_ALLOWED_EMAILS: "someone@example.test",
     });
 
-    expect(response.status).toBe(403);
+    expect(response.headers.get("location")).toContain("signin=not_allowed");
     expect(response.headers.getSetCookie().some((c) => c.startsWith("rask_session="))).toBe(false);
   });
 

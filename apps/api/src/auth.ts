@@ -62,10 +62,18 @@ export function authRoutes(db: Db, config: Config) {
     const expected = getCookie(c, "rask_oauth_state");
     deleteCookie(c, "rask_oauth_state", { path: "/" });
 
-    if (!code) return c.text("ClickUp did not return an authorization code", 400);
-    if (!state || !expected || !safeEqual(state, expected)) {
-      return c.text("OAuth state mismatch", 400);
-    }
+    /*
+     * Refusals go back to the app, not to a page of plain text.
+     *
+     * Everything here is a dead end for whoever hit it: no navigation, no way
+     * back, and — since the workspace gate landed — a perfectly ordinary thing
+     * for the wrong account to run into. The sign-in page knows how to say all
+     * of these in words.
+     */
+    const refuse = (reason: string) => c.redirect(`${config.WEB_ORIGIN}/?signin=${reason}`);
+
+    if (!code) return refuse("no_code");
+    if (!state || !expected || !safeEqual(state, expected)) return refuse("state_mismatch");
 
     const token = await ClickUpClient.exchangeCode({
       clientId: config.CLICKUP_CLIENT_ID,
@@ -91,14 +99,14 @@ export function authRoutes(db: Db, config: Config) {
      * without it.
      */
     const teamId = config.CLICKUP_TEAM_ID ?? teams[0]?.id;
-    if (!teamId) return c.text("This ClickUp account has no workspace", 400);
+    if (!teamId) return refuse("no_workspace");
     if (config.CLICKUP_TEAM_ID && !teams.some((team) => team.id === config.CLICKUP_TEAM_ID)) {
-      return c.text("This ClickUp account is not a member of this workspace", 403);
+      return refuse("not_a_member");
     }
 
     const email = me.email?.trim().toLowerCase();
     if (config.RASK_ALLOWED_EMAILS && (!email || !config.RASK_ALLOWED_EMAILS.includes(email))) {
-      return c.text("This account is not on the allow list for this deployment", 403);
+      return refuse("not_allowed");
     }
 
     const userId = String(me.id);

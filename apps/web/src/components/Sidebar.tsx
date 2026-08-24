@@ -9,6 +9,7 @@ import {
   toggleOpen,
   togglePinned,
 } from "../lib/sidebar-state.ts";
+import { signOut } from "../lib/signed-out.ts";
 import { connected } from "../lib/sse.ts";
 import { nextTheme, setTheme, themeChoice, themeLabel } from "../lib/theme.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -81,6 +82,7 @@ export function Sidebar(props: {
               {me().username ?? me().email ?? "Signed in"}
             </span>
             <ThemeButton />
+            <SignOutButton />
             <span
               class="size-1.5 shrink-0 rounded-full transition-colors"
               classList={{ "bg-ok": connected(), "bg-high": !connected() }}
@@ -437,6 +439,38 @@ function ThemeButton(): JSX.Element {
             stroke-linejoin="round"
           />
         </Show>
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Signing out, which was not possible at all.
+ *
+ * `POST /auth/logout` existed on the API and nothing called it, so the only
+ * way out of a session was clearing the cookie by hand. That is fine on your
+ * own laptop and not fine on a shared one.
+ *
+ * Next to the name it ends rather than under a menu of one: the row already
+ * says who you are, and this is the only thing you would do to it.
+ */
+function SignOutButton(): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label="Sign out"
+      title="Sign out"
+      onClick={() => void signOut()}
+      class="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d="M6 13.5H3.5a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1H6M10.5 11 13.5 8l-3-3M13 8H6"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
   );
