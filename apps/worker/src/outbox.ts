@@ -271,7 +271,9 @@ async function execute(
         fieldId: string;
         value: unknown;
       };
-      await client.setCustomFieldValue(taskId, fieldId, value);
+      // Clearing is a DELETE, not a POST with nothing in it.
+      if (value === null) await client.deleteCustomFieldValue(taskId, fieldId);
+      else await client.setCustomFieldValue(taskId, fieldId, value);
       const refreshed = await client.getTask(taskId);
       // Same as the tag case: a Custom Field write does not move `date_updated`
       // either, so the guard would skip the row this request was made for.

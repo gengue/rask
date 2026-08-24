@@ -444,6 +444,18 @@ export class ClickUpClient {
     });
   }
 
+  /**
+   * Clearing one is its own verb.
+   *
+   * Every variant the POST body accepts is a value of some type — a string, a
+   * number, an array, a `{add, rem}` — and none of them is none. Posting
+   * `{ value: null }` at it is refused, which reaches the author as "ClickUp
+   * rejected your change" for a field they only meant to empty.
+   */
+  async deleteCustomFieldValue(taskId: string, fieldId: string): Promise<void> {
+    await this.request(z.unknown(), "DELETE", `/v2/task/${taskId}/field/${fieldId}`);
+  }
+
   // --- Tags ---------------------------------------------------------------
 
   /** Every tag defined on a Space. Tags are per-Space, not per-workspace. */

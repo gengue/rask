@@ -6,6 +6,7 @@ import {
   outbox,
   taskAssignees,
   taskChecklists,
+  taskCustomValues,
   tasks,
   users,
 } from "@rask/schema";
@@ -25,6 +26,7 @@ import {
   findChecklistItem,
   findComment,
   isEditable,
+  setCustomField,
   setTaskTags,
 } from "../src/writes.ts";
 
@@ -507,6 +509,63 @@ describe("setTaskTags", () => {
 
     await setTaskTags(db, { taskId: TASK, userId: AUTHOR, tags: ["dup", "dup"] });
     expect(await queued()).toHaveLength(1);
+  });
+});
+
+describe("setCustomField", () => {
+  /*
+   * The one write here that used to queue and nothing else.
+   *
+   * The panel refetches after a field write, so a mirror left holding the old
+   * value shows the old value — for as long as the outbox takes, which is a
+   * couple of seconds on a good day and unbounded when the worker is behind.
+   * A People field makes it worse than cosmetic: its menu decides add-versus-
+   * remove from what it believes is on the task, so a stale read turns "take
+   * Ana off" into a second request to put her on.
+   */
+  test("writes the value locally and queues it in one go", async () => {
+    await setCustomField(db, { taskId: TASK, userId: AUTHOR, fieldId: "f1", value: "opt-2" });
+
+    const [row] = await db.select().from(taskCustomValues).where(eq(taskCustomValues.taskId, TASK));
+    expect(row?.value).toBe("opt-2");
+
+    const rows = await queued();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.op).toBe("set_custom_field");
+    expect(rows[0]?.payload).toEqual({ taskId: TASK, fieldId: "f1", value: "opt-2" });
+  });
+
+  /* A People field goes up as a delta and is stored as the list it leaves
+     behind, which is the whole reason the two are separate arguments. */
+  test("stores what the mirror should hold, not what ClickUp is sent", async () => {
+    await setCustomField(db, {
+      taskId: TASK,
+      userId: AUTHOR,
+      fieldId: "f2",
+      value: { add: [42], rem: [] },
+      mirror: [{ id: "42", username: "ana" }],
+    });
+
+    const [row] = await db
+      .select()
+      .from(taskCustomValues)
+      .where(eq(taskCustomValues.fieldId, "f2"));
+    expect(row?.value).toEqual([{ id: "42", username: "ana" }]);
+
+    const rows = await queued();
+    expect(rows[0]?.payload).toEqual({
+      taskId: TASK,
+      fieldId: "f2",
+      value: { add: [42], rem: [] },
+    });
+  });
+
+  test("clearing it takes the row out rather than storing a null", async () => {
+    await setCustomField(db, { taskId: TASK, userId: AUTHOR, fieldId: "f1", value: "opt-2" });
+    await setCustomField(db, { taskId: TASK, userId: AUTHOR, fieldId: "f1", value: null });
+
+    const rows = await db.select().from(taskCustomValues).where(eq(taskCustomValues.taskId, TASK));
+    expect(rows).toHaveLength(0);
   });
 });
 
