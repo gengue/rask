@@ -18,6 +18,7 @@ import {
   type CommentThread,
   type Task,
   type TaskDetail as TaskDetailData,
+  withLiveTask,
 } from "../lib/api.ts";
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
@@ -76,14 +77,14 @@ export function TaskDetail(props: {
    *
    * Without this the panel would keep rendering the fetched snapshot, so
    * changing status from the list would move the row and leave the open detail
-   * claiming the old value. The resource still supplies what only it knows:
-   * description, comments and custom fields.
+   * claiming the old value. Only for the Task half, which is what `withLiveTask`
+   * is for: the resource still owns description, comments and custom fields.
    */
   const task = () => {
     const fetched = detail();
     if (!fetched) return null;
     const live = tasks.get(props.taskId);
-    return live ? { ...fetched, ...live } : fetched;
+    return live ? withLiveTask(fetched, live) : fetched;
   };
 
   const [assigneeMenu, setAssigneeMenu] = createSignal<{ x: number; y: number } | null>(null);
