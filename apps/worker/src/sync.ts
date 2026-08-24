@@ -141,6 +141,27 @@ export async function activeLists(db: Db): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/**
+ * Lists somebody has asked for and nobody has read yet.
+ *
+ * Opening a list in the browser writes its cursor row and stops there, so
+ * without this the first fill waits for the next poll tick — two minutes, or
+ * ten once a webhook is delivering, since the webhook only carries changes to
+ * tasks the mirror already holds and can say nothing about a list it has never
+ * seen.
+ *
+ * `lastRunAt` is stamped by both the success and the failure path, so a list
+ * leaves this set after one attempt either way and a list ClickUp keeps
+ * refusing backs off with the poll instead of being retried every few seconds.
+ */
+export async function coldLists(db: Db): Promise<string[]> {
+  const rows = await db
+    .select({ id: syncCursors.scopeId })
+    .from(syncCursors)
+    .where(and(eq(syncCursors.scope, "list"), isNull(syncCursors.lastRunAt)));
+  return rows.map((r) => r.id);
+}
+
 /** Every list in the mirror, archived ones excluded. Used by the initial load. */
 export async function allLists(db: Db): Promise<Array<{ id: string; name: string }>> {
   return db.select({ id: lists.id, name: lists.name }).from(lists).where(eq(lists.archived, false));

@@ -1,15 +1,16 @@
 import { createDb } from "@rask/schema";
 import { loadConfig } from "./config.ts";
 import { drainOutbox } from "./outbox.ts";
-import { activeLists, syncHierarchy, syncList } from "./sync.ts";
+import { activeLists, coldLists, syncHierarchy, syncList } from "./sync.ts";
 import { TokenPool } from "./tokens.ts";
 import { drainWebhookEvents, ensureWebhook, NO_PUBLIC_URL } from "./webhooks.ts";
 
 /**
- * Five loops, no scheduler library.
+ * Six loops, no scheduler library.
  *
  *  - outbox: ship pending writes to ClickUp
  *  - webhook: read back the tasks ClickUp's events named
+ *  - cold: first read of a list somebody has just opened
  *  - poll: re-read every tracked list, because webhooks get lost and have no replay
  *  - health: notice a webhook ClickUp has suspended, and revive it
  *  - reconcile: once a night, ignore the cursors and re-read everything
@@ -26,6 +27,8 @@ const pool = new TokenPool(db, config.encryptionKey);
 const WEBHOOK_DRAIN_INTERVAL_MS = 1_000;
 /** How often the registration is re-checked against ClickUp. */
 const WEBHOOK_HEALTH_INTERVAL_MS = 5 * 60_000;
+/** How long a list somebody just opened waits to be read for the first time. */
+const COLD_INTERVAL_MS = 3_000;
 
 let stopping = false;
 
@@ -172,6 +175,40 @@ every(WEBHOOK_DRAIN_INTERVAL_MS, "webhook", async () => {
 });
 
 every(WEBHOOK_HEALTH_INTERVAL_MS, "webhook-health", checkWebhook);
+
+/*
+ * The first read of a list somebody has just opened.
+ *
+ * Loading a list in the browser registers interest and nothing more, so until
+ * something reads it the list is empty on screen. The poll would get there
+ * eventually, but "eventually" is ten minutes once a webhook is delivering, and
+ * the webhook itself can never help: its events name tasks the mirror already
+ * holds and say nothing about a list it has never seen.
+ *
+ * Cheap to run this often. `coldLists` is one indexed query, the set is empty
+ * almost always, and the token pool is only touched when it is not.
+ */
+every(COLD_INTERVAL_MS, "cold", async () => {
+  const listIds = await coldLists(db);
+  if (listIds.length === 0) return;
+  if ((await pool.refresh()) === 0) return;
+
+  for (const listId of listIds) {
+    if (stopping) break;
+    const entry = pool.next();
+    if (!entry) break;
+    try {
+      const stats = await syncList(db, entry.client, listId, { teamId: entry.teamId });
+      console.log(
+        `[cold] list ${listId}: ${stats.tasks} tasks, ${stats.requests} requests, ${stats.ms}ms`,
+      );
+    } catch (error) {
+      // Already recorded against the cursor, which is what stops this retrying
+      // in three seconds; the poll owns it from here.
+      console.error(`[cold] list ${listId}`, error instanceof Error ? error.message : error);
+    }
+  }
+});
 
 every(
   () => (webhookDelivering ? config.POLL_INTERVAL_WEBHOOK_MS : config.POLL_INTERVAL_MS),
