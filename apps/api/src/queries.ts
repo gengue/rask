@@ -244,7 +244,8 @@ export async function getTaskDetail(db: Db, taskId: string) {
         .from(taskCustomValues)
         .innerJoin(customFieldDefs, eq(customFieldDefs.id, taskCustomValues.fieldId))
         .where(eq(taskCustomValues.taskId, taskId))
-        .orderBy(asc(customFieldDefs.name)),
+        // Same reason as the comments below: names are not unique, ids are.
+        .orderBy(asc(customFieldDefs.name), asc(customFieldDefs.id)),
 
       statusesForList(db, task.listId),
 
@@ -316,7 +317,7 @@ export async function listSubtasks(db: Db, taskId: string): Promise<TaskRef[]> {
     .select(taskRefColumns)
     .from(tasks)
     .where(and(eq(tasks.parentId, taskId), isNull(tasks.deletedAt), eq(tasks.archived, false)))
-    .orderBy(asc(tasks.orderindex), asc(tasks.dateCreated));
+    .orderBy(asc(tasks.orderindex), asc(tasks.dateCreated), asc(tasks.id));
 }
 
 export interface ChecklistItemRow {
@@ -350,7 +351,11 @@ export async function listChecklists(db: Db, taskId: string): Promise<ChecklistR
       .select({ id: taskChecklists.id, name: taskChecklists.name })
       .from(taskChecklists)
       .where(eq(taskChecklists.taskId, taskId))
-      .orderBy(asc(taskChecklists.orderindex), asc(taskChecklists.dateCreated)),
+      .orderBy(
+        asc(taskChecklists.orderindex),
+        asc(taskChecklists.dateCreated),
+        asc(taskChecklists.id),
+      ),
 
     db
       .select({
@@ -483,7 +488,17 @@ export async function listComments(db: Db, taskId: string): Promise<CommentThrea
     .from(comments)
     .leftJoin(users, eq(users.id, comments.userId))
     .where(eq(comments.taskId, taskId))
-    .orderBy(asc(comments.date));
+    /*
+     * The id breaks the tie, so the order is the same on every read.
+     *
+     * Two comments can share a `date` — a bot posting a batch lands them in the
+     * same millisecond — and Postgres is then free to return them in either
+     * order. The open panel compares the detail it is handed against the one it
+     * is already showing and renders nothing when they match; an order that
+     * flaps makes every one of those comparisons a difference, and the panel
+     * rebuilds every 30s with nothing to show for it.
+     */
+    .orderBy(asc(comments.date), asc(comments.id));
 
   const threads = new Map<string, CommentThread>();
   for (const row of rows) {

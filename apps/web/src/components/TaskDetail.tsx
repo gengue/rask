@@ -25,6 +25,7 @@ import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-
 import { useExpanded } from "../lib/nav.tsx";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
+import { stableDetail } from "../lib/stable-detail.ts";
 import { tasks } from "../lib/store.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Attachments } from "./Attachments.tsx";
@@ -61,9 +62,13 @@ export function TaskDetail(props: {
   onStatusClick: (event: MouseEvent) => void;
 }): JSX.Element {
   const [expanded, setExpanded] = useExpanded();
+
+  /* Why an identical answer must come back as the same object: see the module. */
+  const stable = stableDetail();
+
   const [detail, { mutate, refetch }] = createResource(
     () => props.taskId,
-    (id) => api.task(id),
+    async (id) => stable(await api.task(id)),
   );
 
   /**
@@ -150,7 +155,7 @@ export function TaskDetail(props: {
   // result back over SSE. This is where that push lands.
   createEffect(() => {
     const pushed = pushedDetail();
-    if (pushed?.id === props.taskId) mutate(pushed);
+    if (pushed?.id === props.taskId) mutate(stable(pushed));
   });
 
   /**
