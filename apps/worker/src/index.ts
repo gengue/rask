@@ -54,6 +54,7 @@ function every(ms: number | (() => number), name: string, run: () => Promise<voi
 async function pollOnce(full: boolean): Promise<void> {
   const count = await pool.refresh();
   if (count === 0) return;
+  if (!hierarchyLoaded) hierarchyLoaded = await refreshHierarchy();
 
   const listIds = await activeLists(db);
   if (listIds.length === 0) return;
@@ -146,7 +147,15 @@ async function checkWebhook(): Promise<void> {
 
 const tokenCount = await pool.refresh();
 console.log(`[worker] ${tokenCount} ClickUp token(s) available`);
-await refreshHierarchy();
+/*
+ * False until the tree lands once, and retried by the poll below.
+ *
+ * A worker on a fresh deployment boots before anybody can possibly have signed
+ * in, so this first attempt has no token to make and every list, every space
+ * and the sidebar itself stay empty. Without the retry the next attempt is the
+ * nightly reconciliation, which is a long time to look at an empty app.
+ */
+let hierarchyLoaded = await refreshHierarchy();
 await checkWebhook();
 
 every(config.OUTBOX_INTERVAL_MS, "outbox", async () => {
@@ -177,16 +186,10 @@ every(WEBHOOK_DRAIN_INTERVAL_MS, "webhook", async () => {
 every(WEBHOOK_HEALTH_INTERVAL_MS, "webhook-health", checkWebhook);
 
 /*
- * The first read of a list somebody has just opened.
- *
- * Loading a list in the browser registers interest and nothing more, so until
- * something reads it the list is empty on screen. The poll would get there
- * eventually, but "eventually" is ten minutes once a webhook is delivering, and
- * the webhook itself can never help: its events name tasks the mirror already
- * holds and say nothing about a list it has never seen.
- *
- * Cheap to run this often. `coldLists` is one indexed query, the set is empty
- * almost always, and the token pool is only touched when it is not.
+ * The first read of a list somebody has just opened. See `coldLists` for why it
+ * cannot wait for the poll and why running this often costs nothing: the set is
+ * empty except for the seconds after a list is opened, and the token pool is
+ * only touched when it is not.
  */
 every(COLD_INTERVAL_MS, "cold", async () => {
   const listIds = await coldLists(db);
@@ -223,7 +226,7 @@ every(15 * 60_000, "reconcile", async () => {
   if (now.getHours() !== config.RECONCILE_HOUR || now.getDate() === lastReconcileDay) return;
   lastReconcileDay = now.getDate();
   // Lists get created and renamed; the nightly pass is where that catches up.
-  await refreshHierarchy();
+  hierarchyLoaded = (await refreshHierarchy()) || hierarchyLoaded;
   await pollOnce(true);
 });
 
