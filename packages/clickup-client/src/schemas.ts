@@ -120,6 +120,24 @@ export const clickUpAttachment = z.looseObject({
 export type ClickUpAttachment = z.infer<typeof clickUpAttachment>;
 
 /**
+ * What `POST /task/{id}/attachment` answers with.
+ *
+ * Thinner than the same file as it arrives on `GET /task/{id}`: no size, no
+ * mimetype, no `url_w_query`, and the `date` is a number where the task's is a
+ * string. Enough to name the file and link to it, not enough to mirror — which
+ * is why the upload path re-reads the task instead of storing this.
+ */
+export const clickUpAttachmentUpload = z.looseObject({
+  id: z.string(),
+  title: z.string().nullish(),
+  extension: z.string().nullish(),
+  url: z.string().nullish(),
+  thumbnail_small: z.string().nullish(),
+  thumbnail_large: z.string().nullish(),
+});
+export type ClickUpAttachmentUpload = z.infer<typeof clickUpAttachmentUpload>;
+
+/**
  * One line item in a task checklist.
  *
  * The spec documents `id`, `name`, `orderindex`, `assignee`, `resolved`,

@@ -1,3 +1,4 @@
+import { UPLOAD_FIELD } from "@rask/clickup-client/vocabulary";
 import type { RemoteLookup } from "./clickup-url.ts";
 import { markSignedOut } from "./signed-out.ts";
 
@@ -136,6 +137,19 @@ export interface Attachment {
   thumbnailMedium: string | null;
   url: string | null;
   urlWithQuery: string | null;
+}
+
+/**
+ * What an upload answers with: the file, and the task as the mirror now holds
+ * it.
+ *
+ * The attachment is named separately rather than left to be found inside the
+ * detail, because the composer needs its URL to write a link and the re-read
+ * that fills `detail.attachments` can land a moment late.
+ */
+export interface AttachmentUpload {
+  attachment: Pick<Attachment, "id" | "title" | "url" | "urlWithQuery">;
+  detail: TaskDetail;
 }
 
 export interface ChecklistItem {
@@ -339,9 +353,12 @@ export interface TaskPage {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // FormData writes its own Content-Type, boundary included. Naming JSON here
+  // would send a header the server cannot split the parts with.
+  const form = init?.body instanceof FormData;
   const response = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { ...(form ? {} : { "Content-Type": "application/json" }), ...init?.headers },
   });
 
   if (response.status === 401) {
@@ -430,6 +447,22 @@ export const api = {
   view: (viewId: string) => request<View>(`/api/views/${viewId}`),
 
   task: (id: string) => request<TaskDetail>(`/api/tasks/${id}`),
+
+  /**
+   * Uploads one file to a task and answers with the refreshed detail.
+   *
+   * Not optimistic, unlike every other write: the file has to reach ClickUp
+   * before it has a URL, and a placeholder attachment nobody can open is worse
+   * than a second of waiting.
+   */
+  uploadAttachment(taskId: string, file: File): Promise<AttachmentUpload> {
+    const form = new FormData();
+    form.append(UPLOAD_FIELD, file, file.name);
+    return request<AttachmentUpload>(`/api/tasks/${taskId}/attachments`, {
+      method: "POST",
+      body: form,
+    });
+  },
 
   search: (query: string) => request<SearchHit[]>(`/api/search?q=${encodeURIComponent(query)}`),
 

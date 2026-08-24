@@ -20,6 +20,7 @@ import {
   type TaskDetail as TaskDetailData,
   withLiveTask,
 } from "../lib/api.ts";
+import { attachmentMarkdown, createUploader, filesFrom } from "../lib/attach.ts";
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
@@ -106,6 +107,25 @@ export function TaskDetail(props: {
   /** Optimistic edit of the open task. The collection rolls it back on failure. */
   const patch = (apply: (draft: Task) => void) => tasks.update(props.taskId, apply);
 
+  /*
+   * Files dropped on the panel, or picked from the attachments section.
+   *
+   * Not optimistic, unlike everything else here: a file has no URL until
+   * ClickUp has it, and a placeholder attachment that cannot be opened is worse
+   * than the second it takes. The server answers with the refreshed detail, so
+   * the new row arrives with the response rather than on the next poll.
+   */
+  const uploader = createUploader({
+    taskId: () => props.taskId,
+    // The panel does not remount when another task is opened, so an upload
+    // started against A can answer while B is on screen. Same guard, and for
+    // the same reason, as the SSE push below.
+    onUploaded: (result, _file, taskId) => {
+      if (taskId === props.taskId) mutate(stable(result.detail));
+    },
+  });
+  let filePicker!: HTMLInputElement;
+
   /**
    * Optimistic edit of what only the detail knows.
    *
@@ -177,7 +197,8 @@ export function TaskDetail(props: {
   return (
     <aside
       aria-label="Task detail"
-      class="flex flex-col bg-panel"
+      class="relative flex flex-col bg-panel"
+      {...uploader.handlers}
       classList={{
         /*
          * Above `split` this is a flex sibling of the list, exactly as it was.
@@ -193,6 +214,28 @@ export function TaskDetail(props: {
         "flex-1 min-w-0": expanded(),
       }}
     >
+      {/* `pointer-events-none`, or the overlay itself becomes the drop target
+          and the drag leaves the panel the moment it is shown. */}
+      <Show when={uploader.dragging()}>
+        <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-panel/85 ring-2 ring-accent ring-inset">
+          <span class="text-base text-ink-2">Drop to attach</span>
+        </div>
+      </Show>
+
+      <input
+        ref={filePicker}
+        type="file"
+        multiple
+        class="hidden"
+        onChange={(event) => {
+          const files = filesFrom(event.currentTarget);
+          // Cleared, or picking the same file twice in a row is a change event
+          // that never fires.
+          event.currentTarget.value = "";
+          void uploader.upload(files);
+        }}
+      />
+
       <header class="flex h-12 shrink-0 items-center gap-2 border-line/70 border-b px-4">
         <Show when={task()?.customId}>
           <span class="font-mono text-ink-3 text-xs">{task()?.customId}</span>
@@ -472,7 +515,11 @@ export function TaskDetail(props: {
                 and a fourth child would push the conversation to the bottom of
                 the panel. */}
             <div classList={{ "col-start-1": expanded() }}>
-              <Attachments items={task().attachments} />
+              <Attachments
+                items={task().attachments}
+                pending={uploader.pending()}
+                onPick={() => filePicker.click()}
+              />
 
               <Checklists
                 taskId={props.taskId}
@@ -860,6 +907,7 @@ function Comments(props: {
 
                     <Show when={replyingTo() === thread.id}>
                       <Composer
+                        taskId={props.taskId}
                         placeholder="Reply…"
                         submitLabel="Reply"
                         autofocus
@@ -890,6 +938,7 @@ function Comments(props: {
 
       <div class="mt-4">
         <Composer
+          taskId={props.taskId}
           placeholder="Leave a comment…"
           submitLabel="Comment"
           onSubmit={(text) => void post(text)}
@@ -1014,6 +1063,7 @@ function CommentItem(props: {
         >
           <div class="pt-1">
             <Composer
+              taskId={props.taskId}
               initial={props.comment.text ?? ""}
               placeholder="Edit the comment…"
               submitLabel="Save"
@@ -1050,6 +1100,8 @@ function CommentAction(props: { label: string; onClick: () => void }): JSX.Eleme
  * global listener and `j`, `k` and `c` are all letters people type.
  */
 function Composer(props: {
+  /** Where a dropped file goes. ClickUp has no comment-attachment endpoint. */
+  taskId: string;
   initial?: string;
   placeholder: string;
   submitLabel: string;
@@ -1061,6 +1113,7 @@ function Composer(props: {
   const [mention, setMention] = createSignal<MentionQuery | null>(null);
   const [picked, setPicked] = createSignal(0);
   let box!: HTMLTextAreaElement;
+  let filePicker!: HTMLInputElement;
 
   /** Members matching the `@token` under the caret, best first. */
   const candidates = () => {
@@ -1094,14 +1147,39 @@ function Composer(props: {
       box.selectionStart,
       formatMention({ id: user.id, name: user.username ?? user.email ?? user.id }),
     );
-    setText(next.text);
     setMention(null);
-    // Restore the caret after Solid writes the new value back into the box.
+    place(next.text, next.caret);
+  };
+
+  /** Writes the box and restores the caret once Solid has written the value back. */
+  const place = (value: string, caret: number) => {
+    setText(value);
     queueMicrotask(() => {
       box.focus();
-      box.setSelectionRange(next.caret, next.caret);
+      box.setSelectionRange(caret, caret);
     });
   };
+
+  /** Puts a block on its own line at the caret, and leaves the caret after it. */
+  const insertBlock = (snippet: string) => {
+    const before = box.value.slice(0, box.selectionStart);
+    const after = box.value.slice(box.selectionEnd);
+    const lead = before && !before.endsWith("\n") ? "\n" : "";
+    place(`${before}${lead}${snippet}\n${after}`, before.length + lead.length + snippet.length + 1);
+  };
+
+  /*
+   * A file dropped on a comment box.
+   *
+   * It goes to the task, because that is the only place ClickUp will take one:
+   * `POST /task/{id}/comment` accepts `comment_text` and nothing else. So the
+   * comment gets a markdown link to a file the task now holds — which is where
+   * ClickUp's own client puts a comment's attachments too.
+   */
+  const uploader = createUploader({
+    taskId: () => props.taskId,
+    onUploaded: (result, file) => insertBlock(attachmentMarkdown(file, result.attachment)),
+  });
 
   const submit = () => {
     const value = text().trim();
@@ -1119,7 +1197,10 @@ function Composer(props: {
   });
 
   return (
-    <div class="relative rounded-lg border border-line bg-elevated/70 focus-within:border-line-strong">
+    <div
+      class="relative rounded-lg border bg-elevated/70 focus-within:border-line-strong"
+      classList={{ "border-accent": uploader.dragging(), "border-line": !uploader.dragging() }}
+    >
       <Show when={mention() && candidates().length > 0}>
         {/* Anchored to the box rather than the caret. Tracking the caret in a
             textarea means mirroring its content into a hidden element to
@@ -1161,6 +1242,16 @@ function Composer(props: {
         }}
         onClick={syncMention}
         onBlur={() => setMention(null)}
+        /* On the box rather than the wrapper: this is the thing being dropped
+           on, and it is already interactive. */
+        onPaste={(event) => {
+          const files = filesFrom(event.clipboardData);
+          if (files.length === 0) return;
+          // Or the browser pastes the file's name in as text beside the link.
+          event.preventDefault();
+          void uploader.upload(files);
+        }}
+        {...uploader.handlers}
         onKeyDown={(event) => {
           const list = candidates();
 
@@ -1206,18 +1297,45 @@ function Composer(props: {
         placeholder={props.placeholder}
         class="w-full resize-none px-3 py-2 text-base"
       />
-      <div class="flex items-center justify-between px-3 pb-2">
-        <span class="text-xs text-ink-3">
-          @ to mention · ⌘↵ to send{props.onCancel ? " · esc to cancel" : ""}
+      <input
+        ref={filePicker}
+        type="file"
+        multiple
+        class="hidden"
+        onChange={(event) => {
+          const files = filesFrom(event.currentTarget);
+          event.currentTarget.value = "";
+          void uploader.upload(files);
+        }}
+      />
+
+      <div class="flex items-center justify-between gap-2 px-3 pb-2">
+        <span class="min-w-0 truncate text-xs text-ink-3">
+          <Show
+            when={uploader.pending()[0]}
+            fallback={<>@ to mention · ⌘↵ to send{props.onCancel ? " · esc to cancel" : ""}</>}
+          >
+            {(name) => <>Uploading {name()}…</>}
+          </Show>
         </span>
-        <button
-          type="button"
-          disabled={!text().trim()}
-          onClick={submit}
-          class="rounded-[5px] bg-accent px-2.5 py-1 font-medium text-on-accent text-sm disabled:opacity-30"
-        >
-          {props.submitLabel}
-        </button>
+        <div class="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => filePicker.click()}
+            title="Attach a file"
+            class="rounded-[5px] px-2 py-1 font-medium text-ink-3 text-sm hover:bg-hover hover:text-ink"
+          >
+            Attach
+          </button>
+          <button
+            type="button"
+            disabled={!text().trim()}
+            onClick={submit}
+            class="rounded-[5px] bg-accent px-2.5 py-1 font-medium text-on-accent text-sm disabled:opacity-30"
+          >
+            {props.submitLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

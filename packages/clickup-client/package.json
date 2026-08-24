@@ -6,6 +6,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./comment-body": "./src/comment-body.ts",
     "./mentions": "./src/mentions.ts",
     "./vocabulary": "./src/vocabulary.ts"
   },

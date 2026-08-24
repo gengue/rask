@@ -314,6 +314,25 @@ export function AppShell(): JSX.Element {
   window.addEventListener("keydown", onKeyDown);
   onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
+  /*
+   * A file dropped anywhere but on a drop target is swallowed, not opened.
+   *
+   * The browser's default for a dropped file is to navigate to it, which throws
+   * away the whole SPA — the open task, the filter, a half-written comment —
+   * and lands on a PDF. Now that dragging files at this app is a normal thing
+   * to do, missing the panel by twenty pixels is a normal way to lose work.
+   *
+   * Anything that actually handles a drop prevents the default first, so this
+   * only ever sees the misses.
+   */
+  const swallowDrop = (event: DragEvent) => event.preventDefault();
+  window.addEventListener("dragover", swallowDrop);
+  window.addEventListener("drop", swallowDrop);
+  onCleanup(() => {
+    window.removeEventListener("dragover", swallowDrop);
+    window.removeEventListener("drop", swallowDrop);
+  });
+
   // Reset per-view state when the view changes; row 4 of the old list means
   // nothing in the new one, and picking a list is the drawer's whole job.
   createEffect(() => {

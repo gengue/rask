@@ -61,6 +61,28 @@ is repaired, and the user is told. The read path has no such backstop.
 - **The OAuth `state`** is a cookie compared in constant time, and a mismatch
   is refused before the authorization code is ever exchanged.
 
+## Uploads
+
+`POST /api/tasks/:id/attachments` is the only route that takes a body which is
+not JSON, and the only one whose size is bounded by anything but a schema. It
+sits behind `requireAuth` like every other `/api` route, so the caller is
+always a signed-in member of the workspace.
+
+- The body is capped at 25 MB (`MAX_ATTACHMENT_BYTES`, plus slack for the
+  multipart envelope) by **reading the stream**, not by trusting
+  `Content-Length` — the caller writes that header and can omit it entirely.
+- The token check runs before the body is read, so an upload with no ClickUp
+  token behind it is refused without buffering anything.
+- Multipart is a CORS-simple request, unlike the JSON routes, so a cross-site
+  form could POST here. The session cookie is `SameSite=Lax`, so that request
+  arrives with no session and is refused as unauthenticated.
+
+What this does not do: the whole file is buffered in memory to cap it, and
+nothing bounds how many uploads are in flight at once. Enough concurrent
+uploads are a way for a signed-in member to exhaust the API process's memory.
+Every signed-in member can already read the entire mirror, so this is a
+resource limit that is missing, not a boundary that is open.
+
 ## The webhook endpoint
 
 `POST /webhooks/clickup` is the one route outside `requireAuth`, because

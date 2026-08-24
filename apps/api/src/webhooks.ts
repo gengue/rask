@@ -74,13 +74,6 @@ export function webhookRoutes(deps: WebhookRouteDeps) {
     const signature = c.req.header("x-signature");
     if (!signature) return c.json({ error: "missing X-Signature" }, 400);
 
-    // Cheapest rejection there is: a declared size we will not read, refused
-    // before a single byte of the body comes off the socket.
-    const declared = Number(c.req.header("content-length"));
-    if (Number.isFinite(declared) && declared > maxBytes) {
-      return c.json({ error: "body too large" }, 413);
-    }
-
     const body = await readCapped(c.req.raw, maxBytes);
     if (body === null) return c.json({ error: "body too large" }, 413);
 
@@ -191,8 +184,26 @@ export function clickUpWebhookRoutes(db: Db, key: Buffer, envSecret?: string) {
  * what actually holds.
  */
 async function readCapped(request: Request, max: number): Promise<string | null> {
+  const bytes = await readCappedBytes(request, max);
+  return bytes === null ? null : new TextDecoder().decode(bytes);
+}
+
+/**
+ * The body as bytes, or null if it runs past `max`.
+ *
+ * Lives here beside the route that needed it first, and is also what the
+ * attachment upload reads with: both have a size they will not exceed and
+ * neither can learn it from `Content-Length`, which the caller writes and can
+ * simply omit.
+ */
+export async function readCappedBytes(request: Request, max: number): Promise<Uint8Array | null> {
+  // Cheapest rejection there is: a declared size we will not read, refused
+  // before a single byte comes off the socket. Believed only when it says no.
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > max) return null;
+
   const stream = request.body;
-  if (!stream) return "";
+  if (!stream) return new Uint8Array();
 
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -213,7 +224,7 @@ async function readCapped(request: Request, max: number): Promise<string | null>
     reader.releaseLock();
   }
 
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return Buffer.concat(chunks);
 }
 
 function safeJson(body: string): unknown {

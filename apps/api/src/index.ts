@@ -23,6 +23,7 @@ import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import { readUpload } from "./attachments.ts";
 import { authRoutes, currentUser, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
@@ -551,6 +552,70 @@ api.delete("/checklist-items/:id", async (c) => {
   return c.json(await getTaskDetail(db, item.taskId));
 });
 
+/**
+ * Uploads a file to a task.
+ *
+ * The one write in the app that does not go through the outbox. A queue row is
+ * JSON and a file is bytes, so queueing this would mean a staging table holding
+ * blobs in Postgres — and ClickUp's own client is not optimistic about uploads
+ * either, it shows a progress bar. So this waits for ClickUp, and a refusal is
+ * a message against the file that failed rather than a row that appears and
+ * vanishes two seconds later.
+ */
+api.post("/tasks/:id/attachments", async (c) => {
+  const taskId = c.req.param("id");
+  // Nothing upstream to attach to yet, and the CDN URL a comment would link to
+  // does not exist until ClickUp holds the file.
+  if (isPlaceholder(taskId)) return c.json({ error: NOT_YET }, 409);
+
+  // Before the body, not after: a request with no token behind it should not
+  // cost 25MB of buffer to refuse.
+  const client = await clientFor(c.get("user").id);
+  if (!client) return c.json({ error: "no ClickUp token" }, 409);
+
+  const upload = await readUpload(c.req.raw);
+  if (!upload.ok) return c.json({ error: upload.error }, upload.status);
+
+  let uploaded: { id: string; url: string | null };
+  try {
+    const created = await client.createTaskAttachment(taskId, upload.file);
+    uploaded = { id: created.id, url: created.url ?? null };
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "upload failed" }, 502);
+  }
+
+  /*
+   * The mirror learns about the file by re-reading the task, the same way it
+   * learns about everything else: the upload response carries no size, no
+   * mimetype and no `url_w_query`, so storing it would write a row the next
+   * poll has to correct. Comments are not worth re-reading for a file.
+   */
+  await refreshTask(c.get("user").id, taskId, { comments: false });
+
+  const detail = await getTaskDetail(db, taskId);
+  // Only reachable if the re-read failed on a task the mirror never held, in
+  // which case there is nothing to answer with and saying so beats a null the
+  // client has to branch on.
+  if (!detail) return c.json({ error: "not found" }, 404);
+
+  const mirrored = detail.attachments.find((row) => row.id === uploaded.id);
+  return c.json(
+    {
+      attachment: {
+        id: uploaded.id,
+        title: mirrored?.title ?? upload.file.name,
+        // Both, because which one a comment links to is the browser's call, and
+        // both fall back to the upload's own URL for the window where the
+        // re-read has not landed.
+        url: mirrored?.url ?? uploaded.url,
+        urlWithQuery: mirrored?.urlWithQuery ?? uploaded.url,
+      },
+      detail,
+    },
+    201,
+  );
+});
+
 api.put("/tasks/:id/tags", async (c) => {
   const body = taskTagsInput.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
@@ -802,13 +867,23 @@ const COMMENT_PAGES = 4;
  */
 const THREADS_PER_REFRESH = 10;
 
-async function refreshTask(userId: string, taskId: string): Promise<void> {
+async function refreshTask(
+  userId: string,
+  taskId: string,
+  options: { comments?: boolean } = {},
+): Promise<void> {
   try {
     if (isPlaceholder(taskId)) return;
     const client = await clientFor(userId);
     if (!client) return;
 
-    const [task] = await Promise.all([client.getTask(taskId), refreshComments(client, taskId)]);
+    const [task] = await Promise.all([
+      client.getTask(taskId),
+      // Skipped by the upload path: a file says nothing about the conversation,
+      // and re-reading it costs a page of comments plus a request per thread
+      // whose count moved, out of the uploader's own rate budget.
+      options.comments === false ? null : refreshComments(client, taskId),
+    ]);
     await ingestTasks(db, [task]);
 
     // The change feed watches tasks.synced_at, which does not move when

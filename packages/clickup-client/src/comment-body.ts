@@ -280,8 +280,14 @@ function fileName(name: string | null | undefined, url: string): string {
   }
 }
 
-/** Link text, with the brackets that would end it early escaped. */
-function label(text: string): string {
+/**
+ * Link text, with the brackets that would end it early escaped.
+ *
+ * Exported because the web app writes markdown too — a comment linking to a
+ * file it just uploaded — and a filename holding a bracket or a backslash ends
+ * the link text early there for exactly the same reason it does here.
+ */
+export function label(text: string): string {
   return text.replace(/[\\[\]]/g, (c) => `\\${c}`).replace(/\s*\n\s*/g, " ");
 }
 
@@ -299,6 +305,6 @@ const URL_ESCAPES: Record<string, string> = {
   ">": "%3E",
 };
 
-function encodeUrl(url: string): string {
+export function encodeUrl(url: string): string {
   return url.replace(/[()<>\s]/g, (c) => URL_ESCAPES[c] ?? encodeURIComponent(c));
 }
