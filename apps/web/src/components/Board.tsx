@@ -12,7 +12,7 @@ import {
 import { tasks } from "../lib/store.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import { viewLoading } from "../lib/view.ts";
-import { visibleRange } from "../lib/windowing.ts";
+import { sameRange, visibleRange } from "../lib/windowing.ts";
 import { BoardCard } from "./BoardCard.tsx";
 import { StatusIcon } from "./StatusIcon.tsx";
 
@@ -89,7 +89,16 @@ function Column(props: {
 
   const offsets = createMemo(() => cardOffsets(props.column.tasks));
   const height = () => offsets()[props.column.tasks.length] ?? 0;
-  const range = createMemo(() => visibleRange(offsets(), scrollTop(), viewport() || 800));
+  // Why the comparator: see `sameRange`. Without it every scroll event rebuilds
+  // the column, whether or not it moved — and a rebuild mid-drag detaches the
+  // card being dragged.
+  const range = createMemo(
+    () => visibleRange(offsets(), scrollTop(), viewport() || 800),
+    undefined,
+    {
+      equals: sameRange,
+    },
+  );
 
   /** Where the cursor is inside this column, or -1 when it is elsewhere. */
   const cursor = () => {

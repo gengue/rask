@@ -8,7 +8,7 @@ import {
   toColumns,
 } from "../src/lib/board.ts";
 import { groupTasks } from "../src/lib/grouping.ts";
-import { visibleRange } from "../src/lib/windowing.ts";
+import { sameRange, visibleRange } from "../src/lib/windowing.ts";
 
 function task(id: string, status: string | null, extra: Partial<Task> = {}): Task {
   return {
@@ -283,5 +283,25 @@ describe("card geometry", () => {
     const offsets = cardOffsets(Array.from({ length: 12 }, (_, i) => task(String(i), "todo")));
     expect(visibleRange(offsets, 0, 800, 4)).toEqual({ start: 0, end: 12 });
     expect(visibleRange(cardOffsets([]), 0, 800, 4)).toEqual({ start: 0, end: 0 });
+  });
+
+  /*
+   * The memo comparator, which is the difference between a scroll that costs
+   * one comparison and a scroll that rebuilds every visible row. `toEqual`
+   * would pass on a comparator that always says false, so these assert what
+   * `sameRange` answers rather than what the two windows contain.
+   */
+  test("a scroll that does not move the window compares equal", () => {
+    const offsets = cardOffsets(Array.from({ length: 500 }, (_, i) => task(String(i), "todo")));
+    const at = (top: number) => visibleRange(offsets, top, 800, 4);
+
+    // Most of a scroll lands inside the window already drawn: with 86px cards
+    // and an 800px viewport, the first ten cards of travel move either edge
+    // sixteen times, so sixteen rebuilds instead of one per pixel.
+    expect(sameRange(at(0), at(1))).toBe(true);
+    expect(sameRange(at(0), at(59))).toBe(true);
+    // At 60 the bottom edge crosses a card, and that one has to rebuild.
+    expect(sameRange(at(0), at(60))).toBe(false);
+    expect(sameRange(at(0), at(8600))).toBe(false);
   });
 });

@@ -2,13 +2,17 @@ import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } fro
 import type { Task } from "../lib/api.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import { flatItems, viewListId, viewLoading } from "../lib/view.ts";
-import { visibleRange } from "../lib/windowing.ts";
+import { sameRange, visibleRange } from "../lib/windowing.ts";
 import { StatusIcon } from "./StatusIcon.tsx";
 import { TaskRow } from "./TaskRow.tsx";
 
 const ROW_HEIGHT = 36;
 const HEADER_HEIGHT = 34;
-const OVERSCAN = 8;
+/* Not `windowing.ts`'s `OVERSCAN`, which is 4 and is what the board takes.
+   Rows are half a card's height, so the list buys the same pixels of runway
+   with twice the count. Named apart because a local `OVERSCAN` shadowing an
+   exported `OVERSCAN` with a different value is a trap, not a default. */
+const ROW_OVERSCAN = 8;
 
 /**
  * The list, windowed by hand.
@@ -55,7 +59,13 @@ export function TaskList(props: {
 
   // Same windowing the board uses. It was written twice, identically, once per
   // branch; one copy is enough and a scroll bug found here is then fixed there.
-  const range = createMemo(() => visibleRange(offsets(), scrollTop(), viewport() || 800, OVERSCAN));
+  const range = createMemo(
+    () => visibleRange(offsets(), scrollTop(), viewport() || 800, ROW_OVERSCAN),
+    undefined,
+    // Why the comparator: see `sameRange`. Without it every scroll event
+    // rebuilds the whole window, whether or not it moved.
+    { equals: sameRange },
+  );
 
   /** Indices that j/k can land on. Headers are skipped. */
   const rowIndices = createMemo(() =>
@@ -148,45 +158,46 @@ export function TaskList(props: {
       const item = list[index];
       if (!item) continue;
 
+      /*
+       * A plain branch rather than two nested `<Show>`.
+       *
+       * `kind` is a field of a `FlatItem` that is built once and never edited,
+       * so there is no reactivity for a `Show` to serve: when an item becomes
+       * the other kind it is a different object at a different index and this
+       * loop has already re-run. What the two cost is two components and two
+       * memos per item per rebuild, to decide a ternary. Every prop below is
+       * still a getter, so a row keeps tracking the cursor on its own.
+       */
       nodes.push(
         <div
           class="absolute top-0 left-0 w-full"
           style={{ transform: `translateY(${tops[index] ?? 0}px)` }}
         >
-          <Show
-            when={item.kind === "row" ? item : null}
-            fallback={
-              <Show when={item.kind === "header" ? item : null}>
-                {(header) => (
-                  <div class="flex h-[34px] items-center gap-2 border-line/45 border-b bg-wash px-5">
-                    <Show when={ui.groupBy === "status"}>
-                      <StatusIcon type={header().statusType} color={header().color} size={13} />
-                    </Show>
-                    <span class="font-medium text-sm text-ink capitalize tracking-[-0.005em]">
-                      {header().label}
-                    </span>
-                    <span class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums">
-                      {header().count}
-                    </span>
-                  </div>
-                )}
+          {item.kind === "row" ? (
+            <TaskRow
+              task={item.task}
+              showList={viewListId() === null}
+              active={rowIndices()[ui.cursor] === index}
+              selected={props.openTaskId === item.task.id}
+              onOpen={() => {
+                setUi("cursor", rowIndices().indexOf(index));
+                props.onOpen(item.task);
+              }}
+              onStatusClick={(event) => props.onStatusClick(item.task, event)}
+            />
+          ) : (
+            <div class="flex h-[34px] items-center gap-2 border-line/45 border-b bg-wash px-5">
+              <Show when={ui.groupBy === "status"}>
+                <StatusIcon type={item.statusType} color={item.color} size={13} />
               </Show>
-            }
-          >
-            {(row) => (
-              <TaskRow
-                task={row().task}
-                showList={viewListId() === null}
-                active={rowIndices()[ui.cursor] === index}
-                selected={props.openTaskId === row().task.id}
-                onOpen={() => {
-                  setUi("cursor", rowIndices().indexOf(index));
-                  props.onOpen(row().task);
-                }}
-                onStatusClick={(event) => props.onStatusClick(row().task, event)}
-              />
-            )}
-          </Show>
+              <span class="font-medium text-sm text-ink capitalize tracking-[-0.005em]">
+                {item.label}
+              </span>
+              <span class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums">
+                {item.count}
+              </span>
+            </div>
+          )}
         </div>,
       );
     }
