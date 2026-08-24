@@ -2,11 +2,8 @@ import type { ClickUpClient } from "@rask/clickup-client";
 import {
   type Db,
   ingestTasks,
-  lists,
-  mapCustomField,
   syncCursors,
   tasks,
-  upsertCustomFields,
   upsertFolders,
   upsertLists,
   upsertSpaces,
@@ -58,9 +55,10 @@ export async function syncHierarchy(
  * Pulls a list's tasks into the mirror.
  *
  * Incremental by default: `date_updated_gt` is the newest ClickUp mtime we have
- * already stored, so a quiet list costs exactly one request. The cursor only
- * advances after a page commits, so a crash mid-list re-reads instead of
- * skipping, and the upserts make the re-read a no-op.
+ * already stored, so a quiet list costs exactly one request. Pages arrive
+ * oldest first and the cursor advances only after one commits, so an error
+ * halfway down a long list resumes from where it stopped rather than skipping
+ * what it never read.
  *
  * `full: true` ignores the cursor. That is what a manual resync and the nightly
  * reconciliation use to repair anything a lost webhook left stale.
@@ -86,6 +84,21 @@ export async function syncList(
       includeClosed: true,
       subtasks: true,
       orderBy: "updated",
+      /*
+       * Oldest first, which is what makes the cursor below resumable.
+       *
+       * `order_by=updated` alone is newest first — measured against the real
+       * workspace, not assumed. Page 0 would then carry the newest task in the
+       * list, the cursor would jump to the list's global maximum before page 1
+       * was even asked for, and an error halfway through would leave every task
+       * it had not reached yet sitting behind a cursor that says they are all
+       * accounted for. They would stay invisible until the nightly full pass.
+       *
+       * Ascending, each committed page only moves the cursor past what it
+       * actually contains, and a task edited mid-pagination moves to the end
+       * where this read still catches it.
+       */
+      reverse: true,
     })) {
       stats.requests++;
       stats.tasks += page.length;
@@ -114,16 +127,6 @@ export async function syncList(
 
   stats.ms = Date.now() - started;
   return stats;
-}
-
-/** Custom Field definitions for a list. Needed to render anything but raw values. */
-export async function syncListCustomFields(
-  db: Db,
-  client: ClickUpClient,
-  listId: string,
-): Promise<void> {
-  const fields = await client.getListCustomFields(listId);
-  await upsertCustomFields(db, fields.map(mapCustomField));
 }
 
 /** Re-reads a single task. What a webhook triggers, since events carry only an id. */
@@ -160,11 +163,6 @@ export async function coldLists(db: Db): Promise<string[]> {
     .from(syncCursors)
     .where(and(eq(syncCursors.scope, "list"), isNull(syncCursors.lastRunAt)));
   return rows.map((r) => r.id);
-}
-
-/** Every list in the mirror, archived ones excluded. Used by the initial load. */
-export async function allLists(db: Db): Promise<Array<{ id: string; name: string }>> {
-  return db.select({ id: lists.id, name: lists.name }).from(lists).where(eq(lists.archived, false));
 }
 
 export async function taskCount(db: Db): Promise<number> {

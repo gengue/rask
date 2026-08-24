@@ -546,9 +546,12 @@ api.post("/lists/:id/resync", async (c) => {
     .values({ scope: "list", scopeId: listId })
     .onConflictDoUpdate({
       target: [syncCursors.scope, syncCursors.scopeId],
-      // Clearing the cursor is the whole resync: the next poll has nothing to
-      // resume from and re-reads the list end to end.
-      set: { lastUpdatedAt: null, failures: 0, lastError: null },
+      // Clearing the cursor is the whole resync: the read that follows has
+      // nothing to resume from and takes the list end to end. `lastRunAt` goes
+      // with it so the worker treats this as a list nobody has read and picks
+      // it up in seconds — waiting up to ten minutes for the next poll is not
+      // what anyone means by pressing resync.
+      set: { lastUpdatedAt: null, lastRunAt: null, failures: 0, lastError: null },
     });
   return c.json({ ok: true }, 202);
 });
