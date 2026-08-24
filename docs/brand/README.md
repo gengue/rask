@@ -13,9 +13,10 @@ Two cuts, because the mark does not survive being shrunk without help.
 | `favicon.svg` | The compact cut with explicit colours, flipped by `prefers-color-scheme`. |
 
 Both SVGs paint with `currentColor`, so set `color` on the parent rather than
-editing the file. The app renders the compact cut inline from
-`apps/web/src/components/Logo.tsx` — that copy and `rask-mark-compact.svg` have
-to be changed together.
+editing the file. The app inlines both cuts in
+`apps/web/src/components/Logo.tsx` (`Logo` is the full mark, on the sign-in
+page; `LogoCompact` is the small one, in the sidebar). Those copies and the SVGs
+here have to be changed together.
 
 `apps/web/public/` holds the deployed copies of `favicon.svg` and the Apple
 touch icon. The touch icon ships opaque on `#0F0F0F` because iOS composites a

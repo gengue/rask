@@ -1,4 +1,5 @@
 import { type JSX, Show } from "solid-js";
+import { Logo } from "./Logo.tsx";
 
 export { signInError } from "../lib/sign-in-error.ts";
 
@@ -18,7 +19,8 @@ export function Login(props: { reason?: string }): JSX.Element {
   return (
     <main class="flex min-h-dvh items-center justify-center bg-app px-6">
       <div class="w-full max-w-[320px]">
-        <h1 class="font-medium text-ink text-lg">Rask</h1>
+        <Logo size={36} />
+        <h1 class="mt-4 font-medium text-ink text-lg">Rask</h1>
         <p class="mt-1 text-ink-2 text-sm leading-relaxed">
           A faster way into ClickUp. Sign in with the ClickUp account you already use for this
           workspace.
