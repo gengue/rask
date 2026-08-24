@@ -90,6 +90,11 @@ from ClickUp to repair the mirror, and the author gets a `write-failed` SSE even
 Rows not yet shipped carry a `tmp_` placeholder id; addressing one upstream would
 404, so those writes are refused with 409 rather than queued.
 
+The exception is `POST /api/tasks/:id/attachments` ([attachments.ts](apps/api/src/attachments.ts)): an outbox
+payload is jsonb and a file is bytes, so an upload waits for ClickUp and the task
+is re-read into the mirror afterwards. It is also the only multipart request in
+either direction — `readUpload` caps it on the stream, not on `Content-Length`.
+
 **Ingestion is webhooks *and* polling, and polling never stops.** A webhook event
 only names a task, so every event costs one `GET /task/{id}` — which is what makes
 duplicates and out-of-order deliveries harmless. `docs/webhooks.md` explains why

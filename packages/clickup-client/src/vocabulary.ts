@@ -41,6 +41,28 @@ export function isPlaceholder(id: string | null | undefined): boolean {
   return id?.startsWith(PLACEHOLDER_PREFIX) ?? false;
 }
 
+/**
+ * The largest file Rask will upload to a task.
+ *
+ * Shared because both ends have to agree on it and disagreeing is silent: the
+ * browser would spend a minute sending 40MB the API refuses in one line, and
+ * the person watching would only learn about it at the end.
+ *
+ * The number is ours, not ClickUp's — the API buffers the whole upload in
+ * memory to cap it, so this is what one request is allowed to cost a process
+ * that is also serving the app. ponytail: streaming straight through to
+ * ClickUp would remove the ceiling, and means re-encoding multipart by hand.
+ */
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * The multipart field the browser sends a file in, and the API reads it from.
+ *
+ * Two packages naming this separately fails as a 400 that says "no file in the
+ * upload" — an answer that describes a request which did contain one.
+ */
+export const UPLOAD_FIELD = "file";
+
 /** `cf:<id>` addresses a ClickUp Custom Field in a filter clause. */
 export const CUSTOM_FIELD_PREFIX = "cf:";
 

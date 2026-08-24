@@ -3,6 +3,7 @@ import { type CommentSegment, toCommentSegments } from "./mentions.ts";
 import { RateLimiter } from "./rate-limit.ts";
 import {
   accessTokenResponse,
+  type ClickUpAttachmentUpload,
   type ClickUpChecklist,
   type ClickUpComment,
   type ClickUpCustomField,
@@ -16,6 +17,7 @@ import {
   type ClickUpView,
   type ClickUpWebhook,
   checklistResponse,
+  clickUpAttachmentUpload,
   clickUpComment,
   clickUpCustomField,
   clickUpFolder,
@@ -162,7 +164,15 @@ export class ClickUpClient {
       Authorization: this.auth === "oauth" ? `Bearer ${this.token}` : this.token,
       Accept: "application/json",
     };
-    if (options.body !== undefined) headers["Content-Type"] = "application/json";
+    /*
+     * FormData is sent as it is and names its own Content-Type.
+     *
+     * Stringifying it would upload the string "[object FormData]"; naming the
+     * type here would send a boundary the parts were never split on. fetch
+     * writes both correctly when we write neither, on every retry attempt.
+     */
+    const form = options.body instanceof FormData;
+    if (options.body !== undefined && !form) headers["Content-Type"] = "application/json";
 
     let lastError: ClickUpError | undefined;
 
@@ -172,7 +182,7 @@ export class ClickUpClient {
       const response = await this.fetchImpl(url, {
         method,
         headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: form ? (options.body as FormData) : JSON.stringify(options.body),
       });
 
       this.limiter.syncFromHeaders(response.headers);
@@ -464,6 +474,27 @@ export class ClickUpClient {
       "DELETE",
       `/v2/task/${taskId}/tag/${encodeURIComponent(tagName)}`,
     );
+  }
+
+  // --- Attachments --------------------------------------------------------
+
+  /**
+   * Uploads a file to a task.
+   *
+   * The only multipart request Rask makes, and the field really is named
+   * `attachment` (see openapi/clickup-v2.json). One file per call: the spec
+   * types the field as an array, but the response describes a single
+   * attachment, so sending several would leave no way to name what came back.
+   *
+   * What it answers with is thinner than the task's own attachment list, so
+   * the caller re-reads the task rather than mirroring this.
+   */
+  createTaskAttachment(taskId: string, file: File): Promise<ClickUpAttachmentUpload> {
+    const form = new FormData();
+    form.append("attachment", file, file.name);
+    return this.request(clickUpAttachmentUpload, "POST", `/v2/task/${taskId}/attachment`, {
+      body: form,
+    });
   }
 
   // --- Comments -----------------------------------------------------------

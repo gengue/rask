@@ -23,7 +23,9 @@ Browser (SPA) <-- SSE --> API <-- REST + webhooks --> ClickUp
 - **Writes are optimistic, then reconciled.** The client applies the change
   immediately, the API writes it to Postgres and enqueues it in an outbox, and a
   worker ships it to ClickUp with exponential backoff. If ClickUp rejects it, we
-  revert and tell the user.
+  revert and tell the user. Attachment uploads are the one exception: an outbox
+  row is JSON and a file is bytes, so they go straight to ClickUp and the task is
+  re-read afterwards.
 - **Assume webhooks get lost.** ClickUp webhooks name a task and describe only
   the field that changed, so every event costs one `GET /task/{id}` to learn the
   rest. They have no replay and silently disappear. Backup polling with

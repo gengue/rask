@@ -12,6 +12,11 @@ interface Call {
   body: unknown;
 }
 
+function formOrJson(body: RequestInit["body"]): unknown {
+  if (!body) return undefined;
+  return body instanceof FormData ? body : JSON.parse(String(body));
+}
+
 /** Records every request and replays a queue of canned responses. */
 function stubFetch(
   responses: Array<{ status?: number; body: unknown; headers?: Record<string, string> }>,
@@ -25,7 +30,9 @@ function stubFetch(
       url: String(input),
       method: init?.method ?? "GET",
       headers,
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      // FormData is recorded as itself: `String(body)` is "[object FormData]",
+      // which is not JSON and would throw before any assertion could run.
+      body: formOrJson(init?.body),
     });
     const next = queue.shift();
     if (!next) throw new Error(`unexpected request: ${input}`);
@@ -278,6 +285,47 @@ describe("writes", () => {
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url).toContain("/v2/task/9hz/field/field-1");
     expect(calls[0]?.body).toEqual({ value: "opt-2" });
+  });
+});
+
+/**
+ * The one multipart request in the client.
+ *
+ * `request` stringifies everything else, and a stringified FormData is the
+ * literal string "[object FormData]" — an upload that reaches ClickUp with no
+ * file in it and a 200 to say so.
+ */
+describe("attachments", () => {
+  const upload = {
+    id: "ac434d4e-8b1c-4571-951b-866b6d9f2ee6.png",
+    version: "0",
+    date: 1569988578766,
+    title: "image.png",
+    extension: "png",
+    thumbnail_small: "https://attachments-public.clickup.com/small.png",
+    thumbnail_large: "https://attachments-public.clickup.com/large.png",
+    url: "https://attachments-public.clickup.com/image.png",
+  };
+
+  test("posts the file as multipart, under the field ClickUp documents", async () => {
+    const { client, calls } = makeClient([{ body: upload }]);
+    const file = new File([new Uint8Array([1, 2, 3])], "image.png", { type: "image/png" });
+
+    const created = await client.createTaskAttachment("9hz", file);
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toContain("/v2/task/9hz/attachment");
+
+    const form = calls[0]?.body;
+    expect(form).toBeInstanceOf(FormData);
+    const sent = (form as FormData).get("attachment");
+    expect(sent).toBeInstanceOf(File);
+    expect((sent as File).name).toBe("image.png");
+    expect((sent as File).size).toBe(3);
+
+    // Left unset on purpose: fetch writes it, boundary and all.
+    expect(calls[0]?.headers["content-type"]).toBeUndefined();
+    expect(created.url).toBe(upload.url);
   });
 });
 
