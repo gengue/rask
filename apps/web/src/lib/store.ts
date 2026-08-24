@@ -1,6 +1,6 @@
 import { createCollection } from "@tanstack/solid-db";
 import { createRoot } from "solid-js";
-import { api, type Task, type TaskQuery } from "./api.ts";
+import { api, type Task, type TaskPage, type TaskQuery } from "./api.ts";
 import { pushToast } from "./toast.ts";
 import { setViewLoading } from "./view.ts";
 
@@ -150,15 +150,12 @@ export function merge(rows: Task[]): void {
 }
 
 /**
- * Pulls a view's tasks into the collection.
+ * What a finished page says about itself.
  *
- * Deliberately additive: it never drops rows that fall outside the query, so
- * navigating back to a view already has its data. The cost is that a task that
- * left a list stays visible until the next SSE frame corrects it — and, now
- * that the filter is part of the query, that a row loaded under a looser filter
- * is still in here under a tighter one. That is what the browser's copy of the
- * filter is for: the server decides which of 147,000 rows arrive, this decides
- * which of the ones in hand are on screen, and neither has to trust the other.
+ * The membership set is the point for a saved view. Every other route recovers
+ * "what am I showing" from the collection with a predicate — this list, this
+ * assignee — but a view is a subset ClickUp computed from filters the browser
+ * never sees, so the ids are the only thing that says which rows belong to it.
  */
 export interface TaskPageResult {
   /** The rows the server sent, which is what a filtered view shows. */
@@ -178,11 +175,36 @@ export interface TaskPageResult {
  */
 let loadTicket = 0;
 
-export async function load(query: TaskQuery): Promise<TaskPageResult | null> {
+/**
+ * Pulls a page of tasks into the collection and reports which rows it holds.
+ *
+ * Deliberately additive: it never drops rows that fall outside the query, so
+ * navigating back to a view already has its data. The cost is that a task that
+ * left a list stays visible until the next SSE frame corrects it — and, now
+ * that the filter is part of the query, that a row loaded under a looser filter
+ * is still in here under a tighter one. That is what the browser's copy of the
+ * filter is for: the server decides which of 147,000 rows arrive, this decides
+ * which of the ones in hand are on screen, and neither has to trust the other.
+ *
+ * Merging into the shared collection is also what keeps a task open in the
+ * detail panel, edited from the palette, or updated over SSE in step with the
+ * rest of the app: a view is a different set of the same rows, not a copy.
+ *
+ * The ticket is why this is one function and not one per route. Clicking
+ * through three view tabs faster than the network left whichever request
+ * happened to resolve last deciding what the tab shows, and a view costs 1.8s
+ * a page, so that is the route where it is easiest to outrun — but the rule is
+ * the same everywhere and was written out twice, which is how two copies of it
+ * start to differ.
+ */
+async function loadPage(
+  failed: string,
+  fetchPage: () => Promise<TaskPage>,
+): Promise<TaskPageResult | null> {
   setViewLoading(true);
   const ticket = ++loadTicket;
   try {
-    const page = await api.tasks({ limit: 500, ...query });
+    const page = await fetchPage();
     merge(page.tasks);
     if (ticket !== loadTicket) return null;
     return { ids: new Set(page.tasks.map((task) => task.id)), truncated: page.truncated };
@@ -190,7 +212,7 @@ export async function load(query: TaskQuery): Promise<TaskPageResult | null> {
     // Silently showing an empty list is how a failed fetch reads as "no tasks".
     pushToast({
       tone: "error",
-      title: "Could not load tasks",
+      title: failed,
       detail: error instanceof Error ? error.message : String(error),
     });
     return ticket === loadTicket ? { ids: new Set(), truncated: false } : null;
@@ -199,40 +221,12 @@ export async function load(query: TaskQuery): Promise<TaskPageResult | null> {
   }
 }
 
-/**
- * Pulls a view's tasks into the collection and reports which rows it holds.
- *
- * The membership set is the point. Every other route recovers "what am I
- * showing" from the collection with a predicate — this list, this assignee —
- * but a view is a subset ClickUp computed from filters the browser never sees,
- * so the ids are the only thing that says which rows belong to it.
- *
- * Merging into the shared collection anyway is what keeps a task open in the
- * detail panel, edited from the palette, or updated over SSE in step with the
- * rest of the app: a view is a different set of the same rows, not a copy.
- */
-export async function loadViewTasks(viewId: string, filter = ""): Promise<TaskPageResult | null> {
-  setViewLoading(true);
-  const ticket = ++loadTicket;
-  try {
-    const page = await api.viewTasks(viewId, filter);
-    merge(page.tasks);
-    // Same ticket as `load`, and for the same reason: clicking through three
-    // view tabs faster than the network left whichever request happened to
-    // resolve last deciding what the tab shows. A view costs 1.8s a page, so
-    // this is the route where it is easiest to outrun.
-    if (ticket !== loadTicket) return null;
-    return { ids: new Set(page.tasks.map((task) => task.id)), truncated: page.truncated };
-  } catch (error) {
-    pushToast({
-      tone: "error",
-      title: "Could not load this view",
-      detail: error instanceof Error ? error.message : String(error),
-    });
-    return ticket === loadTicket ? { ids: new Set(), truncated: false } : null;
-  } finally {
-    if (ticket === loadTicket) setViewLoading(false);
-  }
+export function load(query: TaskQuery): Promise<TaskPageResult | null> {
+  return loadPage("Could not load tasks", () => api.tasks({ limit: 500, ...query }));
+}
+
+export function loadViewTasks(viewId: string, filter = ""): Promise<TaskPageResult | null> {
+  return loadPage("Could not load this view", () => api.viewTasks(viewId, filter));
 }
 
 function toApiPatch(changes: Partial<Task>): Record<string, unknown> {
