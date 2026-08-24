@@ -9,6 +9,14 @@ import { E2E, E2E_ENV } from "./e2e/env.ts";
  * incidental: the suite seeds, seeding truncates, and pointed at the repo .env
  * it used to wipe the workspace mirror a developer had open.
  */
+/*
+ * Generous, because the first thing Vite does on a cold checkout is optimize
+ * dependencies. Thirty seconds is plenty on a warm laptop and not enough on a
+ * CI runner that has never seen node_modules before, which is what turned the
+ * end-to-end job red while every test in it still passed locally.
+ */
+const WEB_SERVER_TIMEOUT_MS = 120_000;
+
 export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/seed.ts",
@@ -28,14 +36,14 @@ export default defineConfig({
       env: E2E_ENV,
       // Never reuse: a server already up is one pointed at the dev database.
       reuseExistingServer: false,
-      timeout: 30_000,
+      timeout: WEB_SERVER_TIMEOUT_MS,
     },
     {
       command: "bun run dev",
       url: `http://localhost:${E2E.webPort}`,
       env: E2E_ENV,
       reuseExistingServer: false,
-      timeout: 30_000,
+      timeout: WEB_SERVER_TIMEOUT_MS,
     },
   ],
 });

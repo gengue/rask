@@ -62,6 +62,10 @@ services:
       CLICKUP_WEBHOOK_LIST_ID: ${CLICKUP_WEBHOOK_LIST_ID}
       POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-120000}
       POLL_INTERVAL_WEBHOOK_MS: ${POLL_INTERVAL_WEBHOOK_MS:-600000}
+      # The delay between a user's edit and ClickUp seeing it.
+      OUTBOX_INTERVAL_MS: ${OUTBOX_INTERVAL_MS:-2000}
+      # Hour of the local day for the full reconciliation pass.
+      RECONCILE_HOUR: ${RECONCILE_HOUR:-3}
     # One worker, and now for a second reason. The outbox claim and the webhook
     # queue both use FOR UPDATE SKIP LOCKED so more would be safe to drain with,
     # but webhook registration is not idempotent across processes: two workers

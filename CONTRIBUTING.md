@@ -4,8 +4,8 @@ Rask mirrors a real ClickUp workspace into Postgres and writes back through a
 queue. Most of what follows exists because that arrangement has a few sharp
 edges, and every warning below is one somebody already ran into.
 
-Read [README.md](README.md) first for what the pieces are and why. This file is
-how to run them.
+Read [docs/architecture.md](docs/architecture.md) first for what the pieces are
+and why. This file is how to run them.
 
 ## What you need
 

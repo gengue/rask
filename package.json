@@ -15,14 +15,19 @@
   "scripts": {
     "dev": "bun run --filter '*' dev",
     "build": "bun run --filter '*' build",
-    "test": "bun run --filter '*' test",
-    "typecheck": "bun run --filter '*' typecheck",
     "check": "biome check .",
     "check:fix": "biome check --write .",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "e2e": "bun run --cwd apps/web e2e",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d --wait",
-    "db:test": "bun scripts/db-test.ts"
+    "db:migrate": "bun run --cwd packages/schema migrate",
+    "db:generate": "bun run --cwd packages/schema generate",
+    "db:test": "bun scripts/db-test.ts",
+    "seed": "bun run --cwd apps/api seed",
+    "link": "bun run --cwd apps/api link"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
