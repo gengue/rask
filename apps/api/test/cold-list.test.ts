@@ -40,6 +40,8 @@ const PREFIX = "cold-list-test-task-";
 let app: Hono;
 /** Every ClickUp URL the API reached for, in order. */
 let reached: string[] = [];
+/** Put back in `afterAll`: `bun test` runs every file in one process. */
+const realFetch = globalThis.fetch;
 
 function page(ids: string[]): Response {
   return new Response(
@@ -126,7 +128,10 @@ beforeAll(async () => {
   app = (await import("../src/index.ts")).app as unknown as Hono;
 });
 
-afterAll(wipe);
+afterAll(async () => {
+  globalThis.fetch = realFetch;
+  await wipe();
+});
 
 test("the first ask for a list fills it from ClickUp before answering", async () => {
   const response = await get(`/api/tasks?list=${LIST}`);
