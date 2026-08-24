@@ -50,10 +50,10 @@ describe("reuseItems", () => {
 
     const out = reuseItems(prev, next);
     expect(out).not.toBe(prev);
-    expect(out[0]).toBe(prev[0] as FlatItem); // the header: same label, same count
-    expect(out[1]).toBe(prev[1] as FlatItem); // T1 untouched
-    expect(out[2]).not.toBe(prev[2] as FlatItem); // T2 changed
-    expect(out[2]).toBe(next[2] as FlatItem);
+    expect(out[0]).toBe(prev[0]); // the header: same label, same count
+    expect(out[1]).toBe(prev[1]); // T1 untouched
+    expect(out[2]).not.toBe(prev[2]); // T2 changed
+    expect(out[2]).toBe(next[2]);
   });
 
   test("a header whose count changed is a new wrapper", () => {
@@ -70,8 +70,8 @@ describe("reuseItems", () => {
     const next: FlatItem[] = [header(2), { kind: "row", id: "T1", task: t1 }];
 
     const out = reuseItems(prev, next);
-    expect(out[0]).toBe(next[0] as FlatItem);
-    expect(out[1]).toBe(prev[1] as FlatItem);
+    expect(out[0]).toBe(next[0]);
+    expect(out[1]).toBe(prev[1]);
   });
 
   test("a position that changes kind is never reused", () => {
@@ -80,6 +80,6 @@ describe("reuseItems", () => {
     const next = groupTasks([t1], "status"); // [header, row]
     const out = reuseItems(prev, next);
     expect(out).toEqual(next);
-    expect(out[0]).toBe(next[0] as FlatItem);
+    expect(out[0]).toBe(next[0]);
   });
 });

@@ -100,12 +100,6 @@ function Column(props: {
     },
   );
 
-  /** The cards inside the window. `<Index>` below diffs this per position. */
-  const windowTasks = createMemo(() => {
-    const { start, end } = range();
-    return props.column.tasks.slice(start, end);
-  });
-
   /** Where the cursor is inside this column, or -1 when it is elsewhere. */
   const cursor = () => {
     const index = ui.cursor - props.column.offset;
@@ -202,7 +196,7 @@ function Column(props: {
            * also detached a card mid-drag. Column task references are stable
            * for unchanged tasks, so only the card that changed re-renders.
            */}
-          <Index each={windowTasks()}>
+          <Index each={props.column.tasks.slice(range().start, range().end)}>
             {(task, offset) => {
               const index = () => range().start + offset;
               return (
@@ -238,7 +232,6 @@ function Column(props: {
       </div>
     </section>
   );
-
 }
 
 /**

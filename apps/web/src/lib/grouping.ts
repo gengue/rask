@@ -61,7 +61,6 @@ export function groupTasks(tasks: Task[], groupBy: GroupBy): FlatItem[] {
   ]);
 }
 
-
 /**
  * Reuses the previous run's wrappers wherever a position is unchanged.
  *

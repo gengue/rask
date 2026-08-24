@@ -12,9 +12,7 @@ import { expect, type Page, test } from "@playwright/test";
  * row; after it, only the edited row touches its own chips.
  *
  * Only a browser can measure this: the number is MutationObserver removals,
- * and the unit suite has no DOM. The threshold is not zero because the edited
- * row legitimately rebuilds its tag chips and avatar stack — a handful of
- * nodes, not a window's worth.
+ * and the unit suite has no DOM.
  */
 
 /** Nodes the one edited row may legitimately rebuild (its chips and avatars). */
@@ -59,7 +57,13 @@ async function churnFromOneEdit(page: Page): Promise<Churn> {
 
     const marker = `${current.name} [poked]`;
     store.merge([{ ...current, name: marker }]);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Condition-based rather than a fixed sleep, which is a flake on a loaded
+    // runner: wait for the rename to land, then a beat for trailing mutations.
+    const deadline = Date.now() + 5000;
+    while (!(main.textContent ?? "").includes(marker) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     for (const mutation of observer.takeRecords()) {
       removed += mutation.removedNodes.length;

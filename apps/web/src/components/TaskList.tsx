@@ -67,12 +67,6 @@ export function TaskList(props: {
     { equals: sameRange },
   );
 
-  /** The items inside the window. `<Index>` below diffs this per position. */
-  const windowItems = createMemo(() => {
-    const { start, end } = range();
-    return items().slice(start, end);
-  });
-
   /** Indices that j/k can land on. Headers are skipped. */
   const rowIndices = createMemo(() =>
     items().reduce<number[]>((acc, item, index) => {
@@ -162,7 +156,7 @@ export function TaskList(props: {
            * it only rebuilds when a position changes kind — which regrouping
            * can do — and an unchanged branch updates through prop getters.
            */}
-          <Index each={windowItems()}>
+          <Index each={items().slice(range().start, range().end)}>
             {(item, offset) => {
               const index = () => range().start + offset;
               const row = () => {
