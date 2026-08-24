@@ -10,7 +10,7 @@ import {
   toWire,
 } from "./filters.ts";
 import { globalMemo } from "./global-memo.ts";
-import { type FlatItem, groupTasks } from "./grouping.ts";
+import { type FlatItem, groupTasks, reuseItems } from "./grouping.ts";
 import { members, spaces } from "./session.ts";
 import { ui } from "./ui.ts";
 
@@ -171,19 +171,26 @@ const localClauses = globalMemo(() =>
     : activeClauses().filter((clause) => clause.field !== "search"),
 );
 
-/** Search, filter clauses and grouping, shared by the list, the board and the keyboard. */
-export const flatItems = globalMemo(() =>
-  groupTasks(
-    // The collection is additive on purpose, so a filter loosened and tightened
-    // again has to be re-applied here: rows load once and never leave.
-    selectRows(viewTasks(), {
-      clauses: localClauses(),
-      member: viewMembership(),
-      showClosed: ui.showClosed,
-      named: namedStatuses(ui.filters),
-      now: new Date(),
-    }),
-    ui.groupBy,
+/**
+ * Search, filter clauses and grouping, shared by the list, the board and the
+ * keyboard. Wrapped in `reuseItems` so an unchanged position keeps its wrapper
+ * object — the windowed `<Index>` in the list keys on exactly that identity.
+ */
+export const flatItems = globalMemo((prev: FlatItem[] = []) =>
+  reuseItems(
+    prev,
+    groupTasks(
+      // The collection is additive on purpose, so a filter loosened and tightened
+      // again has to be re-applied here: rows load once and never leave.
+      selectRows(viewTasks(), {
+        clauses: localClauses(),
+        member: viewMembership(),
+        showClosed: ui.showClosed,
+        named: namedStatuses(ui.filters),
+        now: new Date(),
+      }),
+      ui.groupBy,
+    ),
   ),
 );
 

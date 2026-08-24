@@ -61,6 +61,44 @@ export function groupTasks(tasks: Task[], groupBy: GroupBy): FlatItem[] {
   ]);
 }
 
+
+/**
+ * Reuses the previous run's wrappers wherever a position is unchanged.
+ *
+ * `groupTasks` builds fresh `{kind, id, task}` objects every run, and the list
+ * window renders through `<Index>`, which diffs per position by `===`. Fresh
+ * wrappers would make every position's signal fire on any change anywhere in
+ * the loaded set, and a row rebuilds its tag chips and avatar stack whenever
+ * its signal fires — exactly the churn the windowed `<Index>` exists to stop.
+ * Task wrappers are reusable when the task reference is unchanged, because the
+ * live mirror only replaces the rows that actually changed. Returning `prev`
+ * itself when every position survived lets the memo above skip notifying at
+ * all, which is what makes churn in *other* lists free for this view.
+ */
+export function reuseItems(prev: FlatItem[], next: FlatItem[]): FlatItem[] {
+  let changed = prev.length !== next.length;
+  const out = next.map((item, index) => {
+    const old = prev[index];
+    if (old && old.id === item.id && sameItem(old, item)) return old;
+    changed = true;
+    return item;
+  });
+  return changed ? out : prev;
+}
+
+function sameItem(a: FlatItem, b: FlatItem): boolean {
+  if (a.kind === "row" && b.kind === "row") return a.task === b.task;
+  if (a.kind === "header" && b.kind === "header") {
+    return (
+      a.label === b.label &&
+      a.count === b.count &&
+      a.color === b.color &&
+      a.statusType === b.statusType
+    );
+  }
+  return false;
+}
+
 /**
  * Groupings whose order is the meaning, not the alphabet.
  *
