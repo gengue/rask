@@ -90,3 +90,38 @@ test("creates a task from the quick add dialog", async ({ page }) => {
   await page.getByPlaceholder(/^Search name/).fill(title);
   await expect(page.getByText(title)).toBeVisible();
 });
+
+/**
+ * Exactly one list is marked as the open one.
+ *
+ * `matchRoute({ to: "/list/$listId", params, fuzzy: true })` reads like it asks
+ * "is this list the open one" and does not: under a fuzzy match the params are
+ * ignored, only the pattern is compared, so every list in the tree came back
+ * true and the sidebar drew all of them selected at once. It went unnoticed for
+ * days because the dark theme's selected row is a barely-lighter grey; in light
+ * mode it reads as multi-select and is impossible to miss.
+ *
+ * Only a rendered sidebar against a real route can catch this, which is why it
+ * lives here rather than in a unit test.
+ */
+test("marks only the open list in the sidebar", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await expect(page.getByRole("heading", { name: "My Tasks" })).toBeVisible();
+
+  // L1 and L2 share a folder, so landing on L1 reveals a sibling to be wrong about.
+  await page.goto("/list/L1");
+  await expect(page.getByRole("heading", { name: "GO Backend" })).toBeVisible();
+
+  const sidebar = page.locator("aside");
+  await expect(sidebar.getByRole("link", { name: "GO Frontend" })).toBeVisible();
+
+  const selected = sidebar.locator('a[href^="/list/"].row-selected');
+  await expect(selected).toHaveCount(1);
+  await expect(selected).toHaveAttribute("href", "/list/L1");
+
+  // The mark follows the list into its views, which is what the fuzzy match was
+  // reaching for before it turned out to ignore the parameter it was given.
+  await sidebar.getByRole("link", { name: "GO Frontend" }).click();
+  await expect(selected).toHaveCount(1);
+  await expect(selected).toHaveAttribute("href", "/list/L2");
+});

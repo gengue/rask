@@ -146,10 +146,21 @@ function FolderNode(props: {
 }
 
 function ListItem(props: { id: string; name: string }): JSX.Element {
-  const matchRoute = useMatchRoute();
-  // Fuzzy, so the list stays marked while one of its views is open.
-  const active = () =>
-    Boolean(matchRoute({ to: "/list/$listId", params: { listId: props.id }, fuzzy: true }));
+  /*
+   * The route's own `listId`, not `matchRoute`.
+   *
+   * `matchRoute({ to: "/list/$listId", params: { listId }, fuzzy: true })`
+   * looks like it asks "is this list the open one" and does not: under a fuzzy
+   * match the params are ignored and only the pattern is compared, so every
+   * list in the tree came back true and the sidebar drew nine of them selected
+   * at once. It reads as multi-select, and in light mode you cannot miss it.
+   *
+   * Reading the parameter also keeps what the fuzzy match was there for — the
+   * list stays marked while one of its views is open — because `listId` is the
+   * same on `/list/$listId` and `/list/$listId/view/$viewId`.
+   */
+  const params = useParams({ strict: false });
+  const active = () => (params() as { listId?: string }).listId === props.id;
 
   return (
     <div class="group/list relative">
