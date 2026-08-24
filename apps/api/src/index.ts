@@ -238,6 +238,10 @@ api.get("/tasks", async (c) => {
     return c.json({ error: error instanceof Error ? error.message : "bad filter" }, 400);
   }
 
+  // Before the read, not after it: the first ask for a list is also the only
+  // one the mirror cannot answer, and `registerList` is what fills it.
+  if (f.list) await registerList(c.get("user").id, f.list, f.closed === "1");
+
   const limit = f.limit ?? 500;
   const rows = await listTasks(db, {
     listId: f.list,
@@ -256,11 +260,6 @@ api.get("/tasks", async (c) => {
   const truncated = rows.length > limit;
   if (truncated) rows.length = limit;
   c.header("X-Rask-Truncated", truncated ? "1" : "0");
-
-  // Loading a list is what marks it worth polling. Nothing else registers
-  // interest, so the worker never polls lists nobody looks at.
-  if (f.list)
-    await db.insert(syncCursors).values({ scope: "list", scopeId: f.list }).onConflictDoNothing();
 
   return c.json(rows);
 });
@@ -368,22 +367,27 @@ api.get("/views/:id/tasks", async (c) => {
     );
   }
 
-  await ingestUnseen(page.tasks, view.listId);
-
   /*
-   * Opening a view registers its list for polling, exactly like opening the list.
+   * Opening a view registers its list, exactly like opening the list — and by
+   * the same call, because registering is also claiming. A view is a subset its
+   * filters chose, so a row written here without the fill would leave the list
+   * route reading a mirror holding that subset and nothing else. Which is how
+   * somebody arrives: a ClickUp URL is a view's URL, so the pasted link lands
+   * on the tab and the sidebar entry is the second thing clicked.
+   *
+   * Before `ingestUnseen` and not after, so the thick payload wins. A row this
+   * fills carries a description; the view payload does not, and `ingestTasks`
+   * skips a row whose `date_updated` has not moved — so a thin row written
+   * first would keep its null description until somebody edited the task.
    *
    * Skipped for a view that has no single list. A Workspace-level view spans
    * every list in the workspace, so there is no one list here to register —
    * registering the first task's would poll one arbitrary list and call the
    * other forty covered.
    */
-  if (view.listId) {
-    await db
-      .insert(syncCursors)
-      .values({ scope: "list", scopeId: view.listId })
-      .onConflictDoNothing();
-  }
+  if (view.listId) await registerList(c.get("user").id, view.listId, true);
+
+  await ingestUnseen(page.tasks, view.listId);
 
   // `includeClosed`, always: ClickUp already applied the view's `show_closed`,
   // and filtering again here would drop rows the view deliberately keeps.
@@ -803,6 +807,83 @@ async function refreshListViews(userId: string, listId: string): Promise<void> {
     await replaceListViews(db, listId, await client.getListViews(listId));
   } catch (error) {
     console.error("[views]", listId, error instanceof Error ? error.message : error);
+  }
+}
+
+/**
+ * How long a read will wait for the first page of a list nobody has opened.
+ *
+ * There is a floor under being late and no floor under being stuck: the
+ * worker's cold pass runs every three seconds, so waiting much longer than that
+ * buys nothing the browser was not about to get anyway. Being stuck is real —
+ * one `ClickUpClient` per user serializes every caller through one rate limiter,
+ * and a 429 makes it sleep until the window resets, so without a deadline a
+ * list opened behind a saved view's five-page walk holds the request open for
+ * as long as that takes.
+ */
+const COLD_FILL_MS = 4_000;
+
+/**
+ * Marks a List worth polling, and fills it if nobody has opened it before.
+ *
+ * The registration is the cursor row: the worker polls the lists in
+ * `sync_cursors` and no others, so a list nobody has looked at is never read.
+ * Both routes that can be somebody's first sight of a list come through here,
+ * because the row is also the claim — whichever writes it decides the list is
+ * accounted for, and one that registered without filling would leave the next
+ * read answering from a mirror that has nothing in it.
+ *
+ * The fill is the part that was missing. Reads are answered from the mirror,
+ * and the mirror has nothing for a list it has never synced, so the first open
+ * returned an empty page — which the browser draws as "Nothing here", a claim
+ * rather than a wait. The worker's cold pass corrects it within seconds and SSE
+ * pushes the rows into the open tab, but "within seconds" is a long time to be
+ * told a list is empty, and it is why opening a list and then clicking one of
+ * its tabs looked like the tab was the thing that worked.
+ *
+ * So one page is fetched here, the same bargain `GET /lists/:id/views` already
+ * makes for the tab bar. One page and not the list: the cold pass walks the
+ * rest with the cursor bookkeeping this deliberately does not touch.
+ *
+ * The page is the list's own newest, not the caller's query. `includeClosed` is
+ * passed because a first page of 100 closed tasks is the same empty screen this
+ * exists to avoid, but a status or assignee filter is not: those are the
+ * mirror's to apply, and a list opened with one still narrows to nothing until
+ * the cold pass lands. Rarer than the bare open, and it costs one round trip to
+ * make it rarer still rather than one per clause.
+ *
+ * Failure is logged, never surfaced: the mirror answers. The list is registered
+ * either way, so the worst case is the empty screen with the cold pass still on
+ * its way.
+ */
+async function registerList(userId: string, listId: string, includeClosed: boolean): Promise<void> {
+  // The cursor row is the registration and the claim in one statement: a row
+  // coming back from `onConflictDoNothing` means nobody had asked for this list
+  // before, with no window between the question and the answer for a second
+  // request to decide the same thing and fetch a second time.
+  const [claimed] = await db
+    .insert(syncCursors)
+    .values({ scope: "list", scopeId: listId })
+    .onConflictDoNothing()
+    .returning({ id: syncCursors.scopeId });
+  if (!claimed) return;
+
+  await Promise.race([fillList(userId, listId, includeClosed), Bun.sleep(COLD_FILL_MS)]);
+}
+
+/** The fetch half of `registerList`, separated only so the deadline can race it. */
+async function fillList(userId: string, listId: string, includeClosed: boolean): Promise<void> {
+  try {
+    const client = await clientFor(userId);
+    if (!client) return;
+    const page = await client.getListTasks(listId, {
+      includeClosed,
+      subtasks: true,
+      orderBy: "updated",
+    });
+    await ingestTasks(db, page.tasks, { listId, teamId: config.CLICKUP_TEAM_ID });
+  } catch (error) {
+    console.error("[cold]", listId, error instanceof Error ? error.message : error);
   }
 }
 
