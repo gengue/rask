@@ -28,8 +28,10 @@ import {
   tasks,
   users,
 } from "@rask/schema";
+import { sql } from "drizzle-orm";
 
-const db = createDb(process.env.DATABASE_URL ?? "postgres://rask:rask@localhost:5432/rask");
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://rask:rask@localhost:5432/rask";
+const db = createDb(databaseUrl);
 
 const TEAM_ID = "529";
 
@@ -118,7 +120,41 @@ function makeRandom(seed: number) {
 const random = makeRandom(20260822);
 const pick = <T>(items: T[]): T => items[Math.floor(random() * items.length)] as T;
 
+/**
+ * The most tasks this seed ever writes. Anything above it is somebody's mirror.
+ *
+ * `DATABASE_URL` in a working `.env` points at the database the app is actually
+ * using, and this script's first act is to delete every row in it. On a fresh
+ * clone that is empty and nothing is lost; on a checkout that has synced a real
+ * workspace it is 147,000 tasks, and the recovery is a full resync that takes
+ * the better part of an hour.
+ *
+ * So: count first, refuse if the number is bigger than anything this script
+ * could have produced, and make the override loud enough that nobody types it
+ * by accident.
+ */
+const SEED_TASK_CEILING = 500;
+
+async function guardDatabase(): Promise<void> {
+  if (process.env.RASK_SEED_FORCE === "1") return;
+
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(tasks);
+  const existing = row?.n ?? 0;
+  if (existing <= SEED_TASK_CEILING) return;
+
+  const name = new URL(databaseUrl).pathname.replace(/^\//, "");
+  console.error(
+    `Refusing to seed: "${name}" holds ${existing.toLocaleString()} tasks, which is more\n` +
+      `than this script ever writes. That looks like a real ClickUp mirror, and\n` +
+      `seeding deletes every row in it.\n\n` +
+      `If you meant it: RASK_SEED_FORCE=1 bun run --cwd apps/api seed`,
+  );
+  process.exit(1);
+}
+
 async function seed() {
+  await guardDatabase();
+
   console.log("clearing...");
   await db.delete(comments);
   await db.delete(taskCustomValues);

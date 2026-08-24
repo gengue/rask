@@ -9,6 +9,9 @@ browser never talks to ClickUp directly.
 
 MIT licensed. Not affiliated with ClickUp.
 
+Running it locally, and the sharp edges worth knowing about first, are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Architecture
 
 ```
@@ -52,15 +55,14 @@ Browser (SPA) <-- SSE --> API <-- REST + webhooks --> ClickUp
 Tooling: Biome, `bun test`, Playwright for the critical flow, Docker Compose for
 local Postgres.
 
-Run the suite with `bun run test`, not a bare `bun test`: the latter globs the
-Playwright specs, which need running servers. Some tests talk to the local
-Postgres on purpose — a jsonb column that round-trips through the ORM while
-being stored wrong is not catchable any other way.
+Some tests talk to a real Postgres on purpose: a jsonb column that round-trips
+through the ORM while being stored wrong is not catchable any other way. They
+write to `rask_test` and never to `rask`, and `test-db.ts` refuses a URL that is
+not clearly a test database — the tests insert and delete real rows, and
+pointing them at the one you are looking at is a mistake worth making impossible
+rather than remembering not to make.
 
-Those tests write to `rask_test`, never to `rask`. Run `bun run db:test` once to
-create it. The default is deliberate: the tests insert and delete real rows, and
-pointing them at the database you are actually looking at is a mistake worth
-making impossible rather than remembering not to make.
+How to run any of this is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Things the original plan called for that are not here
 
@@ -229,16 +231,23 @@ two workers starting together would each find no webhook and create one.
 
 ## Themes
 
-Dark by default, light available, and it follows the OS unless you say
-otherwise. The choice lives in `localStorage["rask.theme"]`; "system" is stored
-as the absence of that key, so a fresh profile follows `prefers-color-scheme`
-with nothing written. An inline script in `index.html` applies the class before
-the stylesheet loads, because a theme read after first paint is a white flash
-on a dark screen.
+System by default, with light and dark available. The button in the sidebar
+footer cycles the three; `⌘K` jumps straight to one. "System" is stored as
+the *absence* of `localStorage["rask.theme"]`, so a fresh profile follows
+`prefers-color-scheme` with nothing written. An inline script in `index.html`
+applies the class before the stylesheet loads, because a theme read after first
+paint is a white flash on a dark screen.
 
 Every text colour clears WCAG AA in both themes — 4.5:1 for body text, 3:1 for
-glyphs — measured rather than eyeballed. `apps/web/src/lib/contrast.ts` computes
-the ratios; run it before changing a colour token.
+glyphs — measured rather than eyeballed:
+
+```bash
+bun run --cwd apps/web contrast
+```
+
+It parses the tokens out of `styles.css`, prints all 66 foreground/surface
+pairs, and exits non-zero on anything below AA. Run it before changing a colour
+token; `apps/web/test/contrast.test.ts` runs the same audit so CI does too.
 
 ## Conventions
 
