@@ -35,6 +35,23 @@ import {
   viewResponse,
 } from "./schemas.ts";
 
+/**
+ * How many pages of a view are asked for at once.
+ *
+ * A page of a view on one List comes back in about half a second. A page of a
+ * view that spans a Workspace takes five to twenty-five, because ClickUp is
+ * scanning every list under it rather than one — measured against `7-529-1`,
+ * and true of a Workspace view with no filters at all, so it is the level that
+ * costs, not the query. Asked for one after another, the 500-row cap is
+ * seventeen of those in a row and nobody waits that long.
+ *
+ * ClickUp says which page is the last only by answering it, so a round asks
+ * for four and learns it from whichever comes back flagged. That overshoots by
+ * up to three requests on the last round — cheap against a 100/minute budget,
+ * and they are the empty ones that cost ClickUp nothing to answer.
+ */
+const VIEW_PAGE_BATCH = 4;
+
 export const CLICKUP_API_BASE = "https://api.clickup.com/api";
 
 export class ClickUpError extends Error {
@@ -375,12 +392,27 @@ export class ClickUpClient {
     }));
   }
 
-  /** Walks every page of a view. Stops on the first page ClickUp flags as last. */
+  /**
+   * Walks every page of a view, four at a time.
+   *
+   * Pages come out in order and a round is only as slow as its slowest page,
+   * which is the whole point: see `VIEW_PAGE_BATCH`. Stops on the round that
+   * contains the page ClickUp flagged as last, so the pages after it inside
+   * that round are fetched and thrown away rather than waited for one by one.
+   */
   async *iterateViewTasks(viewId: string): AsyncGenerator<ClickUpTask[]> {
-    for (let page = 0; ; page++) {
-      const { tasks, lastPage } = await this.getViewTasks(viewId, { page });
-      if (tasks.length > 0) yield tasks;
-      if (lastPage || tasks.length === 0) return;
+    for (let page = 0; ; page += VIEW_PAGE_BATCH) {
+      const round = await Promise.all(
+        Array.from({ length: VIEW_PAGE_BATCH }, (_, offset) =>
+          this.getViewTasks(viewId, { page: page + offset }),
+        ),
+      );
+
+      for (const { tasks } of round) {
+        if (tasks.length > 0) yield tasks;
+      }
+
+      if (round.some((result) => result.lastPage || result.tasks.length === 0)) return;
     }
   }
 
