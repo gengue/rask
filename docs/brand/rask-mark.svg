@@ -1,0 +1,15 @@
+<!-- Rask mark — "Kinetic R Italic". Geometric R sheared 12 degrees, two trailing
+     wake bars. Uses currentColor: set `color` on the parent to recolour. -->
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Rask">
+  <g transform="translate(17,0) skewX(-12)">
+    <g fill="currentColor">
+      <rect x="20" y="26" width="5" height="48" rx="2.5"/>
+      <rect x="11" y="26" width="3" height="48" rx="1.5"/>
+    </g>
+    <g fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 34 22 L 34 78"/>
+      <path d="M 34 22 H 54 A 17 17 0 0 1 54 56 H 34"/>
+      <path d="M 48 56 L 74 78"/>
+    </g>
+  </g>
+</svg>

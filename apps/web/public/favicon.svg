@@ -1,0 +1,11 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Rask">
+  <style>svg{color:#0F0F0F}@media(prefers-color-scheme:dark){svg{color:#FAFAFA}}</style>
+  <g transform="translate(15,0) skewX(-12)">
+    <rect x="17" y="26" width="7" height="48" rx="3.5" fill="currentColor"/>
+    <g fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 36 24 L 36 76"/>
+      <path d="M 36 24 H 54 A 16 16 0 0 1 54 56 H 36"/>
+      <path d="M 49 56 L 72 76"/>
+    </g>
+  </g>
+</svg>
