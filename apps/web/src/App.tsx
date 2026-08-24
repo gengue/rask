@@ -21,7 +21,7 @@ import { lightboxOpen } from "./lib/lightbox.ts";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { connect } from "./lib/sse.ts";
 import { tasks } from "./lib/store.ts";
-import { setTheme, type ThemeChoice, themeChoice } from "./lib/theme.ts";
+import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
 import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
   cursorTask,
@@ -34,13 +34,6 @@ import {
   viewTitle,
   viewTruncated,
 } from "./lib/view.ts";
-
-/** Ordered so "System", the default, comes first in the palette. */
-const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
-  ["system", "System"],
-  ["light", "Light"],
-  ["dark", "Dark"],
-];
 
 /**
  * The shell: sidebar, main panel, detail panel, and the one keyboard listener

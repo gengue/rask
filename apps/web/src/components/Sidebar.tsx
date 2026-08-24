@@ -10,6 +10,7 @@ import {
   togglePinned,
 } from "../lib/sidebar-state.ts";
 import { connected } from "../lib/sse.ts";
+import { nextTheme, setTheme, themeChoice, themeLabel } from "../lib/theme.ts";
 import { Avatar } from "./Avatar.tsx";
 
 /**
@@ -79,6 +80,7 @@ export function Sidebar(props: {
             <span class="flex-1 truncate text-ink-2 text-xs">
               {me().username ?? me().email ?? "Signed in"}
             </span>
+            <ThemeButton />
             <span
               class="size-1.5 shrink-0 rounded-full transition-colors"
               classList={{ "bg-ok": connected(), "bg-high": !connected() }}
@@ -373,4 +375,58 @@ function useRevealActiveList(spaces: () => Space[]): void {
       }
     }
   });
+}
+
+/**
+ * The theme, as one button.
+ *
+ * It was only in the command palette, which is where every other action lives
+ * — and which nobody finds by looking, because there is nothing to look at.
+ * Somebody wanting light mode has no reason to guess that ⌘K holds it.
+ *
+ * Three states cycling rather than a two-way toggle, because "System" is not
+ * the same as whichever of the two the system happens to be right now, and it
+ * is the default: a toggle would offer no way back to it. The icon carries the
+ * current state and the tooltip names what the next press does, so one button
+ * says all three things without a menu.
+ */
+function ThemeButton(): JSX.Element {
+  const next = () => nextTheme(themeChoice());
+
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(next())}
+      title={`Theme: ${themeLabel(themeChoice())} — switch to ${themeLabel(next())}`}
+      aria-label={`Theme: ${themeLabel(themeChoice())}. Switch to ${themeLabel(next())}`}
+      class="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <Show when={themeChoice() === "system"}>
+          {/* A display: the theme is whatever the machine says. */}
+          <path
+            d="M2.5 3.5h11v7h-11v-7ZM6 13h4M8 10.5V13"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </Show>
+        <Show when={themeChoice() === "light"}>
+          <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <circle cx="8" cy="8" r="3" />
+            <path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" />
+          </g>
+        </Show>
+        <Show when={themeChoice() === "dark"}>
+          <path
+            d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1Z"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </Show>
+      </svg>
+    </button>
+  );
 }

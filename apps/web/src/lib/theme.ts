@@ -2,6 +2,23 @@ import { createSignal } from "solid-js";
 
 export type ThemeChoice = "system" | "light" | "dark";
 
+/** Ordered so "System", the default, comes first, and so cycling starts there. */
+export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
+];
+
+/** The next choice in that order, which is what one button can offer. */
+export function nextTheme(current: ThemeChoice): ThemeChoice {
+  const index = THEMES.findIndex(([value]) => value === current);
+  return THEMES[(index + 1) % THEMES.length]?.[0] ?? "system";
+}
+
+export function themeLabel(choice: ThemeChoice): string {
+  return THEMES.find(([value]) => value === choice)?.[1] ?? "System";
+}
+
 /** Shared with the inline script in index.html, which reads it before we run. */
 const KEY = "rask.theme";
 
@@ -19,7 +36,16 @@ const KEY = "rask.theme";
  * paint from being the wrong colour. Everything here is about the second paint
  * onwards.
  */
-const media = window.matchMedia("(prefers-color-scheme: dark)");
+/*
+ * Null outside a browser.
+ *
+ * `bun test` has no window, and the theme's cycling order is worth a test — so
+ * this module has to be importable without one. Every browser access below is
+ * behind this, and in a browser it is never null, so nothing is conditional at
+ * runtime where it matters.
+ */
+const media =
+  typeof window === "undefined" ? null : window.matchMedia("(prefers-color-scheme: dark)");
 
 function read(): ThemeChoice {
   try {
@@ -31,7 +57,7 @@ function read(): ThemeChoice {
 }
 
 const [choice, setChoice] = createSignal<ThemeChoice>(read());
-const [systemDark, setSystemDark] = createSignal(media.matches);
+const [systemDark, setSystemDark] = createSignal(media?.matches ?? false);
 
 export const themeChoice = choice;
 
@@ -46,6 +72,7 @@ export function resolvedTheme(): "light" | "dark" {
  * here would need a createRoot to own it. Two call sites, called directly.
  */
 function apply(): void {
+  if (!media) return;
   const theme = resolvedTheme();
   const root = document.documentElement;
   root.classList.toggle("dark", theme === "dark");
@@ -53,7 +80,7 @@ function apply(): void {
   root.style.colorScheme = theme;
 }
 
-media.addEventListener("change", (event) => {
+media?.addEventListener("change", (event) => {
   setSystemDark(event.matches);
   apply();
 });
