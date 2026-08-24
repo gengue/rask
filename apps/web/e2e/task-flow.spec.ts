@@ -155,6 +155,47 @@ test("closing an expanded task returns to the list", async ({ page }) => {
 });
 
 /**
+ * The expanded task is in the address, not in a tab-local flag.
+ *
+ * Which matters for one reason: a link is how people hand a task to each other,
+ * and "read this, full width" was not something a link could say. So the state
+ * has to survive being pasted, and the toggle has to keep writing it — a URL
+ * that stops describing the screen the moment somebody presses `f` is worse
+ * than not having the parameter at all.
+ */
+test("opens a task expanded from the URL and keeps the toggle there", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await expect(page.getByRole("heading", { name: "My Tasks" })).toBeVisible();
+  await page.goto("/list/L1");
+
+  const list = page.getByRole("listbox", { name: "Tasks" });
+  const row = list.getByRole("option").first();
+  await expect(row).toBeVisible();
+  const taskId = (await row.getAttribute("id"))?.replace("task-", "");
+
+  // The link as somebody else receives it.
+  await page.goto(`/list/L1?task=${taskId}&expanded=1`);
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail.getByLabel("Collapse task")).toBeVisible();
+  // The list is behind it, not beside it.
+  await expect(list).toBeHidden();
+
+  // `f` collapses, and the address follows: what is on screen is what a copied
+  // URL says, in both directions.
+  await page.keyboard.press("f");
+  await expect(detail.getByLabel("Expand task")).toBeVisible();
+  await expect(list).toBeVisible();
+  await expect(page).not.toHaveURL(/expanded/);
+
+  await page.keyboard.press("f");
+  await expect(page).toHaveURL(/expanded=true/);
+
+  // The flag without a task says nothing, and the shell hides the list for it:
+  // a link that lost its `task=` on the way is still a list, not a blank window.
+  await page.goto("/list/L1?expanded=1");
+  await expect(list.getByRole("option").first()).toBeVisible();
+});
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,

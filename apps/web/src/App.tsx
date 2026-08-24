@@ -19,6 +19,7 @@ import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
 import { lightboxOpen } from "./lib/lightbox.ts";
+import { useExpanded } from "./lib/nav.tsx";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { signInError } from "./lib/sign-in-error.ts";
 import { markSignedOut, signedOut } from "./lib/signed-out.ts";
@@ -88,16 +89,23 @@ export function AppShell(): JSX.Element {
   let searchInput: HTMLInputElement | undefined;
   const [searching, setSearching] = createSignal(false);
   const openTaskId = () => (search() as { task?: string }).task ?? null;
+  const [expanded, setExpanded] = useExpanded();
 
   onCleanup(connect());
 
   const openTask = (task: Task) =>
     navigate({ to: ".", search: (prev: Record<string, unknown>) => ({ ...prev, task: task.id }) });
 
+  // `expanded` goes with it: it describes the open task, and a URL that says
+  // a task is full width with no task open is a link nobody can act on.
   const closeTask = () =>
     navigate({
       to: ".",
-      search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined }),
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        task: undefined,
+        expanded: undefined,
+      }),
     });
 
   const openStatusMenu = async (task: Task, anchor: { x: number; y: number }) => {
@@ -186,9 +194,9 @@ export function AppShell(): JSX.Element {
       } else if (searching()) {
         setSearching(false);
         setUi("search", "");
-      } else if (ui.taskExpanded) {
+      } else if (expanded()) {
         // Collapse before closing: Escape should undo one step, not two.
-        setUi("taskExpanded", false);
+        setExpanded(false);
       } else if (openTaskId()) {
         closeTask();
       } else {
@@ -255,7 +263,7 @@ export function AppShell(): JSX.Element {
       case "f":
         if (openTaskId()) {
           event.preventDefault();
-          setUi("taskExpanded", !ui.taskExpanded);
+          setExpanded(!expanded());
         }
         break;
       case "F":
@@ -311,19 +319,6 @@ export function AppShell(): JSX.Element {
   createEffect(() => {
     viewTitle();
     setUi({ cursor: 0, sidebarOpen: false });
-  });
-
-  /*
-   * Expanded is a property of the open task, not of the app.
-   *
-   * The list is `hidden` while a task is expanded, so anything that closes the
-   * task without collapsing it first leaves a window with nothing in it but the
-   * sidebar. Escape collapsed by hand; the X, a route change and the back
-   * button did not. Tying it to the task itself covers every one of them, and
-   * the next task opens the way a task opens.
-   */
-  createEffect(() => {
-    if (!openTaskId()) setUi("taskExpanded", false);
   });
 
   const commands = (): Command[] => [
@@ -522,7 +517,7 @@ export function AppShell(): JSX.Element {
         <main class="relative mt-2 mr-2 mb-2 flex min-w-0 flex-1 overflow-hidden rounded-[10px] border border-line bg-panel max-dock:ml-2">
           {/* The expanded task takes the whole panel; the list is still there,
             one Escape away. */}
-          <div class="flex min-w-0 flex-1 flex-col" classList={{ hidden: ui.taskExpanded }}>
+          <div class="flex min-w-0 flex-1 flex-col" classList={{ hidden: expanded() }}>
             <header class="flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5">
               {/* The only way back to the workspace tree for a mouse below
                 `dock`, where the sidebar is a drawer. */}
@@ -640,7 +635,7 @@ export function AppShell(): JSX.Element {
                   a task open and no way to the workspace tree but the keyboard.
                   Covering only the list also keeps this out of the header's
                   stacking context, where the filter and grouping menus live. */}
-                <Show when={!ui.taskExpanded}>
+                <Show when={!expanded()}>
                   <button
                     type="button"
                     aria-label="Close"
