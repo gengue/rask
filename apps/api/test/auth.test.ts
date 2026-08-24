@@ -228,7 +228,7 @@ describe("oauth callback", () => {
   test("issues a state cookie that JavaScript cannot read", async () => {
     // Readable from script, the state cookie stops being a second channel and
     // the CSRF check it backs becomes decoration.
-    const app = authRoutes(db, makeConfig({ NODE_ENV: "production" }));
+    const app = authRoutes(db, makeConfig({ NODE_ENV: "production", CLICKUP_TEAM_ID: "9001" }));
     const response = await app.request("/clickup");
 
     const cookie = response.headers.get("set-cookie") ?? "";
@@ -281,10 +281,13 @@ describe("the session cookie", () => {
     };
   }
 
-  async function completeLogin(nodeEnv: string) {
+  async function completeLogin(nodeEnv: string, over: Record<string, string> = {}) {
     const restore = stubClickUp();
     try {
-      const app = authRoutes(db, makeConfig({ NODE_ENV: nodeEnv }));
+      const app = authRoutes(
+        db,
+        makeConfig({ NODE_ENV: nodeEnv, CLICKUP_TEAM_ID: "9001", ...over }),
+      );
       return await app.request("/clickup/callback?code=abc&state=ours", {
         headers: { cookie: "rask_oauth_state=ours" },
       });
@@ -292,6 +295,58 @@ describe("the session cookie", () => {
       restore();
     }
   }
+
+  /**
+   * Who is allowed in at all.
+   *
+   * Reads come from the mirror, so a session is enough to see every task in it
+   * — ClickUp's own per-Space permissions are never consulted on the read path.
+   * The Workspace check is therefore the entire access control on a deployment
+   * anyone can reach, and it used to be `teams[0]`: whatever workspace the
+   * account signing in happened to have.
+   */
+  test("refuses an account that is not in this deployment's workspace", async () => {
+    const response = await completeLogin("production", { CLICKUP_TEAM_ID: "someone-else" });
+
+    expect(response.status).toBe(403);
+    expect(response.headers.getSetCookie().some((c) => c.startsWith("rask_session="))).toBe(false);
+  });
+
+  test("refuses an account off the allow list, even inside the workspace", async () => {
+    const response = await completeLogin("production", {
+      RASK_ALLOWED_EMAILS: "someone@example.test",
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.headers.getSetCookie().some((c) => c.startsWith("rask_session="))).toBe(false);
+  });
+
+  test("admits an account on the allow list, matched case-insensitively", async () => {
+    const response = await completeLogin("production", {
+      RASK_ALLOWED_EMAILS: " other@example.test , CALLBACK@Example.TEST ",
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.getSetCookie().some((c) => c.startsWith("rask_session="))).toBe(true);
+  });
+
+  test("an empty allow list is not an allow list of nobody", async () => {
+    // `RASK_ALLOWED_EMAILS=` in a .env file is how "unset" is spelled. Reading
+    // it as a list containing nothing locks every user out of a live
+    // deployment, with the deploy that did it looking like a no-op.
+    const response = await completeLogin("production", { RASK_ALLOWED_EMAILS: "" });
+
+    expect(response.status).toBe(302);
+  });
+
+  test("sends the browser to the web origin, not to a path on the API", async () => {
+    // The API serves the SPA in production, so "/" happened to work there and
+    // 404'd in development, where the browser is on another port.
+    const response = await completeLogin("development", { WEB_ORIGIN: "http://localhost:5173" });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost:5173");
+  });
 
   test("is httpOnly and secure in production", async () => {
     const response = await completeLogin("production");

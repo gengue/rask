@@ -62,8 +62,11 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Migrate
-        run: bun run --cwd packages/schema src/migrate.ts
+      - name: Create the test databases
+        # One per package: the suites run in parallel, and both the outbox drain
+        # and the reconciliation are global by design, so a shared database made
+        # them occasionally read each other's rows.
+        run: bun run db:test
 
       - name: Test
         run: bun run test

@@ -57,8 +57,8 @@ local Postgres.
 
 Some tests talk to a real Postgres on purpose: a jsonb column that round-trips
 through the ORM while being stored wrong is not catchable any other way. They
-write to `rask_test` and never to `rask`, and `test-db.ts` refuses a URL that is
-not clearly a test database — the tests insert and delete real rows, and
+write to a `rask_test_*` database, one per package, and never to `rask`, and
+`test-db.ts` refuses a URL that is not clearly a test database — the tests insert and delete real rows, and
 pointing them at the one you are looking at is a mistake worth making impossible
 rather than remembering not to make.
 
@@ -208,10 +208,59 @@ rather than at API boot, because a rolling deploy would race them.
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-On Coolify, point the app at `docker-compose.prod.yml` and set the variables
-from `.env.example`. `CLICKUP_REDIRECT_URI` has to match the redirect URL
-registered on the ClickUp OAuth app exactly, or the callback fails with no
-useful error.
+### Who can sign in
+
+**Reads come from the mirror, not from ClickUp.** A session is enough to read
+every task Rask has mirrored; ClickUp's own per-Space permissions are never
+consulted on the read path. So the sign-in gate is the whole access control,
+and on a public VPS it is the only thing between a stranger's ClickUp account
+and your company's tasks.
+
+`CLICKUP_TEAM_ID` is that gate: only members of that Workspace may sign in. The
+API refuses to start in production without it. `RASK_ALLOWED_EMAILS` narrows it
+further to a list, for a pilot or a Workspace with guests.
+
+What this does *not* give you is per-Space isolation. Anyone who can sign in
+sees the whole mirror, including Spaces ClickUp would have hidden from them.
+Fine for a team that already shares everything; not a substitute for ClickUp's
+permissions if you have Spaces some members must not read.
+
+### On a VPS
+
+Any box with Docker. 2 GB of RAM is comfortable for the ~150k-task workspace
+this was built against; Postgres wants the disk more than the CPU.
+
+```bash
+git clone git@github.com:gengue/rask.git && cd rask
+cp .env.example .env      # then fill it in, see below
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+The compose file does not include Postgres — point `DATABASE_URL` at a managed
+one or at a container you run yourself. Nothing in Rask should be reachable
+from the internet except the API, and the API expects to sit behind a reverse
+proxy that terminates TLS (Caddy, nginx, or Coolify's built-in one). The
+session cookie is `Secure` in production, so it will not survive plain http.
+
+Set, at minimum:
+
+| | |
+|---|---|
+| `DATABASE_URL` | Postgres. |
+| `TOKEN_ENCRYPTION_KEY`, `SESSION_SECRET` | `openssl rand -base64 32`, one each. Rotating the first one orphans every stored ClickUp token. |
+| `CLICKUP_CLIENT_ID`, `CLICKUP_CLIENT_SECRET` | From the ClickUp OAuth app. |
+| `CLICKUP_REDIRECT_URI` | `https://your.domain/auth/clickup/callback`, matching the OAuth app **character for character** — a mismatch fails the callback with no useful error. |
+| `WEB_ORIGIN` | `https://your.domain`. Where the browser lands after sign-in. |
+| `CLICKUP_TEAM_ID` | The Workspace. See above. |
+| `NODE_ENV` | `production`, or the cookie will not be `Secure` and the Workspace check will not be required. |
+
+Then do the first sync. The worker discovers the hierarchy on boot and starts
+polling; a full load of a large workspace is measured above at roughly five
+minutes per 17,000 tasks, so a first fill is hours, not minutes, and it is
+bounded by ClickUp's 100 req/min rather than by anything here.
+
+On Coolify, point the app at `docker-compose.prod.yml` and set the same
+variables in its UI.
 
 To turn webhooks on, set `CLICKUP_WEBHOOK_URL` on the worker to the API's
 public `/webhooks/clickup` URL — the full path, https, reachable from the

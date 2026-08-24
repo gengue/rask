@@ -110,7 +110,7 @@ port directly.
 bun run check          # Biome: lint and format
 bun run check:fix      # and fix what it can
 bun run typecheck      # tsc across all five packages
-bun run db:test        # (re)create rask_test — once per schema change
+bun run db:test        # (re)create the test databases — once per schema change
 bun run test           # the suite
 ```
 
@@ -136,9 +136,12 @@ runs as a test, so CI catches it too.
 
 ## Things that have bitten people
 
-- **Tests must never touch your dev database.** `bun run test` sets
-  `TEST_DATABASE_URL` to `rask_test`, and `packages/schema/src/test-db.ts`
-  refuses anything that is not clearly a test database. A bare `bun test` once
+- **Tests must never touch your dev database.** Each package's `test` script
+  names its own `rask_test_*` database, and `packages/schema/src/test-db.ts`
+  refuses anything that is not clearly a test database. One per package because
+  the suites run in parallel and both the outbox drain and the reconciliation
+  are global by design, so a shared one made them read each other's rows about
+  once in five runs. A bare `bun test` once
   truncated a 147,000-task mirror. If you add a test that imports
   `apps/api/src/index.ts`, set `DATABASE_URL` yourself before the import — that
   file builds a pool from the environment at module scope.

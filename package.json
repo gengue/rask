@@ -15,14 +15,14 @@
   "scripts": {
     "dev": "bun run --filter '*' dev",
     "build": "bun run --filter '*' build",
-    "test": "TEST_DATABASE_URL=postgres://rask:rask@localhost:5432/rask_test bun run --filter '*' test",
+    "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d --wait",
-    "db:test": "docker compose exec -T postgres psql -U rask -d postgres -c \"drop database if exists rask_test with (force)\" -c \"create database rask_test owner rask\" && DATABASE_URL=postgres://rask:rask@localhost:5432/rask_test bun run --cwd packages/schema src/migrate.ts"
+    "db:test": "bun scripts/db-test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",

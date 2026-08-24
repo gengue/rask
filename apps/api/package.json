@@ -7,7 +7,7 @@
     "dev": "bun --env-file=../../.env --watch src/index.ts",
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "TEST_DATABASE_URL=postgres://rask:rask@localhost:5432/rask_test_api bun test",
     "seed": "bun --env-file=../../.env scripts/seed-dev.ts",
     "start:local": "bun --env-file=../../.env src/index.ts",
     "link": "bun --env-file=../../.env scripts/link-personal-token.ts"

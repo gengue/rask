@@ -27,6 +27,12 @@ services:
       CLICKUP_CLIENT_SECRET: ${CLICKUP_CLIENT_SECRET}
       CLICKUP_REDIRECT_URI: ${CLICKUP_REDIRECT_URI}
       WEB_ORIGIN: ${WEB_ORIGIN}
+      # Who may sign in. Required: the API refuses to start without it in
+      # production, because reads come from the mirror and a session is enough
+      # to see all of it.
+      CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID}
+      # Optional second gate, for a pilot or a workspace with guests.
+      RASK_ALLOWED_EMAILS: ${RASK_ALLOWED_EMAILS}
       # Only for a webhook created outside Rask. The ones the worker registers
       # keep their secret in the database, encrypted with TOKEN_ENCRYPTION_KEY.
       CLICKUP_WEBHOOK_SECRET: ${CLICKUP_WEBHOOK_SECRET}

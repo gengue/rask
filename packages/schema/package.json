@@ -11,7 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "TEST_DATABASE_URL=postgres://rask:rask@localhost:5432/rask_test_schema bun test",
     "generate": "drizzle-kit generate",
     "migrate": "bun --env-file=../../.env src/migrate.ts"
   },

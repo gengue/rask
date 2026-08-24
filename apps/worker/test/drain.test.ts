@@ -98,13 +98,11 @@ function clickUp(routes: Record<string, Answer>) {
     /*
      * Only this file's user has a token.
      *
-     * `claim` is global on purpose — in production one worker drains the whole
-     * queue — but the test database is shared with the API package's suite,
-     * which runs concurrently and keeps pending rows of its own. Refusing an
-     * unknown user means such a row is deferred untouched instead of being
-     * sent to this stub. It also means a foreign row can only ever land in
-     * `deferred`, never in `sent` or `failed`, which is why those two are the
-     * counts asserted exactly below.
+     * `claim` is global on purpose: in production one worker drains the whole
+     * queue. Each package now has its own test database (`scripts/db-test.ts`),
+     * so a foreign row is no longer the hazard it was — but refusing an unknown
+     * user is still the cheapest way to keep a stray row from being sent to
+     * this stub as if it were ours.
      */
     for: async (userId: string) => (userId === USER ? client : null),
   } as unknown as TokenPool;
