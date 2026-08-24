@@ -204,14 +204,20 @@ One image, three commands: the API (which also serves the SPA), the worker, and
 a one-shot migrator that both depend on. Migrations run as their own service
 rather than at API boot, because a rolling deploy would race them.
 
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
+`docker-compose.prod.yml` is written for Coolify. Point the app at it, set the
+variables from `.env.example`, and give the `api` service its domain with the
+container port on the end — `https://rask.example.com:3000` — which is how the
+proxy learns where to route. The API is reachable on the compose network and
+not published on the host, so rolling updates keep working.
 
-On Coolify, point the app at `docker-compose.prod.yml` and set the variables
-from `.env.example`. `CLICKUP_REDIRECT_URI` has to match the redirect URL
-registered on the ClickUp OAuth app exactly, or the callback fails with no
-useful error.
+One line in it is Coolify's and not Docker's: `exclude_from_hc: true` on
+`migrate`, which stops a migrator that has done its job and exited from
+counting as an unhealthy container. Plain `docker compose` rejects the key
+outright, so running this file anywhere else means dropping that line and
+publishing port 3000 yourself.
+
+`CLICKUP_REDIRECT_URI` has to match the redirect URL registered on the ClickUp
+OAuth app exactly, or the callback fails with no useful error.
 
 To turn webhooks on, set `CLICKUP_WEBHOOK_URL` on the worker to the API's
 public `/webhooks/clickup` URL — the full path, https, reachable from the

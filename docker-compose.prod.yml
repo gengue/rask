@@ -10,6 +10,9 @@ services:
   migrate:
     build: .
     command: ["bun", "packages/schema/src/migrate.ts"]
+    # Runs to completion and stays exited, which is success. Without this
+    # Coolify counts the stopped container against the deployment's health.
+    exclude_from_hc: true
     environment:
       DATABASE_URL: ${DATABASE_URL}
     restart: "no"
@@ -30,8 +33,10 @@ services:
       # Only for a webhook created outside Rask. The ones the worker registers
       # keep their secret in the database, encrypted with TOKEN_ENCRYPTION_KEY.
       CLICKUP_WEBHOOK_SECRET: ${CLICKUP_WEBHOOK_SECRET}
-    ports:
-      - "3000:3000"
+    # Not published on the host: the proxy in front reaches the container over
+    # the compose network, and a host binding would also cost rolling updates.
+    expose:
+      - "3000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 15s
