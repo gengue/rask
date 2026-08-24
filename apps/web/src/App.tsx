@@ -313,6 +313,19 @@ export function AppShell(): JSX.Element {
     setUi({ cursor: 0, sidebarOpen: false });
   });
 
+  /*
+   * Expanded is a property of the open task, not of the app.
+   *
+   * The list is `hidden` while a task is expanded, so anything that closes the
+   * task without collapsing it first leaves a window with nothing in it but the
+   * sidebar. Escape collapsed by hand; the X, a route change and the back
+   * button did not. Tying it to the task itself covers every one of them, and
+   * the next task opens the way a task opens.
+   */
+  createEffect(() => {
+    if (!openTaskId()) setUi("taskExpanded", false);
+  });
+
   const commands = (): Command[] => [
     ...buildNavigationCommands(spaces(), (listId) =>
       navigate({ to: "/list/$listId", params: { listId } }),

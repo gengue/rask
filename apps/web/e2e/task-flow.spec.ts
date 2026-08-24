@@ -127,6 +127,34 @@ test("marks only the open list in the sidebar", async ({ page }) => {
 });
 
 /**
+ * Closing an expanded task gives the list back.
+ *
+ * The list is `display:none` while the task fills the panel, and the expanded
+ * flag used to outlive the task: the X removed `?task=` and left the flag set,
+ * so the window went blank apart from the sidebar with no key that could
+ * recover it — Escape's collapse branch only runs while a task is open.
+ */
+test("closing an expanded task returns to the list", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1");
+
+  const list = page.getByRole("listbox", { name: "Tasks" });
+  await expect(list.getByRole("option").first()).toBeVisible();
+
+  await list.getByRole("option").first().click();
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail).toBeVisible();
+
+  await detail.getByRole("button", { name: "Expand task" }).click();
+  await expect(detail.getByRole("button", { name: "Collapse task" })).toBeVisible();
+  await expect(list).toBeHidden();
+
+  await detail.getByTitle(/^Close/).click();
+  await expect(detail).toHaveCount(0);
+  await expect(list).toBeVisible();
+});
+
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,
@@ -137,6 +165,10 @@ test("marks only the open list in the sidebar", async ({ page }) => {
  * the gate was `if (signedOut()) return <Login/>` at the top of the component,
  * and a Solid component body runs once: signing out left the whole workspace on
  * screen behind a dead session, and nothing but a browser would have said so.
+ *
+ * Last on purpose, with the refused-sign-in test that needs no session: signing
+ * out ends the one seeded session every `/__dev-login` above hands out, so a
+ * test placed after this one lands on the sign-in page instead of a list.
  */
 test("signs out, and a signed-out visit gets a way back in", async ({ page }) => {
   await page.goto("/__dev-login");
