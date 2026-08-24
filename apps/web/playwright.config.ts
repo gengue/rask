@@ -10,6 +10,15 @@ import { E2E, E2E_ENV } from "./e2e/env.ts";
  * it used to wipe the workspace mirror a developer had open.
  */
 /*
+ * Both servers pipe their output.
+ *
+ * The default swallows it, and a webServer that never becomes ready then fails
+ * with nothing but "Timed out waiting" — no banner, no error, no way to tell
+ * which of the two it was. That happened once on a runner and took a re-run to
+ * establish it was the runner rather than the code.
+ */
+
+/*
  * Generous, because the first thing Vite does on a cold checkout is optimize
  * dependencies. Thirty seconds is plenty on a warm laptop and not enough on a
  * CI runner that has never seen node_modules before, which is what turned the
@@ -37,6 +46,8 @@ export default defineConfig({
       // Never reuse: a server already up is one pointed at the dev database.
       reuseExistingServer: false,
       timeout: WEB_SERVER_TIMEOUT_MS,
+      stdout: "pipe",
+      stderr: "pipe",
     },
     {
       command: "bun run dev",
@@ -44,6 +55,8 @@ export default defineConfig({
       env: E2E_ENV,
       reuseExistingServer: false,
       timeout: WEB_SERVER_TIMEOUT_MS,
+      stdout: "pipe",
+      stderr: "pipe",
     },
   ],
 });
