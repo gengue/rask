@@ -43,3 +43,16 @@ createRoot(() =>
 export function useLiveTasks(predicate: Accessor<(task: Task) => boolean>): Accessor<Task[]> {
   return createMemo(() => Object.values(rows).filter(predicate()));
 }
+
+/**
+ * The same mirror, one row.
+ *
+ * `tasks.get()` is a Map lookup — the collection carries no signal, which is
+ * why this module exists at all — so a caller that reads it inside a
+ * computation is not subscribed to anything and never hears about a change.
+ * Anything that has to react to a task, rather than sample it once in a
+ * handler, reads it through here.
+ */
+export function useLiveTask(id: Accessor<string>): Accessor<Task | undefined> {
+  return () => rows[id()];
+}

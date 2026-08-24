@@ -8,7 +8,7 @@
     "build": "bun --env-file=../../.env --bun vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "bun test test",
+    "test": "bun test --conditions browser test",
     "e2e": "playwright test",
     "contrast": "bun scripts/contrast.ts"
   },
