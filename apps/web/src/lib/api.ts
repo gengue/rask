@@ -1,3 +1,4 @@
+import type { RemoteLookup } from "./clickup-url.ts";
 import { markSignedOut } from "./signed-out.ts";
 
 /**
@@ -235,10 +236,23 @@ export interface ListView {
   publicUrl: string | null;
 }
 
+/**
+ * One view, whatever it hangs off.
+ *
+ * `ListView` above is a tab in a List's tab bar, and a tab always has a List.
+ * A view reached by its own address may not: ClickUp lets a view hang off a
+ * Workspace, a Space or a Folder, and those draw rows from every list under
+ * the container rather than one. Null listId is that case, and it is the only
+ * difference between the two.
+ */
+export interface View extends Omit<ListView, "listId"> {
+  listId: string | null;
+}
+
 /** What an id lifted out of a ClickUp URL turned out to be. */
 export type ResolvedRef =
   | { kind: "task"; taskId: string; listId: string }
-  | { kind: "view"; viewId: string; listId: string; name: string }
+  | { kind: "view"; viewId: string; listId: string | null; name: string }
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
   | { kind: "space"; spaceId: string; name: string }
@@ -367,14 +381,29 @@ export const api = {
       `/api/views/${viewId}/tasks${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`,
     ),
 
+  /**
+   * One view by id, for a view opened at its own address.
+   *
+   * `views(listId)` above answers the tab bar, which needs a List to ask about.
+   * This one takes the view id straight out of the URL, which is all a
+   * Workspace-level view ever comes with.
+   */
+  view: (viewId: string) => request<View>(`/api/views/${viewId}`),
+
   task: (id: string) => request<TaskDetail>(`/api/tasks/${id}`),
 
   search: (query: string) => request<SearchHit[]>(`/api/search?q=${encodeURIComponent(query)}`),
 
-  /** Candidates go most-specific first; the server answers with the first hit. */
-  resolve(ids: string[], remote: boolean): Promise<ResolvedRef> {
+  /**
+   * Candidates go most-specific first; the server answers with the first hit.
+   *
+   * `remote` is what the URL's own routing words said the id is, and it is the
+   * server's permission to spend one ClickUp request when the mirror misses.
+   * Null means the shape never said, so a miss is the answer.
+   */
+  resolve(ids: string[], remote: RemoteLookup): Promise<ResolvedRef> {
     const params = new URLSearchParams({ ids: ids.join(",") });
-    if (remote) params.set("remote", "1");
+    if (remote) params.set("remote", remote);
     return request<ResolvedRef>(`/api/resolve?${params}`);
   },
 

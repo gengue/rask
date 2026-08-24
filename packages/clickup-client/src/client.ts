@@ -30,6 +30,7 @@ import {
   listViewsResponse,
   taskPage,
   threadedCommentCreated,
+  viewResponse,
 } from "./schemas.ts";
 
 export const CLICKUP_API_BASE = "https://api.clickup.com/api";
@@ -323,6 +324,19 @@ export class ClickUpClient {
         defaultViewId: r.default_view?.id ?? null,
       };
     });
+  }
+
+  /**
+   * One view, by id, whatever it hangs off.
+   *
+   * The container endpoints above only reach views Rask already knows the
+   * container of. A view id pasted out of a ClickUp URL comes with no such
+   * context — and if it belongs to a Workspace, a Space or a Folder there is no
+   * container Rask mirrors views for at all. This is the one call that answers
+   * for any of them, and `parent.type` on the result says which it was.
+   */
+  getView(viewId: string): Promise<ClickUpView> {
+    return this.request(viewResponse, "GET", `/v2/view/${viewId}`).then((r) => r.view);
   }
 
   /**

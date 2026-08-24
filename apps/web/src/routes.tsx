@@ -23,7 +23,7 @@ import { RouteError } from "./components/RouteError.tsx";
 import { TaskList } from "./components/TaskList.tsx";
 import { ListPicker, NotFound } from "./components/Unresolved.tsx";
 import { UnsupportedView, ViewTabs } from "./components/ViewTabs.tsx";
-import { api, type ListView as ListViewRow, type ResolvedRef, type Task } from "./lib/api.ts";
+import { api, type ResolvedRef, type Task, type View } from "./lib/api.ts";
 import { parseClickUpPath } from "./lib/clickup-url.ts";
 import {
   applyView,
@@ -116,6 +116,20 @@ const savedViewRoute = createRoute({
   component: SavedView,
 });
 
+/**
+ * A view that hangs off something bigger than a List.
+ *
+ * ClickUp lets a view live on a Workspace, a Space or a Folder, and draws all
+ * four levels at the same `/{team}/v/l/{id}`. The rows then come from every
+ * list under that container rather than one, so there is no list to put in the
+ * path here and no tab bar to sit above it — the view id is the whole address.
+ */
+const viewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/view/$viewId",
+  component: ContainerView,
+});
+
 const clickUpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -198,43 +212,33 @@ function ListView(): JSX.Element {
 }
 
 /**
- * One ClickUp view of a list.
+ * The rows of one ClickUp view, and the bookkeeping that keeps them honest.
  *
- * The tasks come from `GET /view/{id}/task` through the API, already filtered
- * by ClickUp, and arrive as an explicit set of ids rather than as a predicate:
- * a view is a subset the browser has no way to recompute. The grouping is the
- * one part Rask applies itself.
+ * Shared by the two routes that show a view — a tab on a List, and a view
+ * opened at its own address — because the difference between them is chrome.
+ * A tab bar, a title, whether there is a list in the path: none of that is
+ * here. What is here is the part that would rot if it were written twice.
+ *
+ * The argument is three-valued on purpose. `undefined` means the view has not
+ * arrived yet, `null` means it arrived and there is no such view, and without
+ * the distinction a slow fetch renders "not found" for a view that exists.
+ *
+ * Returns the view when it is one Rask draws nothing for, and null otherwise,
+ * which is the one thing the caller still has to render differently.
  */
-function SavedView(): JSX.Element {
-  const params = useParams({ from: savedViewRoute.id });
-
-  /**
-   * The view this route is showing.
-   *
-   * `undefined` while the list's tabs are in flight, `null` once they have
-   * arrived without it. Without the distinction a slow tab fetch would render
-   * "not found" for a view that exists.
-   */
-  const view = createMemo(() => {
-    const { listId, viewId } = params();
-    if (listViewsOf() !== listId) return undefined;
-    return listViews().find((candidate) => candidate.id === viewId) ?? null;
-  });
-
+function viewRows(view: () => View | null | undefined): () => View | null {
   const [ids, setIds] = createSignal<ReadonlySet<string>>(new Set<string>());
 
+  // Once, not per view: nothing else writes either of these while a view route
+  // is mounted, and switching tabs within one does not remount it.
   createEffect(() => {
-    const listId = params().listId;
-    setViewListId(listId);
-    // A saved view's rows are ClickUp's answer, so `/` narrows what is in hand
-    // rather than going back for more.
+    // A view's rows are ClickUp's answer to its filters, so `/` narrows what is
+    // in hand rather than going back for more.
     setSearchScope("loaded");
     // A view already has a membership set of its own — the ids ClickUp
     // returned — and the filter is evaluated over those rows here rather than
     // pushed down, so the shared one must not also be in force.
     setViewMembership(null);
-    setViewTitle(listName(listId) ?? "List");
-    void loadListViews(listId);
   });
 
   /**
@@ -290,10 +294,44 @@ function SavedView(): JSX.Element {
   createEffect(() => setViewTasks(rows()));
 
   /** A view of a type Rask draws nothing for. Null for the ones it does. */
-  const unsupported = (): ListViewRow | null => {
+  return () => {
     const current = view();
     return current && !isRenderable(current.type) ? current : null;
   };
+}
+
+/**
+ * One ClickUp view of a list.
+ *
+ * The tasks come from `GET /view/{id}/task` through the API, already filtered
+ * by ClickUp, and arrive as an explicit set of ids rather than as a predicate:
+ * a view is a subset the browser has no way to recompute. The grouping is the
+ * one part Rask applies itself.
+ */
+function SavedView(): JSX.Element {
+  const params = useParams({ from: savedViewRoute.id });
+
+  /**
+   * The view this route is showing.
+   *
+   * `undefined` while the list's tabs are in flight, `null` once they have
+   * arrived without it. Without the distinction a slow tab fetch would render
+   * "not found" for a view that exists.
+   */
+  const view = createMemo(() => {
+    const { listId, viewId } = params();
+    if (listViewsOf() !== listId) return undefined;
+    return listViews().find((candidate) => candidate.id === viewId) ?? null;
+  });
+
+  createEffect(() => {
+    const listId = params().listId;
+    setViewListId(listId);
+    setViewTitle(listName(listId) ?? "List");
+    void loadListViews(listId);
+  });
+
+  const unsupported = viewRows(view);
 
   // The tabs stay above every outcome, including the ones that render no
   // tasks: a view Rask cannot draw is still a place in the list, and the way
@@ -315,6 +353,60 @@ function SavedView(): JSX.Element {
         <Match when={unsupported()}>{(current) => <UnsupportedView view={current()} />}</Match>
       </Switch>
     </>
+  );
+}
+
+/**
+ * One ClickUp view with no List behind it.
+ *
+ * The same rows as a tab, fetched the same way, minus everything that needed a
+ * list: no tab bar, no list in the path, and no list registered for polling.
+ * `ListBody` already draws a set of tasks spanning many lists — My Tasks is
+ * one — so the difference from `SavedView` is only where the view comes from.
+ *
+ * It comes from the API a view at a time, because there is no tab bar above
+ * this route to have carried it down. `createResource` reports `undefined`
+ * while that is in flight, which is the same "not yet" the tab route spells
+ * with `listViewsOf`, and `null` for a view ClickUp does not know either.
+ */
+function ContainerView(): JSX.Element {
+  const params = useParams({ from: viewRoute.id });
+
+  const [view] = createResource(
+    () => params().viewId,
+    (viewId) => api.view(viewId).catch(() => null),
+  );
+
+  createEffect(() => {
+    // Nothing here belongs to one list, so the shell must not claim one: the
+    // header's list name, the tab bar, and Quick Add's target all read this.
+    params().viewId;
+    setViewListId(null);
+    clearListViews();
+    // And nothing on screen belongs to this view yet. Whatever route came
+    // before left its rows in the store, and without this the header counts
+    // them under this view's name until the first page lands.
+    setViewTasks([]);
+    setViewTruncated(false);
+  });
+
+  createEffect(() => {
+    const current = view();
+    // Three states, three titles: in flight, no such view, and the view's own
+    // name. Without the middle one the header says "Opening…" over a screen
+    // that has already given up.
+    setViewTitle(current === undefined ? "Opening…" : (current?.name ?? "Not found"));
+  });
+
+  const unsupported = viewRows(view);
+
+  return (
+    <Switch fallback={<ListBody listId={null} activeViewId={null} />}>
+      <Match when={view() === null}>
+        <NotFound path={`/view/${params().viewId}`} />
+      </Match>
+      <Match when={unsupported()}>{(current) => <UnsupportedView view={current()} />}</Match>
+    </Switch>
   );
 }
 
@@ -384,11 +476,17 @@ function ClickUpView(): JSX.Element {
         });
         break;
       case "view":
-        void navigate({
-          to: "/list/$listId/view/$viewId",
-          params: { listId: found.listId, viewId: found.viewId },
-          replace: true,
-        });
+        // A view with no list has no list route to land on, and no better
+        // address than its own id — which is all ClickUp's URL carried either.
+        void navigate(
+          found.listId
+            ? {
+                to: "/list/$listId/view/$viewId",
+                params: { listId: found.listId, viewId: found.viewId },
+                replace: true,
+              }
+            : { to: "/view/$viewId", params: { viewId: found.viewId }, replace: true },
+        );
         break;
       case "list":
         void navigate({ to: "/list/$listId", params: { listId: found.listId }, replace: true });
@@ -451,7 +549,13 @@ function ListBody(props: { listId: string | null; activeViewId: string | null })
   );
 }
 
-const routeTree = rootRoute.addChildren([myTasksRoute, listRoute, savedViewRoute, clickUpRoute]);
+const routeTree = rootRoute.addChildren([
+  myTasksRoute,
+  listRoute,
+  savedViewRoute,
+  viewRoute,
+  clickUpRoute,
+]);
 
 export const router = createRouter({ routeTree, defaultPreload: "intent" });
 

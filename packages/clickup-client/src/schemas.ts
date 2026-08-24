@@ -442,6 +442,24 @@ export const listViewsResponse = z.looseObject({
   default_view: z.looseObject({ id: z.string() }).nullish(),
 });
 
+/** What `GET /view/{id}` answers with: the same object, on its own. */
+export const viewResponse = z.looseObject({ view: clickUpView });
+
+/**
+ * What `parent.type` on a view means.
+ *
+ * The container the view hangs off, and the only thing that says which level a
+ * view lives at — the id alone does not, since a Workspace id and a List id are
+ * both bare numbers. The built-in view ids echo it (`6-{list}-1`,
+ * `7-{team}-1`), but saved views are named `gh-96335` and carry the level here
+ * and nowhere else.
+ *
+ * Observed, not published: the GetView schema documents `parent` as an opaque
+ * object. Four values seen against the Ventura workspace, one per level of the
+ * hierarchy Rask already mirrors.
+ */
+export const VIEW_PARENT = { space: 4, folder: 5, list: 6, workspace: 7 } as const;
+
 export const clickUpList = z.looseObject({
   id: z.string(),
   name: z.string(),

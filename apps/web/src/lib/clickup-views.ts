@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { api, type ListView } from "./api.ts";
+import { api, type ListView, type View } from "./api.ts";
 import { pushToast } from "./toast.ts";
 import { type GroupBy, setUi } from "./ui.ts";
 
@@ -115,7 +115,7 @@ export function groupByForField(field: string | null | undefined): GroupBy {
  * decided whether the rows it sent include closed ones, and leaving Rask's own
  * toggle to filter them again would show fewer tasks than the view has.
  */
-export function applyView(view: ListView): void {
+export function applyView(view: View): void {
   setUi({
     groupBy: groupByForField(view.groupField),
     showClosed: view.showClosed,
@@ -149,7 +149,7 @@ export function applyView(view: ListView): void {
  * address. The tab renders as plain text until it can point somewhere real,
  * which is a fraction of a second at boot and never again.
  */
-export function clickUpViewUrl(view: ListView, teamId: string | null): string | null {
+export function clickUpViewUrl(view: View, teamId: string | null): string | null {
   if (view.publicUrl) return view.publicUrl;
   return teamId ? `https://app.clickup.com/${teamId}/v/l/${view.id}` : null;
 }

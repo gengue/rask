@@ -29,9 +29,20 @@ const MY_WORK = new Set(["home", "my-work"]);
  */
 const MAX_CANDIDATES = 3;
 
+/**
+ * Which single ClickUp request is worth making when the mirror comes up empty.
+ *
+ * Null for almost every shape, because a miss there is a miss: asking about a
+ * typo costs a round trip to be told what the mirror already said. Two shapes
+ * earn it, because the URL itself says what kind of thing the id is, and both
+ * can name something real that no list anyone opened ever put in the mirror —
+ * `/t/{id}` is a task, and `/{team}/v/l/{id}` is a view.
+ */
+export type RemoteLookup = "task" | "view" | null;
+
 export type ClickUpPath =
   | { kind: "my-work" }
-  | { kind: "lookup"; ids: string[]; remote: boolean }
+  | { kind: "lookup"; ids: string[]; remote: RemoteLookup }
   | { kind: "unknown" };
 
 export function parseClickUpPath(input: string): ClickUpPath {
@@ -51,9 +62,27 @@ export function parseClickUpPath(input: string): ClickUpPath {
 
   if (ids.length === 0) return { kind: "unknown" };
 
-  // `/t/` means "task" in every ClickUp URL there is, so it is the one case
-  // where it is worth asking ClickUp itself when the mirror comes up empty.
-  return { kind: "lookup", ids, remote: segments[0]?.toLowerCase() === "t" };
+  return { kind: "lookup", ids, remote: remoteLookup(segments) };
+}
+
+/**
+ * What the routing words say the id is, when they say anything.
+ *
+ * Read off the route rather than the id, because the ids give nothing away:
+ * a view is `gh-96335` or `7-529-1`, a list is `5345534`, and a Workspace id
+ * is a bare number too. The words in front of them are the only part of a
+ * ClickUp URL that names what follows.
+ *
+ * Two shapes, both verified against the live app. `/t/` heads every task URL
+ * there is. `/v/l/` heads every view URL — `/v/li/`, `/v/f/` and `/v/o/s/` are
+ * a list, a folder and a space, and none of those is worth a request: the
+ * mirror already holds every one Rask can do anything with.
+ */
+function remoteLookup(segments: string[]): RemoteLookup {
+  const route = segments.map((segment) => segment.toLowerCase());
+  if (route[0] === "t") return "task";
+  const v = route.indexOf("v");
+  return v >= 0 && route[v + 1] === "l" ? "view" : null;
 }
 
 /** Accepts a pasted absolute URL as readily as the path the router hands us. */

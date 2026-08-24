@@ -1,4 +1,9 @@
-import { ClickUpClient, type ClickUpTask, RateLimiter } from "@rask/clickup-client";
+import {
+  ClickUpClient,
+  type ClickUpTask,
+  type ClickUpView,
+  RateLimiter,
+} from "@rask/clickup-client";
 import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import {
   comments,
@@ -10,6 +15,7 @@ import {
   replaceListViews,
   syncCursors,
   tasks,
+  viewListId,
 } from "@rask/schema";
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -25,6 +31,7 @@ import {
   findListView,
   getHierarchy,
   getTaskDetail,
+  type ListViewRow,
   listFilterFields,
   listMembers,
   listTasks,
@@ -155,19 +162,45 @@ api.get("/resolve", async (c) => {
   const found = await resolveRefs(db, ids);
   if (found) return c.json(found);
 
-  // Nothing in the mirror. A /t/ URL is a task by construction, so ask ClickUp
-  // once before giving up: it may live in a list nobody has opened yet. Only
-  // real task ids work here, since GET /task/{id} needs custom_task_ids and a
-  // team_id to accept a custom one and our client does not send them.
+  /*
+   * Nothing in the mirror, so spend one ClickUp request — but only when the URL
+   * said what the id was.
+   *
+   * `remote` is the browser passing on what the routing words in the address
+   * meant: `/t/` heads a task, `/v/l/` heads a view. Both can name something
+   * real that the mirror has never held — a task in a list nobody opened, or a
+   * view hanging off a Workspace, which `list_views` is keyed by a List and so
+   * cannot hold at all. Every other shape gets no request: a miss there is the
+   * answer, and asking would only spend a round trip to confirm it.
+   *
+   * Only the first candidate either way. The rest are the routing context the
+   * id was found in ("529", "v"), and asking about those is two more requests
+   * to learn what the mirror already said.
+   */
   const first = ids[0];
-  if (c.req.query("remote") === "1" && first) {
-    const client = await clientFor(c.get("user").id);
+  const remote = c.req.query("remote");
+  if (!first || (remote !== "task" && remote !== "view")) {
+    return c.json({ kind: "unknown" } as const);
+  }
+
+  const client = await clientFor(c.get("user").id);
+
+  if (remote === "task") {
+    // Only real task ids work here: GET /task/{id} needs custom_task_ids and a
+    // team_id to accept a custom one, and our client does not send them.
     const task = await client?.getTask(first).catch(() => null);
     if (task) {
       await ingestTasks(db, [task]);
       const refreshed = await resolveRefs(db, [task.id]);
       if (refreshed) return c.json(refreshed);
     }
+    return c.json({ kind: "unknown" } as const);
+  }
+
+  const view = await client?.getView(first).catch(() => null);
+  if (view) {
+    const row = remoteView(view);
+    return c.json({ kind: "view", viewId: row.id, listId: row.listId, name: row.name } as const);
   }
 
   return c.json({ kind: "unknown" } as const);
@@ -270,6 +303,18 @@ api.get("/lists/:id/views", async (c) => {
 });
 
 /**
+ * One view's definition: its name, its type, and how it wants to be grouped.
+ *
+ * The tab bar reads views a List at a time and never needs this. A view opened
+ * by its own address does: there is no tab bar above it to have carried the
+ * name and the grouping down, so the route asks for the one view it is showing.
+ */
+api.get("/views/:id", async (c) => {
+  const view = await viewFor(c.get("user").id, c.req.param("id"));
+  return view ? c.json(view) : c.json({ error: "not found" }, 404);
+});
+
+/**
  * The tasks a view shows.
  *
  * The one read in the app that goes to ClickUp before it answers, and it has to:
@@ -287,7 +332,7 @@ api.get("/lists/:id/views", async (c) => {
  * poll keeps current.
  */
 api.get("/views/:id/tasks", async (c) => {
-  const view = await findListView(db, c.req.param("id"));
+  const view = await viewFor(c.get("user").id, c.req.param("id"));
   if (!view) return c.json({ error: "not found" }, 404);
 
   /*
@@ -324,11 +369,20 @@ api.get("/views/:id/tasks", async (c) => {
 
   await ingestUnseen(page.tasks, view.listId);
 
-  // Opening a view registers its list for polling, exactly like opening the list.
-  await db
-    .insert(syncCursors)
-    .values({ scope: "list", scopeId: view.listId })
-    .onConflictDoNothing();
+  /*
+   * Opening a view registers its list for polling, exactly like opening the list.
+   *
+   * Skipped for a view that has no single list. A Workspace-level view spans
+   * every list in the workspace, so there is no one list here to register —
+   * registering the first task's would poll one arbitrary list and call the
+   * other forty covered.
+   */
+  if (view.listId) {
+    await db
+      .insert(syncCursors)
+      .values({ scope: "list", scopeId: view.listId })
+      .onConflictDoNothing();
+  }
 
   // `includeClosed`, always: ClickUp already applied the view's `show_closed`,
   // and filtering again here would drop rows the view deliberately keeps.
@@ -633,6 +687,49 @@ if (config.WEB_DIST) {
  */
 const VIEW_TASK_LIMIT = 500;
 
+/**
+ * A view, from the mirror if it is there and from ClickUp if it is not.
+ *
+ * The mirror holds the views of every List somebody has opened, which is every
+ * view the tab bar can reach. It does not hold — and by its key cannot hold —
+ * the ones that hang off a Workspace, a Space or a Folder. Those only ever
+ * arrive by id, out of a pasted URL, so this is where the miss turns into one
+ * request instead of a 404.
+ *
+ * Not written back: `list_views.list_id` is the table's key and these have no
+ * List to key them by. They cost one request per open, which is what a view
+ * already costs several of.
+ */
+async function viewFor(userId: string, viewId: string): Promise<ListViewRow | null> {
+  const mirrored = await findListView(db, viewId);
+  if (mirrored) return mirrored;
+
+  const client = await clientFor(userId);
+  const view = await client?.getView(viewId).catch(() => null);
+  return view ? remoteView(view) : null;
+}
+
+/**
+ * A view ClickUp answered for, as the row the rest of Rask reads.
+ *
+ * `parent.type` is the whole point: it says which level the view lives at, and
+ * only a List-level one has a list to attribute rows to. `isDefault` is false
+ * by construction — being the default is a property of a container's tab bar,
+ * and a view reached by its own address has no tab bar above it.
+ */
+function remoteView(view: ClickUpView): ListViewRow {
+  return {
+    id: view.id,
+    listId: viewListId(view),
+    name: view.name,
+    type: view.type,
+    isDefault: false,
+    groupField: view.grouping?.field ?? null,
+    showClosed: view.filters?.show_closed ?? false,
+    publicUrl: view.public_url ?? null,
+  };
+}
+
 /** Re-reads a List's tabs. Failure is logged, never surfaced: the mirror answers. */
 async function refreshListViews(userId: string, listId: string): Promise<void> {
   try {
@@ -665,7 +762,7 @@ async function walkViewTasks(
  * See the route: the view payload is thinner than a list page, so re-ingesting
  * a task we already hold would replace a real description with a null.
  */
-async function ingestUnseen(batch: ClickUpTask[], listId: string): Promise<void> {
+async function ingestUnseen(batch: ClickUpTask[], listId: string | null): Promise<void> {
   if (batch.length === 0) return;
   const known = await db
     .select({ id: tasks.id })
@@ -678,7 +775,11 @@ async function ingestUnseen(batch: ClickUpTask[], listId: string): Promise<void>
     );
   const seen = new Set(known.map((row) => row.id));
   const unseen = batch.filter((task) => !seen.has(task.id));
-  if (unseen.length > 0) await ingestTasks(db, unseen, { listId });
+  // `listId` is a fallback, not an assertion: `GET /view/{id}/task` echoes each
+  // task's own list back, which is the only thing that makes a view spanning
+  // forty lists ingestable at all. It is passed for the views that have one so
+  // a payload that ever omits the list still lands somewhere right.
+  if (unseen.length > 0) await ingestTasks(db, unseen, { listId: listId ?? undefined });
 }
 
 /**

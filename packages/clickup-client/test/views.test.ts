@@ -151,3 +151,34 @@ describe("getViewTasks", () => {
     expect(calls.map((call) => new URL(call.url).searchParams.get("page"))).toEqual(["0", "1"]);
   });
 });
+
+/**
+ * The real `7-529-1` from the Ventura workspace: the "IT over due date tasks"
+ * view that sits on the Workspace rather than on any list, which is the shape
+ * `GET /list/{id}/view` can never return and a pasted URL can.
+ */
+const workspaceView = {
+  id: "7-529-1",
+  name: "IT over due date tasks",
+  type: "list",
+  parent: { id: "529", type: 7 },
+  grouping: { field: "assignee", dir: 1 },
+  filters: {
+    op: "AND",
+    fields: [{ field: "dueDate", op: "EQ", values: [{ op: "overdue" }] }],
+    show_closed: false,
+  },
+};
+
+describe("getView", () => {
+  test("reads one view by id, whatever it hangs off", async () => {
+    const { client, calls } = makeClient([{ body: { view: workspaceView } }]);
+    const view = await client.getView("7-529-1");
+
+    expect(view.name).toBe("IT over due date tasks");
+    expect(view.parent).toEqual({ id: "529", type: 7 });
+    expect(view.grouping?.field).toBe("assignee");
+    expect(view.filters?.show_closed).toBe(false);
+    expect(new URL(calls[0]?.url ?? "").pathname).toBe("/api/v2/view/7-529-1");
+  });
+});

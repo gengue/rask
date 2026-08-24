@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clickUpComment, clickUpTask } from "@rask/clickup-client";
+import { clickUpComment, clickUpTask, clickUpView } from "@rask/clickup-client";
 import checklistFixture from "../../clickup-client/test/fixtures/checklist.json" with {
   type: "json",
 };
@@ -7,7 +7,7 @@ import commentFixture from "../../clickup-client/test/fixtures/comment-with-imag
   type: "json",
 };
 import taskFixture from "../../clickup-client/test/fixtures/task.json" with { type: "json" };
-import { mapComment, mapTask } from "../src/map.ts";
+import { mapComment, mapTask, viewListId } from "../src/map.ts";
 
 const parse = (overrides: Record<string, unknown> = {}) =>
   clickUpTask.parse({ ...taskFixture, ...overrides });
@@ -231,5 +231,43 @@ describe("mapComment", () => {
 
   test("takes the parent from the caller, since a reply does not carry one", () => {
     expect(mapComment(comment, "t1", "c0").parentCommentId).toBe("c0");
+  });
+});
+
+/**
+ * Which List a view's rows belong to, which is the one thing that decides
+ * whether Rask can route the view at all.
+ *
+ * The four parent types are ClickUp's hierarchy levels, observed against the
+ * Ventura workspace and documented nowhere: a view hangs off a Space (4), a
+ * Folder (5), a List (6) or the Workspace itself (7), and all four are drawn
+ * at the same `/{team}/v/l/{id}` address.
+ */
+describe("viewListId", () => {
+  const view = (parent: unknown) =>
+    clickUpView.parse({ id: "gh-1", name: "View", type: "list", parent });
+
+  test("a List view names its list", () => {
+    expect(viewListId(view({ id: "5345534", type: 6 }))).toBe("5345534");
+  });
+
+  test("a Workspace view names none: its rows come from every list under it", () => {
+    // The real 7-529-1, whose rows span Bugs, MyVentura, vMeets and more.
+    expect(viewListId(view({ id: "529", type: 7 }))).toBeNull();
+  });
+
+  test("a Folder view names none", () => {
+    expect(viewListId(view({ id: "90150139071", type: 5 }))).toBeNull();
+  });
+
+  test("a Space view names none", () => {
+    expect(viewListId(view({ id: "90020068902", type: 4 }))).toBeNull();
+  });
+
+  test("a view with no parent at all is not attributed to one", () => {
+    // ClickUp has never omitted it, but guessing a list here would file every
+    // task in the view under whatever id happened to be in hand.
+    expect(viewListId(view(null))).toBeNull();
+    expect(viewListId(view({ id: "5345534", type: null }))).toBeNull();
   });
 });
