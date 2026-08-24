@@ -22,11 +22,11 @@ import {
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
+import { useExpanded } from "../lib/nav.tsx";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
 import { tasks } from "../lib/store.ts";
 import { pushToast } from "../lib/toast.ts";
-import { setUi, ui } from "../lib/ui.ts";
 import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Checklists } from "./Checklists.tsx";
@@ -60,6 +60,7 @@ export function TaskDetail(props: {
   onClose: () => void;
   onStatusClick: (event: MouseEvent) => void;
 }): JSX.Element {
+  const [expanded, setExpanded] = useExpanded();
   const [detail, { mutate, refetch }] = createResource(
     () => props.taskId,
     (id) => api.task(id),
@@ -182,8 +183,8 @@ export function TaskDetail(props: {
          * Escape has closed the task all along.
          */
         "w-[420px] max-w-full shrink-0 border-line border-l max-split:absolute max-split:inset-y-0 max-split:right-0 max-split:z-20":
-          !ui.taskExpanded,
-        "flex-1 min-w-0": ui.taskExpanded,
+          !expanded(),
+        "flex-1 min-w-0": expanded(),
       }}
     >
       <header class="flex h-12 shrink-0 items-center gap-2 border-line/70 border-b px-4">
@@ -193,9 +194,9 @@ export function TaskDetail(props: {
         <div class="flex-1" />
         <button
           type="button"
-          onClick={() => setUi("taskExpanded", !ui.taskExpanded)}
-          title={ui.taskExpanded ? "Collapse  f" : "Expand  f"}
-          aria-label={ui.taskExpanded ? "Collapse task" : "Expand task"}
+          onClick={() => setExpanded(!expanded())}
+          title={expanded() ? "Collapse  f" : "Expand  f"}
+          aria-label={expanded() ? "Collapse task" : "Expand task"}
           class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink"
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -206,7 +207,7 @@ export function TaskDetail(props: {
               stroke-linejoin="round"
             >
               <Show
-                when={ui.taskExpanded}
+                when={expanded()}
                 fallback={<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" />}
               >
                 <path d="M13 3 9.5 6.5M9.5 6.5V3m0 3.5H13M3 13l3.5-3.5M6.5 9.5V13m0-3.5H3" />
@@ -279,10 +280,10 @@ export function TaskDetail(props: {
                * description never widens past a readable line.
                */
               "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,680px)] max-split:grid-rows-none":
-                ui.taskExpanded,
+                expanded(),
             }}
           >
-            <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": ui.taskExpanded }}>
+            <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": expanded() }}>
               <ParentLink parent={task().parent} />
               <TitleField
                 value={task().name}
@@ -303,7 +304,7 @@ export function TaskDetail(props: {
                    that is 680px wide and one property tall wastes the width it
                    was moved here to use. */
                 "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8 max-split:col-start-1 max-split:row-start-auto max-split:row-span-1 max-split:grid max-split:grid-cols-2 max-split:gap-x-8 max-split:gap-y-px max-split:space-y-0 max-split:pt-0":
-                  ui.taskExpanded,
+                  expanded(),
               }}
             >
               <Property label="Status">
@@ -418,8 +419,7 @@ export function TaskDetail(props: {
               /* Below `split` the hairline comes back: the property strip is
                  now directly above the description and the two need a seam. */
               classList={{
-                "col-start-1 border-t-0 px-0 pt-0 max-split:border-t max-split:pt-6":
-                  ui.taskExpanded,
+                "col-start-1 border-t-0 px-0 pt-0 max-split:border-t max-split:pt-6": expanded(),
               }}
             >
               <Show
@@ -465,7 +465,7 @@ export function TaskDetail(props: {
                 container is a grid whose third row is the one that stretches,
                 and a fourth child would push the conversation to the bottom of
                 the panel. */}
-            <div classList={{ "col-start-1": ui.taskExpanded }}>
+            <div classList={{ "col-start-1": expanded() }}>
               <Attachments items={task().attachments} />
 
               <Checklists
@@ -657,7 +657,7 @@ function CustomFields(props: {
   fields: TaskDetailData["customFields"];
   onChanged: () => void;
 }): JSX.Element {
-  const [expanded, setExpanded] = createSignal(false);
+  const [showAll, setShowAll] = createSignal(false);
   const [menu, setMenu] = createSignal<{
     field: Field;
     anchor: { x: number; y: number };
@@ -677,7 +677,7 @@ function CustomFields(props: {
     }));
 
   const filled = () => decorated().filter((field) => field.display !== "—");
-  const shown = () => (expanded() ? decorated() : filled().slice(0, VISIBLE_FIELDS));
+  const shown = () => (showAll() ? decorated() : filled().slice(0, VISIBLE_FIELDS));
   const hidden = () => decorated().length - shown().length;
 
   /** Sends the value and asks the parent to refetch, since it lives in a resource. */
@@ -719,13 +719,13 @@ function CustomFields(props: {
         )}
       </Show>
 
-      <Show when={hidden() > 0 || expanded()}>
+      <Show when={hidden() > 0 || showAll()}>
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setShowAll((value) => !value)}
           class="flex h-6 items-center px-2 text-sm text-ink-3 hover:text-ink-2"
         >
-          {expanded() ? "Show less" : `Show ${hidden()} more`}
+          {showAll() ? "Show less" : `Show ${hidden()} more`}
         </button>
       </Show>
     </>

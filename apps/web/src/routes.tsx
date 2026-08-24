@@ -62,9 +62,19 @@ import {
 
 interface AppSearch {
   task?: string;
+  /**
+   * Whether the open task fills the panel rather than sitting in its rail.
+   *
+   * Here and not in `lib/ui.ts` with the rest of the per-tab state because it
+   * is part of what a shared link says. See `useExpanded` in `lib/nav.tsx`.
+   */
+  expanded?: boolean;
   /** Why the OAuth callback refused, when it did. See `components/Login.tsx`. */
   signin?: string;
 }
+
+/** What `?expanded=` may say for the answer to be yes. */
+const TRUTHY = new Set<unknown>([true, 1, "1", "true"]);
 
 const rootRoute = createRootRoute({
   component: AppShell,
@@ -73,6 +83,10 @@ const rootRoute = createRootRoute({
   errorComponent: (props) => <RouteError error={props.error} reset={props.reset} />,
   validateSearch: (search: Record<string, unknown>): AppSearch => ({
     task: typeof search.task === "string" ? search.task : undefined,
+    // `1` as readily as `true`, because this one gets typed by hand into a URL
+    // somebody is about to paste into chat. The router JSON-parses values, so
+    // both arrive already coerced and the string forms are for what it cannot.
+    expanded: TRUTHY.has(search.expanded) ? true : undefined,
     signin: typeof search.signin === "string" ? search.signin : undefined,
   }),
 });
@@ -359,10 +373,13 @@ function ClickUpView(): JSX.Element {
         void navigate({ to: "/", replace: true });
         break;
       case "task":
+        // A ClickUp task URL names the task, not the list behind it: whoever
+        // followed it came for the task, so open it expanded rather than as a
+        // rail beside rows they did not ask for.
         void navigate({
           to: "/list/$listId",
           params: { listId: found.listId },
-          search: { task: found.taskId },
+          search: { task: found.taskId, expanded: true },
           replace: true,
         });
         break;

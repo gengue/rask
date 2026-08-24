@@ -28,8 +28,6 @@ export const [ui, setUi] = createStore({
   palette: false,
   quickAdd: false,
   shortcuts: false,
-  /** Task detail fills the main area instead of sitting in a 420px rail. */
-  taskExpanded: false,
   /**
    * The sidebar drawer, below the `dock` breakpoint only.
    *
