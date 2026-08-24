@@ -15,6 +15,7 @@ import { viewLoading } from "../lib/view.ts";
 import { sameRange, visibleRange } from "../lib/windowing.ts";
 import { BoardCard } from "./BoardCard.tsx";
 import { StatusIcon } from "./StatusIcon.tsx";
+import { SlowLoad } from "./Unresolved.tsx";
 
 const COLUMN_WIDTH = 272;
 
@@ -243,23 +244,26 @@ function Column(props: {
  */
 function SkeletonColumns(): JSX.Element {
   return (
-    <div class="flex gap-2.5" aria-hidden="true">
-      {[0, 1, 2].map((column) => (
-        <div class="flex flex-col gap-2" style={{ width: `${COLUMN_WIDTH}px` }}>
-          <div class="flex h-7 items-center gap-2 px-2">
-            <span class="size-3.5 rounded-full bg-chip" />
-            <span class="h-2 w-20 rounded bg-wash" />
-          </div>
-          {Array.from({ length: 5 }, (_, card) => (
-            <div class="h-[70px] rounded-[7px] border border-line bg-elevated px-2.5 py-2">
-              <span
-                class="block h-2 rounded bg-wash"
-                style={{ width: `${52 + ((column * 3 + card * 11) % 40)}%` }}
-              />
+    <>
+      <SlowLoad />
+      <div class="flex gap-2.5" aria-hidden="true">
+        {[0, 1, 2].map((column) => (
+          <div class="flex flex-col gap-2" style={{ width: `${COLUMN_WIDTH}px` }}>
+            <div class="flex h-7 items-center gap-2 px-2">
+              <span class="size-3.5 rounded-full bg-chip" />
+              <span class="h-2 w-20 rounded bg-wash" />
             </div>
-          ))}
-        </div>
-      ))}
-    </div>
+            {Array.from({ length: 5 }, (_, card) => (
+              <div class="h-[70px] rounded-[7px] border border-line bg-elevated px-2.5 py-2">
+                <span
+                  class="block h-2 rounded bg-wash"
+                  style={{ width: `${52 + ((column * 3 + card * 11) % 40)}%` }}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

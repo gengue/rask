@@ -1,11 +1,13 @@
-import { For, type JSX, Show } from "solid-js";
+import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { A } from "../lib/nav.tsx";
 import { spaces } from "../lib/session.ts";
 
 /**
- * Where a ClickUp URL lands when Rask cannot open it directly.
+ * What the panel says when it has no rows to show, and why.
  *
- * Same visual language as the rest of the app: no illustration, no card, just
+ * A ClickUp URL Rask cannot open directly, a Folder or Space that needs a list
+ * picked out of it, and a load slow enough to need explaining. Same visual
+ * language as the rest of the app throughout: no illustration, no card, just
  * text on the panel and one accent-coloured way out.
  */
 function Screen(props: { title: string; children: JSX.Element }): JSX.Element {
@@ -16,6 +18,45 @@ function Screen(props: { title: string; children: JSX.Element }): JSX.Element {
         {props.children}
       </div>
     </div>
+  );
+}
+
+/**
+ * How long a wait has to run before it is worth explaining.
+ *
+ * Above the waits that are merely slow. A view on one List answers in under a
+ * second, and a filtered Workspace view in five to seven now that its pages go
+ * out four at a time — a note that appeared at either would only flash on the
+ * way out. What is left above this line is the unfiltered Workspace view,
+ * which walks to the 500-row cap and takes a minute and a half.
+ */
+const SLOW_AFTER_MS = 10_000;
+
+/**
+ * Why a view is still loading, once the wait is long enough to need a reason.
+ *
+ * A skeleton is honest about *that* something is coming and says nothing about
+ * how long, which is fine at half a second and reads as a hang at thirty. The
+ * views that get there are the ones that span a Workspace: ClickUp answers
+ * `GET /view/{id}/task` in about half a second for a view on one List and in
+ * five to twenty-five for one above it, with no filters needed to earn that —
+ * it is scanning every list under the container either way.
+ *
+ * Rendered by both skeletons, because a Workspace view drawn as a board waits
+ * exactly as long as one drawn as a list.
+ */
+export function SlowLoad(): JSX.Element {
+  const [waited, setWaited] = createSignal(false);
+  const timer = setTimeout(() => setWaited(true), SLOW_AFTER_MS);
+  onCleanup(() => clearTimeout(timer));
+
+  return (
+    <Show when={waited()}>
+      <p class="px-5 py-3 text-ink-3 text-xs leading-relaxed">
+        ClickUp is still answering. A view that spans the whole workspace can take it half a minute;
+        a view on one list is usually instant.
+      </p>
+    </Show>
   );
 }
 
