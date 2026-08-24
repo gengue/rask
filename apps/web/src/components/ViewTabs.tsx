@@ -1,5 +1,5 @@
 import { For, type JSX, Show } from "solid-js";
-import type { ListView } from "../lib/api.ts";
+import type { ListView, View } from "../lib/api.ts";
 import { clickUpViewUrl, isRenderable, listViews, viewTypeLabel } from "../lib/clickup-views.ts";
 import { A } from "../lib/nav.tsx";
 import { me } from "../lib/session.ts";
@@ -150,7 +150,7 @@ function Tab(props: { view: ListView; active: boolean }): JSX.Element {
  * rather than showing a generic error is the difference between "Rask is
  * broken" and "Rask does not do this one".
  */
-export function UnsupportedView(props: { view: ListView }): JSX.Element {
+export function UnsupportedView(props: { view: View }): JSX.Element {
   const href = () => clickUpViewUrl(props.view, me()?.teamId ?? null);
 
   return (

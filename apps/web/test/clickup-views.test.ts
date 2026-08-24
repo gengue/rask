@@ -99,6 +99,14 @@ describe("clickUpViewUrl", () => {
     );
   });
 
+  test("addresses a view with no list the same way, which is how ClickUp does", () => {
+    // The real 7-529-1: a Workspace-level view, drawn by ClickUp at the very
+    // address it was pasted from. Nothing about the link needs the list.
+    expect(clickUpViewUrl({ ...view({ id: "7-529-1" }), listId: null }, "529")).toBe(
+      "https://app.clickup.com/529/v/l/7-529-1",
+    );
+  });
+
   test("points nowhere rather than at half an address", () => {
     expect(clickUpViewUrl(view(), null)).toBeNull();
     // A form still has somewhere to go: its URL carries the workspace already.

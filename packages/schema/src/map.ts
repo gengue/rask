@@ -10,7 +10,7 @@ import type {
   ClickUpUser,
   ClickUpView,
 } from "@rask/clickup-client";
-import { renderCommentBody } from "@rask/clickup-client";
+import { renderCommentBody, VIEW_PARENT } from "@rask/clickup-client";
 import type { StatusDef, TaskTag } from "./schema.ts";
 
 /**
@@ -312,6 +312,24 @@ export function mapList(
  * `isDefault` also comes from the caller: it lives in a separate `default_view`
  * object on the response, not on the view.
  */
+/**
+ * The List a view draws its rows from, or null when it draws from many.
+ *
+ * ClickUp hangs a view off any level of the hierarchy and addresses all four
+ * the same way, so `/{team}/v/l/{id}` is as likely to be a Workspace view as a
+ * List's. `parent.type` is the only thing on the payload that says which — the
+ * built-in ids encode it too (`6-{list}-1`), but a saved view is called
+ * `gh-96335` and encodes nothing.
+ *
+ * Null is not a failure. A Workspace-, Space- or Folder-level view genuinely
+ * has no one list: its rows come from every list under the container, each
+ * task carrying its own. What null rules out is attributing all of them to one.
+ */
+export function viewListId(view: ClickUpView): string | null {
+  const parent = view.parent;
+  return parent && parent.type === VIEW_PARENT.list ? parent.id : null;
+}
+
 export function mapView(view: ClickUpView, listId: string, defaultViewId: string | null) {
   return {
     id: view.id,

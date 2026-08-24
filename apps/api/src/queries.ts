@@ -520,7 +520,15 @@ function byDate(a: { date: Date | null }, b: { date: Date | null }): number {
 
 export interface ListViewRow {
   id: string;
-  listId: string;
+  /**
+   * The List the view hangs off, or null when it hangs off something bigger.
+   *
+   * Every mirrored view has one — `list_views` is keyed by it. Null only ever
+   * comes from a view read straight from ClickUp, which is how Workspace-,
+   * Space- and Folder-level views arrive: they have no List, so there is none
+   * to attribute their rows to and nothing to register for polling.
+   */
+  listId: string | null;
   name: string;
   type: string;
   isDefault: boolean;
@@ -824,7 +832,7 @@ export async function searchTasks(db: Db, query: string, limit = 12) {
 /** What an id lifted out of a ClickUp URL turned out to be. */
 export type ResolvedRef =
   | { kind: "task"; taskId: string; listId: string }
-  | { kind: "view"; viewId: string; listId: string; name: string }
+  | { kind: "view"; viewId: string; listId: string | null; name: string }
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
   | { kind: "space"; spaceId: string; name: string };
