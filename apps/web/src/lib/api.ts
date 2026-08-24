@@ -183,6 +183,45 @@ export interface TaskDetail extends Task {
   parent: TaskRef | null;
 }
 
+/**
+ * What a TaskDetail adds on top of a Task.
+ *
+ * Valued `true` for nothing but the exhaustiveness: a new field on TaskDetail
+ * fails to compile until somebody says which half of the app owns it.
+ */
+const DETAIL_ONLY: Record<Exclude<keyof TaskDetail, keyof Task>, true> = {
+  description: true,
+  creatorId: true,
+  folderId: true,
+  timeEstimate: true,
+  points: true,
+  dateClosed: true,
+  comments: true,
+  customFields: true,
+  statuses: true,
+  attachments: true,
+  checklists: true,
+  subtasks: true,
+  parent: true,
+};
+
+/**
+ * A live task row laid over a fetched detail, Task half only.
+ *
+ * The task collection is the source of truth for what the list also shows, so
+ * the open panel takes its status and assignees from there rather than from the
+ * snapshot it fetched. It is not the source of truth for the rest: the change
+ * feed pushes whole details through the same collection, and `rowUpdateMode`
+ * is `"full"`, so a row for an open task is carrying a copy of its conversation
+ * from whenever the server last refreshed it. Spread naked, that copy wins over
+ * the comment posted a second ago and the panel silently goes back in time.
+ */
+export function withLiveTask(detail: TaskDetail, live: Task): TaskDetail {
+  const taskHalf: Partial<TaskDetail> = { ...live };
+  for (const key of Object.keys(DETAIL_ONLY) as (keyof TaskDetail)[]) delete taskHalf[key];
+  return { ...detail, ...taskHalf };
+}
+
 /** A task match from the palette's workspace-wide search. */
 export interface SearchHit {
   id: string;
