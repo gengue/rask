@@ -23,3 +23,5 @@ apps/web/.dev-session
 
 # Agent worktrees and local tool state
 .claude/
+.agents/
+skills-lock.json
