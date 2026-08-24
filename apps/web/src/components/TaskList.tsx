@@ -5,6 +5,7 @@ import { flatItems, viewListId, viewLoading } from "../lib/view.ts";
 import { sameRange, visibleRange } from "../lib/windowing.ts";
 import { StatusIcon } from "./StatusIcon.tsx";
 import { TaskRow } from "./TaskRow.tsx";
+import { SlowLoad } from "./Unresolved.tsx";
 
 const ROW_HEIGHT = 36;
 const HEADER_HEIGHT = 34;
@@ -225,9 +226,10 @@ export function TaskList(props: {
  */
 function SkeletonRows(): JSX.Element {
   return (
-    <div aria-hidden="true">
+    <div>
+      <SlowLoad />
       {Array.from({ length: 14 }, (_, i) => (
-        <div class="flex h-9 items-center gap-3 border-line/45 border-b px-5">
+        <div aria-hidden="true" class="flex h-9 items-center gap-3 border-line/45 border-b px-5">
           <span class="size-3.5 shrink-0 rounded-full bg-chip" />
           <span class="h-2 w-[52px] shrink-0 rounded bg-wash" />
           <span class="h-2 rounded bg-wash" style={{ width: `${28 + ((i * 37) % 42)}%` }} />

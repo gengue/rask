@@ -140,6 +140,8 @@ describe("getViewTasks", () => {
     const { client, calls } = makeClient([
       { body: { tasks: [taskFixture], last_page: false } },
       { body: { tasks: [{ ...taskFixture, id: "9i0" }], last_page: true } },
+      { body: { tasks: [], last_page: true } },
+      { body: { tasks: [], last_page: true } },
     ]);
 
     const seen: string[] = [];
@@ -148,7 +150,52 @@ describe("getViewTasks", () => {
     }
 
     expect(seen).toEqual(["9hz", "9i0"]);
-    expect(calls.map((call) => new URL(call.url).searchParams.get("page"))).toEqual(["0", "1"]);
+    // One round of four, not two waits in a row: a page of a Workspace view
+    // costs five to twenty-five seconds, so the round is the unit that matters.
+    expect(calls.map((call) => new URL(call.url).searchParams.get("page"))).toEqual([
+      "0",
+      "1",
+      "2",
+      "3",
+    ]);
+  });
+
+  test("keeps going past a full round, and keeps the pages in order", async () => {
+    const page = (id: string, last: boolean) => ({
+      body: { tasks: [{ ...taskFixture, id }], last_page: last },
+    });
+    const { client, calls } = makeClient([
+      page("a0", false),
+      page("a1", false),
+      page("a2", false),
+      page("a3", false),
+      page("b0", false),
+      page("b1", true),
+      { body: { tasks: [], last_page: true } },
+      { body: { tasks: [], last_page: true } },
+    ]);
+
+    const seen: string[] = [];
+    for await (const batch of client.iterateViewTasks("gh-96335")) {
+      for (const task of batch) seen.push(task.id);
+    }
+
+    // `Promise.all` keeps a round's answers in the order they were asked for,
+    // which is what lets a caller cap at 500 rows and take the first 500.
+    expect(seen).toEqual(["a0", "a1", "a2", "a3", "b0", "b1"]);
+    expect(calls.length).toBe(8);
+  });
+
+  test("a view with nothing in it is one round, not one request forever", async () => {
+    const empty = { body: { tasks: [], last_page: true } };
+    const { client, calls } = makeClient([empty, empty, empty, empty]);
+
+    const seen: string[] = [];
+    for await (const batch of client.iterateViewTasks("gh-3144"))
+      seen.push(...batch.map((t) => t.id));
+
+    expect(seen).toEqual([]);
+    expect(calls.length).toBe(4);
   });
 });
 
