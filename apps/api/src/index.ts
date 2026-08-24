@@ -102,6 +102,27 @@ function pushTo(userId: string, event: string, data: unknown): void {
 }
 
 /**
+ * The detail a write just produced, answered to the caller and pushed to the
+ * rest of that person's tabs.
+ *
+ * A comment or a checklist item moves its own `synced_at` and never the task's,
+ * so the workspace feed — which watches `tasks.synced_at` — has nothing to
+ * notice. The tab that wrote is fine, it gets the detail back in the response;
+ * a second tab of the same person kept showing the conversation from before the
+ * write until some later refresh happened to disagree. The rejection path
+ * already pushes for exactly this reason, and this is the same thing when the
+ * write works.
+ *
+ * One read, so the tab that asked and the tabs that did not are told the same
+ * bytes. Other people's tabs still converge the slow way, through the poll.
+ */
+async function pushDetail(userId: string, taskId: string) {
+  const detail = await getTaskDetail(db, taskId);
+  if (detail) pushTo(userId, "task", detail);
+  return detail;
+}
+
+/**
  * A row the outbox has not shipped yet, so ClickUp has no id for it.
  *
  * Addressing one upstream would 404 and take the local state down with it on
@@ -431,6 +452,9 @@ api.post("/tasks", async (c) => {
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
 
   const id = await createTask(db, { userId: c.get("user").id, task: body.data });
+  // The new row reaches every client through the feed, but a subtask is also a
+  // line in its parent's detail, and the parent's own row did not move.
+  if (body.data.parentId) await pushDetail(c.get("user").id, body.data.parentId);
   return c.json(await getTaskDetail(db, id), 201);
 });
 
@@ -447,7 +471,7 @@ api.post("/tasks/:id/comments", async (c) => {
 
   const taskId = c.req.param("id");
   await createComment(db, { taskId, userId: c.get("user").id, comment: body.data });
-  return c.json(await getTaskDetail(db, taskId), 201);
+  return c.json(await pushDetail(c.get("user").id, taskId), 201);
 });
 
 api.patch("/comments/:id", async (c) => {
@@ -469,7 +493,7 @@ api.patch("/comments/:id", async (c) => {
   }
 
   await applyCommentPatch(db, { comment, userId: c.get("user").id, patch: body.data });
-  return c.json(await getTaskDetail(db, comment.taskId));
+  return c.json(await pushDetail(c.get("user").id, comment.taskId));
 });
 
 api.delete("/comments/:id", async (c) => {
@@ -483,7 +507,7 @@ api.delete("/comments/:id", async (c) => {
   if (isPlaceholder(comment.id)) await discardPendingComment(db, { comment, userId });
   else await deleteComment(db, { comment, userId });
 
-  return c.json(await getTaskDetail(db, comment.taskId));
+  return c.json(await pushDetail(userId, comment.taskId));
 });
 
 /**
@@ -499,7 +523,7 @@ api.post("/tasks/:id/checklists", async (c) => {
 
   const taskId = c.req.param("id");
   await createChecklist(db, { taskId, userId: c.get("user").id, checklist: body.data });
-  return c.json(await getTaskDetail(db, taskId), 201);
+  return c.json(await pushDetail(c.get("user").id, taskId), 201);
 });
 
 api.patch("/checklists/:id", async (c) => {
@@ -511,7 +535,7 @@ api.patch("/checklists/:id", async (c) => {
   if (isPlaceholder(checklist.id)) return c.json({ error: NOT_YET }, 409);
 
   await renameChecklist(db, { checklist, userId: c.get("user").id, name: body.data.name });
-  return c.json(await getTaskDetail(db, checklist.taskId));
+  return c.json(await pushDetail(c.get("user").id, checklist.taskId));
 });
 
 api.delete("/checklists/:id", async (c) => {
@@ -520,7 +544,7 @@ api.delete("/checklists/:id", async (c) => {
   if (isPlaceholder(checklist.id)) return c.json({ error: NOT_YET }, 409);
 
   await deleteChecklist(db, { checklist, userId: c.get("user").id });
-  return c.json(await getTaskDetail(db, checklist.taskId));
+  return c.json(await pushDetail(c.get("user").id, checklist.taskId));
 });
 
 api.post("/checklists/:id/items", async (c) => {
@@ -532,7 +556,7 @@ api.post("/checklists/:id/items", async (c) => {
   if (isPlaceholder(checklist.id)) return c.json({ error: NOT_YET }, 409);
 
   await createChecklistItem(db, { checklist, userId: c.get("user").id, item: body.data });
-  return c.json(await getTaskDetail(db, checklist.taskId), 201);
+  return c.json(await pushDetail(c.get("user").id, checklist.taskId), 201);
 });
 
 api.patch("/checklist-items/:id", async (c) => {
@@ -544,7 +568,7 @@ api.patch("/checklist-items/:id", async (c) => {
   if (isPlaceholder(item.id)) return c.json({ error: NOT_YET }, 409);
 
   await applyChecklistItemPatch(db, { item, userId: c.get("user").id, patch: body.data });
-  return c.json(await getTaskDetail(db, item.taskId));
+  return c.json(await pushDetail(c.get("user").id, item.taskId));
 });
 
 api.delete("/checklist-items/:id", async (c) => {
@@ -553,7 +577,7 @@ api.delete("/checklist-items/:id", async (c) => {
   if (isPlaceholder(item.id)) return c.json({ error: NOT_YET }, 409);
 
   await deleteChecklistItem(db, { item, userId: c.get("user").id });
-  return c.json(await getTaskDetail(db, item.taskId));
+  return c.json(await pushDetail(c.get("user").id, item.taskId));
 });
 
 /**
