@@ -196,6 +196,54 @@ test("opens a task expanded from the URL and keeps the toggle there", async ({ p
   await expect(list.getByRole("option").first()).toBeVisible();
 });
 /**
+ * A status changed from the list is a status changed in the open panel.
+ *
+ * Every write that only touches the task collection — the row's own status
+ * glyph, the panel's menu, the palette, a card dropped on the board — used to
+ * be invisible to a task already open. The panel read the collection with
+ * `tasks.get()`, which is a Map lookup with no signal behind it, so nothing
+ * asked it to read again: the list moved and the panel kept claiming the old
+ * status until a poll happened to bring back different bytes.
+ *
+ * Only a browser can catch that. The unit test next to `useLiveTask` proves the
+ * mirror notifies; this proves the panel is wired to it. Wide enough for the
+ * split layout on purpose, so the row and the panel it contradicts are on
+ * screen together, which is how it was noticed in the first place.
+ */
+test.describe(() => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("a status changed from the list shows in the open panel", async ({ page }) => {
+    await page.goto("/__dev-login");
+    await page.goto("/list/L1");
+
+    const list = page.getByRole("listbox", { name: "Tasks" });
+    const row = list.getByRole("option").first();
+    await expect(row).toBeVisible();
+
+    await row.click();
+    const detail = page.getByRole("complementary", { name: "Task detail" });
+    const status = detail.locator('[aria-label^="Status: "]');
+    await expect(status).toBeVisible();
+
+    // Whatever it is now, move it somewhere else: the seed picks a status per
+    // task, so the one to change to is only knowable at this point.
+    const before = (await status.getAttribute("aria-label"))?.replace("Status: ", "");
+    const target = before === "done" ? "todo" : "done";
+
+    // The list is beside the panel here, not behind a scrim, so this is the row
+    // and not the panel's own control.
+    await expect(list).toBeVisible();
+    await row.getByRole("button").first().click();
+    await page.getByPlaceholder("Change status…").waitFor();
+    await page.getByRole("option", { name: target, exact: true }).click();
+
+    // Far inside the 30s poll that used to be the only thing that fixed this.
+    await expect(status).toHaveAttribute("aria-label", `Status: ${target}`, { timeout: 3000 });
+  });
+});
+
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,

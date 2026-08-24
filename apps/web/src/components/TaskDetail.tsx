@@ -22,6 +22,7 @@ import {
 } from "../lib/api.ts";
 import { attachmentMarkdown, createUploader, filesFrom } from "../lib/attach.ts";
 import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
+import { useLiveTask } from "../lib/live.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
 import { useExpanded } from "../lib/nav.tsx";
@@ -80,12 +81,21 @@ export function TaskDetail(props: {
    * changing status from the list would move the row and leave the open detail
    * claiming the old value. Only for the Task half, which is what `withLiveTask`
    * is for: the resource still owns description, comments and custom fields.
+   *
+   * Through the mirror, not `tasks.get()`. The collection is a Map with no
+   * signal in it, so reading it here subscribed the panel to nothing: this
+   * re-ran only when the resource did, and every write that touches the
+   * collection alone — the status menu, the row behind the panel, the palette,
+   * a card dropped on the board — left the open task showing the old value
+   * until a poll happened to bring back different bytes.
    */
+  const live = useLiveTask(() => props.taskId);
+
   const task = () => {
     const fetched = detail();
     if (!fetched) return null;
-    const live = tasks.get(props.taskId);
-    return live ? withLiveTask(fetched, live) : fetched;
+    const row = live();
+    return row ? withLiveTask(fetched, row) : fetched;
   };
 
   const [assigneeMenu, setAssigneeMenu] = createSignal<{ x: number; y: number } | null>(null);
@@ -157,7 +167,7 @@ export function TaskDetail(props: {
   let lastSeenUpdate: string | null | undefined;
 
   createEffect(() => {
-    const row = tasks.get(props.taskId);
+    const row = live();
     const fetched = detail();
     if (!row || !fetched) return;
     if (row.dateUpdated === fetched.dateUpdated) return;
