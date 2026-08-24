@@ -2,11 +2,8 @@ import type { ClickUpClient } from "@rask/clickup-client";
 import {
   type Db,
   ingestTasks,
-  lists,
-  mapCustomField,
   syncCursors,
   tasks,
-  upsertCustomFields,
   upsertFolders,
   upsertLists,
   upsertSpaces,
@@ -132,16 +129,6 @@ export async function syncList(
   return stats;
 }
 
-/** Custom Field definitions for a list. Needed to render anything but raw values. */
-export async function syncListCustomFields(
-  db: Db,
-  client: ClickUpClient,
-  listId: string,
-): Promise<void> {
-  const fields = await client.getListCustomFields(listId);
-  await upsertCustomFields(db, fields.map(mapCustomField));
-}
-
 /** Re-reads a single task. What a webhook triggers, since events carry only an id. */
 export async function syncTask(db: Db, client: ClickUpClient, taskId: string): Promise<void> {
   const task = await client.getTask(taskId);
@@ -176,11 +163,6 @@ export async function coldLists(db: Db): Promise<string[]> {
     .from(syncCursors)
     .where(and(eq(syncCursors.scope, "list"), isNull(syncCursors.lastRunAt)));
   return rows.map((r) => r.id);
-}
-
-/** Every list in the mirror, archived ones excluded. Used by the initial load. */
-export async function allLists(db: Db): Promise<Array<{ id: string; name: string }>> {
-  return db.select({ id: lists.id, name: lists.name }).from(lists).where(eq(lists.archived, false));
 }
 
 export async function taskCount(db: Db): Promise<number> {

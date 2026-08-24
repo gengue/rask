@@ -14,13 +14,7 @@
 import { ClickUpClient } from "@rask/clickup-client";
 import { createDb, lists as listsTable } from "@rask/schema";
 import { desc, eq } from "drizzle-orm";
-import {
-  syncHierarchy,
-  syncList,
-  syncListCustomFields,
-  taskCount,
-  trackList,
-} from "../src/sync.ts";
+import { syncHierarchy, syncList, taskCount, trackList } from "../src/sync.ts";
 
 const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -76,12 +70,11 @@ if (candidates.length > 0) {
 
   for (const list of candidates) {
     await trackList(db, list.id);
-    await syncListCustomFields(db, client, list.id);
     const stats = await syncList(db, client, list.id, { full: true, teamId });
-    requests += stats.requests + 1;
+    requests += stats.requests;
     console.log(
       `  ${list.name.padEnd(38).slice(0, 38)} ${String(stats.tasks).padStart(6)} ` +
-        `${String(stats.requests + 1).padStart(5)} ${`${(stats.ms / 1000).toFixed(1)}s`.padStart(8)}`,
+        `${String(stats.requests).padStart(5)} ${`${(stats.ms / 1000).toFixed(1)}s`.padStart(8)}`,
     );
   }
 
