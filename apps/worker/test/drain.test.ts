@@ -578,6 +578,33 @@ describe("read-backs that follow a write ClickUp accepted", () => {
     expect((await queued(id))?.status).toBe("done");
   });
 
+  /*
+   * Clearing has its own verb.
+   *
+   * Every body the field endpoint accepts is a value of some type and none of
+   * them is none, so an emptied field posted as `{ value: null }` comes back
+   * refused — as a "ClickUp rejected your change" toast for a field the author
+   * only meant to empty. The stub answers 500 to anything it was not given, so
+   * a POST here fails the row rather than passing quietly.
+   */
+  test("clearing a custom field deletes it rather than posting nothing", async () => {
+    await seedOptimisticTask();
+    const id = await queue({
+      op: "set_custom_field",
+      entityId: TASK,
+      payload: { taskId: TASK, fieldId: "f1", value: null },
+    });
+
+    const { pool, calls } = clickUp({
+      [`DELETE /v2/task/${TASK}/field/f1`]: { body: {} },
+      [`GET /v2/task/${TASK}`]: { body: upstreamTask() },
+    });
+    await drainOutbox(db, pool);
+
+    expect((await queued(id))?.status).toBe("done");
+    expect(calls.some((call) => call.method === "DELETE")).toBe(true);
+  });
+
   test("a custom field write's refetch is actually applied", async () => {
     // Same shape: setting a Custom Field does not move date_updated either.
     await seedOptimisticTask();

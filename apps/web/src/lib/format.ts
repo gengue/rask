@@ -95,3 +95,46 @@ export const PRIORITY_LABELS: Record<number, string> = {
   3: "Normal",
   4: "Low",
 };
+
+/**
+ * The value `<input type="date">` wants: `yyyy-mm-dd`, in the reader's own
+ * timezone. `toISOString().slice(0, 10)` is the tempting one-liner and it is
+ * wrong — it slices the UTC day, which near either end of the day is not the
+ * day the label beside the input is showing.
+ */
+export function toDateInput(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return "";
+  const date = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * That value back as an instant, keeping the time of day it already had.
+ *
+ * A date input has no time in it, and a ClickUp date is a timestamp: rewriting
+ * one from a calendar means deciding what the hours were. Whatever they were
+ * before, if the field held anything — a due date at 09:00 moved to Thursday is
+ * still due at 09:00, and a Custom Field configured to show a time keeps it
+ * rather than losing it to a day nobody was editing.
+ *
+ * Noon when there was nothing, because midnight lands on the day before or
+ * after as soon as another timezone reads it. Noon has twelve hours of slack
+ * either way.
+ */
+export function fromDateInput(raw: string, previous: number | null = null): number | null {
+  const [year, month, day] = raw.split("-").map(Number);
+  if (!year || !month || !day) return null;
+
+  const at = previous != null && Number.isFinite(previous) ? new Date(previous) : null;
+  const ms = new Date(
+    year,
+    month - 1,
+    day,
+    at?.getHours() ?? 12,
+    at?.getMinutes() ?? 0,
+    at?.getSeconds() ?? 0,
+    at?.getMilliseconds() ?? 0,
+  ).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}

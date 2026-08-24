@@ -244,6 +244,50 @@ test.describe(() => {
 });
 
 /**
+ * The due date, which is a calendar the browser already owns.
+ *
+ * The picker is drawn by the browser and not by the page, so Playwright can
+ * neither see it nor click it. Stubbing `showPicker` and asserting it was asked
+ * for is the whole of what a test can say about the calendar; the reload after
+ * it is the part that proves the date reached Postgres.
+ */
+test("opens a calendar on the due date, and keeps the date it is given", async ({ page }) => {
+  await page.addInitScript(() => {
+    HTMLInputElement.prototype.showPicker = function stub() {
+      document.documentElement.dataset.pickerOpened = "1";
+    };
+  });
+
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1");
+
+  const row = page.getByRole("listbox", { name: "Tasks" }).getByRole("option").first();
+  await expect(row).toBeVisible();
+  const taskId = (await row.getAttribute("id"))?.replace("task-", "");
+  await row.click();
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  const due = detail.getByLabel("Due date");
+  await expect(due).toBeVisible();
+
+  await due.click();
+  await expect(page.locator("html")).toHaveAttribute("data-picker-opened", "1");
+
+  // Waited for, not raced: `fill` fires the change that starts the PATCH, and
+  // navigating before it lands aborts the write this test is about.
+  const written = page.waitForResponse(
+    (response) => response.url().includes(`/api/tasks/${taskId}`) && response.status() < 400,
+  );
+  await due.fill("2027-03-15");
+  await written;
+
+  // Reload, because a day is lost to a timezone on the way through the mirror
+  // or it is not lost at all.
+  await page.goto(`/list/L1?task=${taskId}`);
+  await expect(detail.getByLabel("Due date")).toHaveValue("2027-03-15");
+});
+
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,

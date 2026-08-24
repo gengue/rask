@@ -6,6 +6,7 @@ import {
   outbox,
   taskAssignees,
   taskChecklists,
+  taskCustomValues,
   tasks,
 } from "@rask/schema";
 import { and, eq, sql } from "drizzle-orm";
@@ -661,15 +662,59 @@ export async function setTaskTags(
   });
 }
 
+/**
+ * A Custom Field value, in the mirror and on its way to ClickUp.
+ *
+ * This used to queue the outbox row and nothing else, which made it the one
+ * write in this file that was not optimistic: the panel refetched, read the
+ * value it had just replaced, and showed the old one until the worker drained
+ * a couple of seconds later. Worse for a People field, whose menu decides
+ * add-versus-remove from what it thinks is on the task — reading a stale value
+ * there turns "take Ana off" into a second request to put her on.
+ *
+ * `mirror` is what the mirror should hold, when that is not what ClickUp is
+ * sent: a People field goes up as `{add, rem}` and is stored as the list that
+ * leaves behind. Null clears the row, which is how a cleared field is spelled
+ * in both directions.
+ */
 export async function setCustomField(
   db: Db,
-  input: { taskId: string; userId: string; fieldId: string; value: unknown },
+  input: {
+    taskId: string;
+    userId: string;
+    fieldId: string;
+    value: unknown;
+    mirror?: unknown;
+  },
 ): Promise<void> {
-  await db.insert(outbox).values({
-    userId: input.userId,
-    op: "set_custom_field",
-    entityId: input.taskId,
-    payload: { taskId: input.taskId, fieldId: input.fieldId, value: input.value },
+  const stored = input.mirror === undefined ? input.value : input.mirror;
+
+  await db.transaction(async (tx) => {
+    if (stored === null) {
+      await tx
+        .delete(taskCustomValues)
+        .where(
+          and(
+            eq(taskCustomValues.taskId, input.taskId),
+            eq(taskCustomValues.fieldId, input.fieldId),
+          ),
+        );
+    } else {
+      await tx
+        .insert(taskCustomValues)
+        .values({ taskId: input.taskId, fieldId: input.fieldId, value: stored })
+        .onConflictDoUpdate({
+          target: [taskCustomValues.taskId, taskCustomValues.fieldId],
+          set: { value: stored },
+        });
+    }
+
+    await tx.insert(outbox).values({
+      userId: input.userId,
+      op: "set_custom_field",
+      entityId: input.taskId,
+      payload: { taskId: input.taskId, fieldId: input.fieldId, value: input.value },
+    });
   });
 }
 

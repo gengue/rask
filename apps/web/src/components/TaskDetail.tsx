@@ -1,5 +1,5 @@
 import { formatMention } from "@rask/clickup-client/mentions";
-import { isPlaceholder } from "@rask/clickup-client/vocabulary";
+import { isPlaceholder, parseInstant } from "@rask/clickup-client/vocabulary";
 import {
   createEffect,
   createResource,
@@ -21,7 +21,24 @@ import {
   withLiveTask,
 } from "../lib/api.ts";
 import { attachmentMarkdown, createUploader, filesFrom } from "../lib/attach.ts";
-import { formatDue, formatRelative, PRIORITY_LABELS } from "../lib/format.ts";
+import {
+  CLEAR,
+  customFieldWrite,
+  type FieldWrite,
+  fieldInstant,
+  formatFieldValue,
+  isNumeric,
+  labelsOn,
+  peopleIn,
+  typedFieldWrite,
+} from "../lib/custom-fields.ts";
+import {
+  formatDue,
+  formatRelative,
+  fromDateInput,
+  PRIORITY_LABELS,
+  toDateInput,
+} from "../lib/format.ts";
 import { useLiveTask } from "../lib/live.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
@@ -557,14 +574,7 @@ export function TaskDetail(props: {
             placeholder="Assign to…"
             items={[
               { id: "", label: "Clear all" },
-              ...members().map((user) => ({
-                id: user.id,
-                label: user.username ?? user.id,
-                // A checkmark, because this menu toggles rather than replaces
-                // and there is otherwise no way to see who is already on it.
-                hint: task()?.assignees.some((a) => a.id === user.id) ? "✓" : "",
-                icon: <Avatar user={user} size={16} />,
-              })),
+              ...memberItems((id) => task()?.assignees.some((user) => user.id === id) ?? false),
             ]}
             onSelect={(id) => {
               setAssigneeMenu(null);
@@ -665,19 +675,68 @@ function toAssignee(user: Assignee): Assignee {
 }
 
 /**
- * Native date input. `<input type="date">` already knows the user's locale,
- * their keyboard, and how to open a calendar; a picker component would be a
- * few hundred lines that knows less.
+ * A date, edited in the calendar the browser already has.
+ *
+ * `<input type="date">` knows the user's locale, their keyboard and how to
+ * draw a month; a picker component would be a few hundred lines that know
+ * less. What it does not do is open on a click anywhere but its own icon — and
+ * the icon is invisible here, under a label that reads "Tomorrow" rather than
+ * 09/06/2026. `showPicker()` is that missing click. Without it the field took
+ * focus and the keyboard edited segments nobody could see.
+ *
+ * The keyboard needs the same three things spelled out, this being a
+ * keyboard-first app and the input being invisible: a ring on the label, since
+ * an outline on a transparent input shows nothing and `input:focus-visible`
+ * turns it off anyway; Enter to open the calendar, which no `click` reaches;
+ * and every key kept off the window, or Escape closes the whole panel from
+ * inside a field the shortcut handler waves through as typing.
  */
+function DateField(props: {
+  value: number | null;
+  onChange: (ms: number | null) => void;
+  ariaLabel: string;
+  children: JSX.Element;
+}): JSX.Element {
+  let input!: HTMLInputElement;
+
+  return (
+    <label class="-mx-1.5 relative flex h-6 w-full cursor-pointer items-center rounded-[5px] px-1.5 hover:bg-hover focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-accent">
+      {props.children}
+      <input
+        ref={input}
+        type="date"
+        value={toDateInput(props.value)}
+        // Optional rather than polyfilled: a browser without `showPicker` opens
+        // on its own or edits by keyboard, and both beat a dialog we drew.
+        onClick={() => input.showPicker?.()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") input.showPicker?.();
+          if (event.key === "Escape") event.currentTarget.blur();
+          event.stopPropagation();
+        }}
+        // The value it already holds is where the hours come from, so moving a
+        // date does not quietly reset the time behind it.
+        onChange={(event) => props.onChange(fromDateInput(event.currentTarget.value, props.value))}
+        class="absolute inset-0 cursor-pointer opacity-0"
+        aria-label={props.ariaLabel}
+      />
+    </label>
+  );
+}
+
+/** The task's own due date: the same calendar, over an ISO instant. */
 function DueField(props: {
   value: string | null;
   onChange: (iso: string | null) => void;
 }): JSX.Element {
-  const asInput = () => (props.value ? new Date(props.value).toISOString().slice(0, 10) : "");
   const label = () => formatDue(props.value);
 
   return (
-    <label class="-mx-1.5 relative flex h-6 cursor-default items-center rounded-[5px] px-1.5 hover:bg-hover">
+    <DateField
+      value={parseInstant(props.value)}
+      ariaLabel="Due date"
+      onChange={(next) => props.onChange(next == null ? null : new Date(next).toISOString())}
+    >
       <span
         class="text-base"
         classList={{
@@ -688,19 +747,7 @@ function DueField(props: {
       >
         {label()?.text ?? "No due date"}
       </span>
-      <input
-        type="date"
-        value={asInput()}
-        onChange={(event) => {
-          const raw = event.currentTarget.value;
-          // Noon local keeps the date from sliding a day either way once
-          // ClickUp stores it as an instant and someone reads it elsewhere.
-          props.onChange(raw ? new Date(`${raw}T12:00:00`).toISOString() : null);
-        }}
-        class="absolute inset-0 cursor-default opacity-0"
-        aria-label="Due date"
-      />
-    </label>
+    </DateField>
   );
 }
 
@@ -744,10 +791,10 @@ function CustomFields(props: {
   const hidden = () => decorated().length - shown().length;
 
   /** Sends the value and asks the parent to refetch, since it lives in a resource. */
-  const write = async (fieldId: string, value: unknown) => {
+  const write = async (fieldId: string, next: FieldWrite) => {
     setMenu(null);
     try {
-      await api.setField(props.taskId, fieldId, value);
+      await api.setField(props.taskId, fieldId, next);
       props.onChanged();
     } catch (error) {
       pushToast({ tone: "error", title: "Could not set the field", detail: message(error) });
@@ -762,8 +809,7 @@ function CustomFields(props: {
             <FieldValue
               field={field}
               onPick={(anchor) => setMenu({ field, anchor })}
-              onToggle={(next) => void write(field.id, next)}
-              onText={(next) => void write(field.id, next)}
+              onValue={(next) => void write(field.id, next)}
             />
           </Property>
         )}
@@ -776,7 +822,9 @@ function CustomFields(props: {
             width={240}
             placeholder={`Set ${open().field.name}…`}
             items={fieldOptions(open().field)}
-            onSelect={(id) => void write(open().field.id, id === CLEAR ? null : id)}
+            onSelect={(id) =>
+              void write(open().field.id, customFieldWrite(open().field, id, members()))
+            }
             onClose={() => setMenu(null)}
           />
         )}
@@ -1355,33 +1403,53 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const CLEAR = "__clear__";
-
 type Field = TaskDetailData["customFields"][number] & { display: string };
 
 /**
  * One custom field's value, editable in place where ClickUp's type allows it.
  *
- * Dropdowns and labels open the shared menu; a checkbox toggles; text and
- * number edit inline. Anything else — formula, location, attachment — stays
- * read-only, because writing a value we cannot render back is how a field ends
- * up holding something nobody meant.
+ * Dropdowns, labels and people open the shared menu; a checkbox toggles; a
+ * date opens the same calendar as the due date; text, number and the
+ * string-shaped types beside them edit inline. Anything else — formula,
+ * location, attachment, the progress fields — stays read-only, because writing
+ * a value we cannot render back is how a field ends up holding something
+ * nobody meant.
  */
 function FieldValue(props: {
   field: Field;
   onPick: (anchor: { x: number; y: number }) => void;
-  onToggle: (next: boolean) => void;
-  onText: (next: string | null) => void;
+  onValue: (write: FieldWrite) => void;
 }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
   const type = () => props.field.type;
-  const pickable = () => type() === "drop_down" || type() === "labels";
+  const pickable = () => type() === "drop_down" || type() === "labels" || type() === "users";
   const typable = () =>
-    type() === "text" || type() === "short_text" || type() === "number" || type() === "url";
+    isNumeric(type()) ||
+    type() === "text" ||
+    type() === "short_text" ||
+    type() === "url" ||
+    type() === "email" ||
+    type() === "phone";
+
+  /** What the input starts with, and what a blur compares against. */
+  const text = () => (props.field.display === "—" ? "" : props.field.display);
+
+  /** The value, or an invitation to set one. The same line under all three editors. */
+  const label = () => (
+    <span
+      class="truncate text-base"
+      classList={{
+        "text-ink-2": props.field.display !== "—",
+        "text-ink-4": props.field.display === "—",
+      }}
+    >
+      {props.field.display === "—" ? "Set…" : props.field.display}
+    </span>
+  );
 
   return (
     <Show
-      when={pickable() || type() === "checkbox" || typable()}
+      when={pickable() || type() === "checkbox" || type() === "date" || typable()}
       fallback={
         <span
           class="flex h-6 items-center truncate text-base text-ink-2"
@@ -1394,7 +1462,7 @@ function FieldValue(props: {
       <Show when={type() === "checkbox"}>
         <button
           type="button"
-          onClick={() => props.onToggle(props.field.display !== "Yes")}
+          onClick={() => props.onValue({ value: props.field.display !== "Yes" })}
           class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 text-base text-ink-2 hover:bg-hover"
         >
           <span
@@ -1427,20 +1495,21 @@ function FieldValue(props: {
             const rect = event.currentTarget.getBoundingClientRect();
             props.onPick({ x: rect.left, y: rect.bottom + 6 });
           }}
-          class="-mx-1.5 flex h-6 w-full items-center rounded-[5px] px-1.5 text-left"
-          classList={{ "hover:bg-hover": true }}
+          class="-mx-1.5 flex h-6 w-full items-center rounded-[5px] px-1.5 text-left hover:bg-hover"
           title={props.field.display}
         >
-          <span
-            class="truncate text-base"
-            classList={{
-              "text-ink-2": props.field.display !== "—",
-              "text-ink-4": props.field.display === "—",
-            }}
-          >
-            {props.field.display === "—" ? "Set…" : props.field.display}
-          </span>
+          {label()}
         </button>
+      </Show>
+
+      <Show when={type() === "date"}>
+        <DateField
+          value={fieldInstant(props.field.value)}
+          ariaLabel={props.field.name}
+          onChange={(ms) => props.onValue({ value: ms })}
+        >
+          {label()}
+        </DateField>
       </Show>
 
       <Show when={typable()}>
@@ -1453,33 +1522,32 @@ function FieldValue(props: {
               class="-mx-1.5 flex h-6 w-full items-center rounded-[5px] px-1.5 text-left hover:bg-hover"
               title={props.field.display}
             >
-              <span
-                class="truncate text-base"
-                classList={{
-                  "text-ink-2": props.field.display !== "—",
-                  "text-ink-4": props.field.display === "—",
-                }}
-              >
-                {props.field.display === "—" ? "Set…" : props.field.display}
-              </span>
+              {label()}
             </button>
           }
         >
           <input
             ref={(el) => queueMicrotask(() => el.focus())}
-            type={type() === "number" ? "number" : "text"}
-            value={props.field.display === "—" ? "" : props.field.display}
+            type={isNumeric(type()) ? "number" : "text"}
+            value={text()}
             onBlur={(event) => {
               setEditing(false);
+              /*
+               * A number input hands back the empty string for anything it
+               * cannot parse, so "12." and "" are the same event here. Leaving
+               * the field alone is the only safe reading of the first, and
+               * `badInput` is what tells them apart: without it, a typo in a
+               * Money field clears it.
+               */
+              if (event.currentTarget.validity.badInput) return;
               const next = event.currentTarget.value.trim();
-              if (next !== (props.field.display === "—" ? "" : props.field.display)) {
-                props.onText(next === "" ? null : next);
-              }
+              if (next === text()) return;
+              props.onValue(typedFieldWrite(type(), next));
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();
               if (event.key === "Escape") {
-                event.currentTarget.value = props.field.display === "—" ? "" : props.field.display;
+                event.currentTarget.value = text();
                 event.currentTarget.blur();
               }
               event.stopPropagation();
@@ -1492,47 +1560,47 @@ function FieldValue(props: {
   );
 }
 
-/** Menu entries for a dropdown or label field, straight from its type_config. */
+/**
+ * The workspace directory as menu entries, ticked for whoever is already on.
+ *
+ * The assignee menu and a People field ask the same question of the same list,
+ * and both toggle rather than replace — a checkmark is the only thing that says
+ * so before the click.
+ */
+function memberItems(isOn: (id: string) => boolean): MenuItem[] {
+  return members().map((user) => ({
+    id: user.id,
+    label: user.username ?? user.id,
+    hint: isOn(user.id) ? "✓" : "",
+    icon: <Avatar user={user} size={16} />,
+  }));
+}
+
+/**
+ * Menu entries for the three field types that pick rather than type: a dropdown
+ * and a Label field from their own `type_config`, a People field from the
+ * workspace directory, since it has no options of its own.
+ */
 function fieldOptions(field: Field): MenuItem[] {
+  if (field.type === "users") {
+    const current = new Set(peopleIn(field));
+    return [{ id: CLEAR, label: "Clear all" }, ...memberItems((id) => current.has(id))];
+  }
+
   const options =
     (field.typeConfig as { options?: Array<{ id: string; name?: string; label?: string }> } | null)
       ?.options ?? [];
+  // A Label field holds several at once and this menu toggles one of them, so
+  // it needs the same tick the People one has. A dropdown holds one, and the
+  // value on the row beside it already says which.
+  const applied = new Set(field.type === "labels" ? labelsOn(field) : []);
 
   return [
     ...options.map((option) => ({
       id: option.id,
       label: option.name ?? option.label ?? option.id,
+      hint: applied.has(option.id) ? "✓" : "",
     })),
-    { id: CLEAR, label: "Clear" },
+    { id: CLEAR, label: field.type === "labels" ? "Clear all" : "Clear" },
   ];
-}
-
-/** Custom field values arrive raw. Only the types worth rendering get special care. */
-function formatFieldValue(type: string, config: unknown, value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-
-  if (type === "drop_down") {
-    const options = (
-      config as { options?: Array<{ id: string; name: string; orderindex: number }> }
-    )?.options;
-    const match = options?.find((option) => option.id === value || option.orderindex === value);
-    return match?.name ?? String(value);
-  }
-
-  if (type === "labels" && Array.isArray(value)) {
-    const options = (config as { options?: Array<{ id: string; label: string }> })?.options;
-    return value
-      .map((id) => options?.find((option) => option.id === id)?.label ?? String(id))
-      .join(", ");
-  }
-
-  if (type === "checkbox") return value === "true" || value === true ? "Yes" : "No";
-  if (type === "date") return new Date(Number(value)).toLocaleDateString();
-  if (type === "users" && Array.isArray(value)) {
-    return value.map((user: { username?: string }) => user.username ?? "?").join(", ");
-  }
-  // location, formula, attachment and whatever ClickUp adds next. Printing raw
-  // JSON at a person is worse than admitting we do not render this one.
-  if (typeof value === "object") return "—";
-  return String(value);
 }

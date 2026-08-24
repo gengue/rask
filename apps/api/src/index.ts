@@ -670,7 +670,14 @@ api.get("/spaces/:id/tags", async (c) => {
   return c.json(tags.map((tag) => ({ name: tag.name, fg: tag.tag_fg, bg: tag.tag_bg })));
 });
 
-const customFieldInput = z.object({ value: z.unknown() });
+/*
+ * `mirror` is optional and means "store this instead of what ClickUp is sent".
+ * Only a People field needs it — that one goes up as a delta — and leaving it
+ * out means the two are the same value. It is `unknown` for the same reason
+ * `value` is: what a Custom Field holds is the field type's business, and the
+ * browser is the side that knows the type.
+ */
+const customFieldInput = z.object({ value: z.unknown(), mirror: z.unknown() });
 
 api.put("/tasks/:id/fields/:fieldId", async (c) => {
   const body = customFieldInput.safeParse(await c.req.json().catch(() => null));
@@ -681,6 +688,7 @@ api.put("/tasks/:id/fields/:fieldId", async (c) => {
     fieldId: c.req.param("fieldId"),
     userId: c.get("user").id,
     value: body.data.value,
+    mirror: body.data.mirror,
   });
   return c.json({ ok: true }, 202);
 });

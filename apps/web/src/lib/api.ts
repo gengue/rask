@@ -1,5 +1,6 @@
 import { UPLOAD_FIELD } from "@rask/clickup-client/vocabulary";
 import type { RemoteLookup } from "./clickup-url.ts";
+import type { FieldWrite } from "./custom-fields.ts";
 import { markSignedOut } from "./signed-out.ts";
 
 /**
@@ -564,10 +565,15 @@ export const api = {
   deleteChecklistItem: (itemId: string) =>
     request<TaskDetail>(`/api/checklist-items/${itemId}`, { method: "DELETE" }),
 
-  setField: (taskId: string, fieldId: string, value: unknown) =>
+  setField: (taskId: string, fieldId: string, write: FieldWrite) =>
     request<{ ok: true }>(`/api/tasks/${taskId}/fields/${fieldId}`, {
       method: "PUT",
-      body: JSON.stringify({ value }),
+      // `mirror` spelled out rather than left off: the two differ only for a
+      // People field, and the server storing `undefined` would mean guessing.
+      body: JSON.stringify({
+        value: write.value,
+        mirror: write.mirror === undefined ? write.value : write.mirror,
+      }),
     }),
 
   resync: (listId: string) =>
