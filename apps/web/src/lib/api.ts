@@ -231,9 +231,25 @@ const DETAIL_ONLY: Record<Exclude<keyof TaskDetail, keyof Task>, true> = {
  * the comment posted a second ago and the panel silently goes back in time.
  */
 export function withLiveTask(detail: TaskDetail, live: Task): TaskDetail {
-  const taskHalf: Partial<TaskDetail> = { ...live };
-  for (const key of Object.keys(DETAIL_ONLY) as (keyof TaskDetail)[]) delete taskHalf[key];
-  return { ...detail, ...taskHalf };
+  return { ...detail, ...taskHalf(live) };
+}
+
+/**
+ * The Task half of a row, whatever shape it arrived in.
+ *
+ * The task collection holds Tasks, and the two writers must agree on what that
+ * means. Rows from a list query carry the Task keys; the change feed's `task`
+ * push carries a whole TaskDetail. Merged as-is, the push flips the row's key
+ * set — thirteen detail keys appear — so no two writes of the same unchanged
+ * task are ever deep-equal, and the collection's dedupe never applies. Every
+ * change event rebuilds every visible row in the list, which is a blink on a
+ * 30s clock while a task is open: the poll's push flips the row one way, the
+ * next list frame flips it back.
+ */
+export function taskHalf(row: Task): Task {
+  const half: Partial<TaskDetail> = { ...row };
+  for (const key of Object.keys(DETAIL_ONLY) as (keyof TaskDetail)[]) delete half[key];
+  return half as Task;
 }
 
 /** A task match from the palette's workspace-wide search. */

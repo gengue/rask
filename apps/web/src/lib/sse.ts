@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
-import type { Task, TaskDetail } from "./api.ts";
-import { merge } from "./store.ts";
+import { type Task, type TaskDetail, taskHalf } from "./api.ts";
+import { merge, tasks } from "./store.ts";
 import { pushToast } from "./toast.ts";
 
 /**
@@ -45,7 +45,20 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
 
   source.addEventListener("task", (event) => {
     const detail = JSON.parse((event as MessageEvent<string>).data) as TaskDetail;
-    merge([detail]);
+    /*
+     * Only the Task half goes into the collection — see `taskHalf` for why a
+     * whole detail in there means the list rebuilds on every push. The panel
+     * still gets everything, through `pushedDetail` below.
+     *
+     * `customValues` is kept from the row already here: a detail never carries
+     * that key, list rows always do, and a row stripped of it both breaks the
+     * dedupe and fails the Custom Field clause its view is filtered on —
+     * which would drop the open task from the list it is being read in.
+     */
+    const row = taskHalf(detail);
+    const prev = tasks.get(detail.id);
+    if (prev && "customValues" in prev) row.customValues = prev.customValues;
+    merge([row]);
     setPushedDetail(detail);
     handlers.onDetail?.(detail);
   });
