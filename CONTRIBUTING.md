@@ -145,11 +145,13 @@ runs as a test, so CI catches it too.
   truncated a 147,000-task mirror. If you add a test that imports
   `apps/api/src/index.ts`, set `DATABASE_URL` yourself before the import — that
   file builds a pool from the environment at module scope.
-- **`bun test` resolves `solid-js` to its server build.** Memos and effects do
-  not react there, so a reactive test passes while asserting nothing. Anything
-  worth testing in `apps/web` has to be a pure function of its arguments; that
-  is why `selectRows`, `matchesTask` and the sidebar's state are shaped the way
-  they are.
+- **A bare `bun test` resolves `solid-js` to its server build.** Memos and effects
+  do not react there, so a reactive test passes while asserting nothing. The
+  `apps/web` script passes `--conditions browser` for that reason, which is what
+  lets `test/live-mirror.test.ts` count recomputations rather than sample values.
+  Everything else worth testing there is still a pure function of its arguments;
+  that is why `selectRows`, `matchesTask` and the sidebar's state are shaped the
+  way they are.
 - **jsonb columns need the custom types in `packages/schema/src/schema.ts`.**
   Drizzle stringifies before binding and Bun's driver encodes again, which
   yields a jsonb *string*. It reads back fine through the ORM and silently

@@ -129,9 +129,11 @@ don't reintroduce `useLiveQuery`.
 - **Register authenticated routes on `api`, not `app`.** A route on `app` is public;
   `apps/api/test/auth.test.ts` walks the route table and asserts everything outside
   a five-name allow-list answers 401.
-- **`bun test` resolves `solid-js` to its server build.** Memos and effects do not
-  react there, so a reactive test passes while asserting nothing. Anything worth
-  testing in `apps/web` is a pure function.
+- **A bare `bun test` resolves `solid-js` to its server build.** Memos and effects
+  do not react there, so a reactive test passes while asserting nothing. That is
+  what `--conditions browser` in the `apps/web` test script is for. Prefer a pure
+  function anyway; reach for a reactive test only when the reactivity is the thing
+  that can break, as `apps/web/test/live-mirror.test.ts` does.
 - **Run `bun run --cwd apps/web contrast` before changing a colour token.** The same
   audit runs as a test.
 - **One `SESSION_COOKIE_NAME` per checkout.** Cookies ignore the port, so two Rask
