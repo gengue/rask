@@ -1,6 +1,6 @@
 import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { ApiError, api, type TimeEntry } from "../lib/api.ts";
-import { formatDuration, formatRelative, parseDuration } from "../lib/format.ts";
+import { formatClock, formatDuration, formatRelative, parseDuration } from "../lib/format.ts";
 import { elapsed, isTracking, running, stopTimer, toggleTimer } from "../lib/timer.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -135,7 +135,7 @@ export function TimeEntries(props: {
           }}
         >
           <Show when={isTracking(props.taskId)} fallback="Start  t">
-            Stop {formatDuration(live(), "clock")}
+            Stop {formatClock(live())}
           </Show>
         </button>
       </h3>
@@ -241,7 +241,7 @@ function Editor(props: {
   onCancel: () => void;
   onSave: (entry: TimeEntry, patch: { description?: string; durationMs?: number }) => Promise<void>;
 }): JSX.Element {
-  const [length, setLength] = createSignal(formatDuration(props.entry.durationMs));
+  const [length, setLength] = createSignal(formatDuration(props.entry.durationMs) ?? "");
   const [note, setNote] = createSignal(props.entry.description);
 
   const submit = (event: Event) => {
@@ -330,7 +330,7 @@ export function RunningTimer(props: { onOpen: (taskId: string) => void }): JSX.E
             {entry().taskName ?? "Tracking"}
           </button>
           <span class="shrink-0 font-medium text-ink text-xs tabular-nums">
-            {formatDuration(elapsed(), "clock")}
+            {formatClock(elapsed())}
           </span>
           <button
             type="button"

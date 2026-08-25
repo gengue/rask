@@ -18,6 +18,7 @@ import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
+import { loadInbox } from "./lib/inbox.ts";
 import { lightboxOpen } from "./lib/lightbox.ts";
 import { useExpanded } from "./lib/nav.tsx";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
@@ -30,12 +31,14 @@ import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
 import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
+  boardLayout,
   cursorTask,
   rowTasks,
   searchScope,
   setFilterRequest,
   setStatusRequest,
   statusRequest,
+  viewIsFeed,
   viewListId,
   viewTitle,
   viewTruncated,
@@ -75,10 +78,18 @@ export function AppShell(): JSX.Element {
      * failed sign-in would be looking.
      */
     void loadSession()
-      // Chained rather than fired alongside: the timer read needs a live
-      // session, and on the sign-in page it would only spend a request to be
-      // told what `loadSession` is already finding out. One round trip late is
-      // invisible next to the band appearing at all.
+      /*
+       * Both chained rather than fired alongside, and for the same reason:
+       * each needs a live session, and on the sign-in page they would only
+       * spend a request to be told what `loadSession` is already finding out.
+       *
+       * The inbox goes first because it has to land before the route loads
+       * anything, whichever route that is — the sidebar's unread count is a
+       * query over the shared collection, so the rows it counts have to be in
+       * there even when you opened a list. The timer read has nobody waiting
+       * on it, so it goes last.
+       */
+      .then(() => loadInbox())
       .then(() => hydrateTimer())
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) return;
@@ -303,7 +314,7 @@ export function AppShell(): JSX.Element {
       case "H":
       case "L":
         // The keyboard's drag: the same write, one column over.
-        if (task && ui.layout === "board") {
+        if (task && boardLayout()) {
           event.preventDefault();
           shiftColumn(task, key === "L" ? 1 : -1);
         }
@@ -319,7 +330,7 @@ export function AppShell(): JSX.Element {
           key,
           ui.cursor,
           rowTasks().length,
-          ui.layout === "board" ? boardColumns() : null,
+          boardLayout() ? boardColumns() : null,
         );
         if (next !== null) {
           event.preventDefault();
@@ -668,8 +679,14 @@ export function AppShell(): JSX.Element {
               </Show>
 
               <FilterBar />
-              <span class="h-3.5 w-px shrink-0 bg-line-strong" />
-              <GroupPicker />
+              {/* Hidden rather than disabled in the feed: the inbox forces its
+                own order, and a control that visibly does nothing is worse than
+                one that is not there. It comes back with your setting intact
+                the moment you leave. */}
+              <Show when={!viewIsFeed()}>
+                <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+                <GroupPicker />
+              </Show>
             </header>
 
             <Outlet />

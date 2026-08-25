@@ -178,6 +178,9 @@ export interface TaskRef {
   statusColor: string | null;
   statusType: string | null;
   listId: string;
+  dueDate: string | null;
+  timeEstimate: number | null;
+  timeSpent: number | null;
   assignees: Assignee[];
 }
 
@@ -276,6 +279,8 @@ export interface Me {
   color: string | null;
   avatar: string | null;
   teamId: string;
+  /** ISO instant of the last inbox visit. Everything newer is unread. */
+  inboxSeenAt: string;
 }
 
 export interface Space {
@@ -339,6 +344,11 @@ export interface TaskQuery {
   tag?: string;
   closed?: boolean;
   limit?: number;
+  /**
+   * Epoch milliseconds. Restricts the page to tasks ClickUp changed since then
+   * and orders it newest change first, which is what the inbox reads.
+   */
+  updatedSince?: number;
   /**
    * The user's filter, already serialised by `lib/filters.ts`.
    *
@@ -444,6 +454,9 @@ export interface TimeEntry {
 
 export const api = {
   me: () => request<Me>("/api/me"),
+
+  /** Marks the inbox read up to the server's clock, and reports that instant. */
+  markInboxSeen: () => request<{ inboxSeenAt: string }>("/api/inbox/seen", { method: "POST" }),
   hierarchy: () => request<Space[]>("/api/hierarchy"),
   members: () => request<Assignee[]>("/api/members"),
 
@@ -457,6 +470,7 @@ export const api = {
     if (query.closed) params.set("closed", "1");
     if (query.limit) params.set("limit", String(query.limit));
     if (query.filter) params.set("filter", query.filter);
+    if (query.updatedSince) params.set("updatedSince", String(query.updatedSince));
 
     return requestPage(`/api/tasks?${params}`);
   },

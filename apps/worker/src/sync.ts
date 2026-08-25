@@ -129,20 +129,10 @@ export async function syncList(
   return stats;
 }
 
-/**
- * Re-reads a single task. What a webhook triggers, since events carry only an id.
- *
- * Forced, because the `date_updated` guard inside `ingestTasks` is wrong here.
- * That guard exists to stop the nightly full resync from bumping `synced_at`
- * across every task and flooding SSE; a webhook is ClickUp naming one task and
- * saying it changed, which is the opposite situation. Unforced, any change that
- * leaves `date_updated` alone was delivered, re-read, and then silently dropped
- * on the floor — time tracked against a task is one such change, and it is the
- * one that made this visible.
- */
+/** Re-reads a single task. What a webhook triggers, since events carry only an id. */
 export async function syncTask(db: Db, client: ClickUpClient, taskId: string): Promise<void> {
   const task = await client.getTask(taskId);
-  await ingestTasks(db, [task], { force: true });
+  await ingestTasks(db, [task]);
 }
 
 /** Lists we have synced at least once. Nothing else is worth polling. */

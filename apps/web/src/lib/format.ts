@@ -12,6 +12,15 @@ export interface DueLabel {
   tone: "overdue" | "today" | "soon" | "normal";
 }
 
+/** The ink a due label is painted in, per tone. Shared so a row, a card and a
+ *  subtask cannot drift apart on what "overdue" looks like. */
+export const DUE_TONE: Record<DueLabel["tone"], string> = {
+  overdue: "text-urgent",
+  today: "text-high",
+  soon: "text-ink-2",
+  normal: "text-ink-3",
+};
+
 /** Short, calendar-aware due date. "Today" beats "Jun 24" at a glance. */
 export function formatDue(value: string | null, now = new Date()): DueLabel | null {
   if (!value) return null;
@@ -42,6 +51,28 @@ function shortDate(date: Date): string {
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
   });
+}
+
+/**
+ * A duration in the shape ClickUp writes one: "45m", "2h", "1h 30m".
+ *
+ * Two units at most, and no seconds. An estimate is set in hours and minutes
+ * and a tracked total is read to answer "roughly how long did that take" —
+ * neither question gets a better answer from "1h 30m 12s".
+ *
+ * Zero reads as nothing, not "0m": ClickUp sends 0 for every task nobody has
+ * ever tracked against, and a column of zeroes is noise pretending to be data.
+ */
+export function formatDuration(ms: number | null): string | null {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return null;
+
+  const minutes = Math.round(ms / 60_000);
+  if (minutes === 0) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
 export function formatRelative(value: string | null, now = new Date()): string {
@@ -78,30 +109,25 @@ export function formatBytes(bytes: number | null): string {
 }
 
 /**
- * A tracked interval, at the precision a timesheet is read in.
+ * A timer that is still going, `1:04:09`.
  *
- * `1:04:09` while something is running, because a live counter with no seconds
- * looks frozen; `1h 4m` once it has stopped, because that is the number people
- * copy into an invoice. Under a minute reads as `0m` rather than `0h 0m` — an
- * entry someone opened and closed by mistake should look like nothing, not like
- * a row of zeroes.
+ * Separate from `formatDuration` rather than a mode of it, because it answers a
+ * different question. A tracked total is read to settle "roughly how long did
+ * that take", where seconds are noise and nothing is worth saying as nothing. A
+ * running counter has to visibly move or it looks frozen, and it is never
+ * absent: zero seconds elapsed is `0:00`, not blank.
  */
-export function formatDuration(ms: number | null, style: "clock" | "short" = "short"): string {
-  if (ms == null || !Number.isFinite(ms) || ms < 0) return style === "clock" ? "0:00" : "0m";
+export function formatClock(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "0:00";
 
   const total = Math.floor(ms / 1000);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
 
-  if (style === "clock") {
-    const seconds = total % 60;
-    const mm = String(minutes).padStart(2, "0");
-    const ss = String(seconds).padStart(2, "0");
-    return hours > 0 ? `${hours}:${mm}:${ss}` : `${minutes}:${ss}`;
-  }
-
-  if (hours === 0) return `${minutes}m`;
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${minutes}:${ss}`;
 }
 
 /**

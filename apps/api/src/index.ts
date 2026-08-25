@@ -15,6 +15,7 @@ import {
   replaceListViews,
   syncCursors,
   tasks,
+  users,
   viewListId,
 } from "@rask/schema";
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
@@ -154,6 +155,27 @@ api.use("*", requireAuth);
 
 api.get("/me", (c) => c.json(c.get("user")));
 
+/**
+ * Marks the inbox read, up to now.
+ *
+ * One timestamp per user rather than a row per notification, because there are
+ * no notifications to have rows: the inbox is a query over `tasks.date_updated`
+ * and this is the only state it needs. Per-item read state would mean
+ * materialising an event per change — see docs/architecture.md on why the
+ * mirror stores state and not history.
+ *
+ * The instant comes from the server's clock, not the client's, so a browser
+ * with a fast clock cannot mark unread things it never saw.
+ */
+api.post("/inbox/seen", async (c) => {
+  const seenAt = new Date();
+  await db
+    .update(users)
+    .set({ inboxSeenAt: seenAt })
+    .where(eq(users.id, c.get("user").id));
+  return c.json({ inboxSeenAt: seenAt });
+});
+
 api.get("/hierarchy", async (c) => c.json(await getHierarchy(db)));
 
 api.get("/members", async (c) => c.json(await listMembers(db)));
@@ -236,6 +258,19 @@ const taskFilters = z.object({
    * `parseFilter` rejects a field it does not know rather than ignoring it.
    */
   filter: z.string().max(8000).optional(),
+  /**
+   * Epoch milliseconds. Only tasks ClickUp changed since then, newest first.
+   *
+   * The client sends its own instant rather than the server reading
+   * `inbox_seen_at` for it, because the inbox page and the unread badge ask for
+   * two different windows off the same route: the page shows a few days of
+   * history, the badge only what arrived since the last visit.
+   *
+   * Bounded by the largest instant a Date can hold. Past it `new Date(n)` is an
+   * Invalid Date, which reaches the driver and comes back as a 500 — and a
+   * malformed query parameter is the one thing a validated boundary owes a 400.
+   */
+  updatedSince: z.coerce.number().int().positive().max(8.64e15).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
 
@@ -265,6 +300,7 @@ api.get("/tasks", async (c) => {
     clauses,
     fieldIds: fieldIdsIn(clauses),
     includeClosed: f.closed === "1",
+    updatedSince: f.updatedSince ? new Date(f.updatedSince) : undefined,
     limit,
   });
 
@@ -992,7 +1028,7 @@ const THREADS_PER_REFRESH = 10;
 async function refreshTask(
   userId: string,
   taskId: string,
-  options: { comments?: boolean; force?: boolean } = {},
+  options: { comments?: boolean } = {},
 ): Promise<void> {
   try {
     if (isPlaceholder(taskId)) return;
@@ -1006,14 +1042,7 @@ async function refreshTask(
       // whose count moved, out of the uploader's own rate budget.
       options.comments === false ? null : refreshComments(client, taskId),
     ]);
-    /*
-     * `force` is for the caller that already knows something moved. Tracking
-     * time against a task need not touch its `date_updated`, and the guard
-     * inside `ingestTasks` skips rows on exactly that basis — so without it the
-     * timer stops, ClickUp records the interval, and the mirror keeps serving
-     * the old `time_spent` forever with nothing anywhere reporting a failure.
-     */
-    await ingestTasks(db, [task], { force: options.force });
+    await ingestTasks(db, [task]);
 
     // The change feed watches tasks.synced_at, which does not move when
     // ClickUp had nothing new. Push the refreshed detail directly so newly

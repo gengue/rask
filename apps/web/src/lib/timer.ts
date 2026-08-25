@@ -90,7 +90,9 @@ function announceStop(stopped: TimeEntry | null, fallback?: string): void {
   if (!stopped) return;
   pushToast({
     tone: "info",
-    title: `Stopped ${formatDuration(stopped.durationMs)}`,
+    // `formatDuration` says nothing for a total of zero, which is right in a
+    // column of subtasks and wrong in a toast: something did just stop.
+    title: `Stopped ${formatDuration(stopped.durationMs) ?? "<1m"}`,
     detail: stopped.taskName ?? fallback,
   });
 }

@@ -1,6 +1,6 @@
 {
-  "id": "58fd3d67-1969-4b9d-ab39-fab0723f304e",
-  "prevId": "dc5b65ae-e070-42a5-b729-05aaeb0145c4",
+  "id": "df435e92-f24d-41fa-a821-b383477fbf26",
+  "prevId": "58fd3d67-1969-4b9d-ab39-fab0723f304e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1782,6 +1782,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "inbox_seen_at": {
+          "name": "inbox_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         },
         "synced_at": {
           "name": "synced_at",

@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "inbox_seen_at" timestamp with time zone DEFAULT now() NOT NULL;

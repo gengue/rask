@@ -86,6 +86,24 @@ Each of these was dropped for a reason, and each has a way back in.
   answer `SELECT *` cost 30kB gzipped and a full array reconcile per change
   batch. `lib/live.ts` mirrors the collection into a keyed Solid store instead.
 - **OpenTelemetry.** Not wired. Half-instrumenting is worse than not starting.
+- **ClickUp's notification inbox.** The v2 spec has no endpoint for it — no
+  feed, no read state, nothing to mirror and nowhere to write ours back. Rask's
+  Inbox is a different thing wearing the same name: a query over the mirror for
+  your tasks that ClickUp changed since your last visit, with one
+  `users.inbox_seen_at` per person for where that was. Marking it read here
+  changes nothing in ClickUp, and clearing it there changes nothing here.
+
+  Its ceiling is the mirror's: state, not history. The Inbox can say *that* a
+  task changed and show what it looks like now — it cannot say what it changed
+  from, or who changed it, which is the half that would let a row read
+  "Ana moved this to Done". That needs an event per change, and the two places
+  one could come from both cost something. The webhook payload carries
+  `history_items` with the actor in it, deliberately ignored today for the
+  reasons in [webhooks.md](webhooks.md); a diff at ingest would catch the
+  polled changes too, but `ingestTasks` upserts in bulk and never reads the row
+  it is replacing, so it would mean a second SELECT on the hottest write path
+  in the system. Neither is hard. Both are more than a feed of "these eight
+  moved" is worth until somebody asks for the sentence.
 
 ## Measured against the real workspace
 

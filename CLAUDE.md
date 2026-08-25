@@ -133,14 +133,13 @@ don't reintroduce `useLiveQuery`.
   reads back fine through the ORM while `@>` silently matches nothing.
   `packages/schema/test/jsonb.test.ts` asserts `jsonb_typeof` and is the only thing
   that catches it.
-- **A webhook read-back forces the ingest.** `ingestTasks` skips rows whose
-  `date_updated` has not moved, which is right for the nightly resync and wrong
-  for one task ClickUp has just named. Time tracked against a task need not touch
-  `date_updated`, so unguarded the read-back arrives with the new `time_spent`
-  and the upsert throws it away — no error, just a total that never changes
-  again. `syncTask` forces, and `refreshTask` takes `force` for callers that
-  already know something moved. `packages/schema/test/repair.test.ts` pins both
-  halves.
+- **A correlated `sql` subquery has to name its outer table.** Drizzle writes a
+  bare `${tasks.id}` as `"id"` and only qualifies it when the outer query has a
+  join, so `assigneesJson` — which joins `users`, and `users` has an `id` —
+  silently rebound to `users.id` in every query without one. Every subtask row
+  read as Unassigned for as long as the panel existed. Write
+  `${tasks}.${sql.identifier("id")}`; `apps/api/test/subtasks.test.ts` is what
+  catches it.
 - **Never invent a ClickUp endpoint.** The v2 spec is vendored at
   `packages/clickup-client/openapi/clickup-v2.json`. Not in there means it does not
   exist.

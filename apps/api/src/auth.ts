@@ -24,6 +24,12 @@ export interface SessionUser {
   color: string | null;
   avatar: string | null;
   teamId: string;
+  /**
+   * When they last opened the inbox. Rides along on the session rather than
+   * having a route of its own: it is one column on a row this query already
+   * reads, and `/api/me` is fetched at boot anyway.
+   */
+  inboxSeenAt: Date;
 }
 
 export function hashSession(raw: string): string {
@@ -184,6 +190,7 @@ export async function currentUser(
       color: users.color,
       avatar: users.profilePicture,
       teamId: oauthTokens.teamId,
+      inboxSeenAt: users.inboxSeenAt,
       sessionId: sessions.id,
     })
     .from(sessions)

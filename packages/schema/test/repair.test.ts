@@ -176,6 +176,23 @@ describe("the skip guard, when nothing is being repaired", () => {
     expect((await stored())?.name).toBe("edited upstream");
   });
 
+  test("fills in a column that was added after the rows were", async () => {
+    // `time_spent` arrived on a mirror that already held every task. Nothing
+    // upstream moves `date_updated` to announce a column we invented, so a
+    // guard that only reads it would skip those rows forever and the number
+    // would stay blank until somebody edited the task for an unrelated reason.
+    // A full resync would not repair it either: it ignores the cursor, not
+    // this predicate.
+    await ingestTasks(db, [truth({ time_spent: null })]);
+    await backdate();
+    expect((await stored())?.timeSpent).toBeNull();
+
+    const result = await ingestTasks(db, [truth({ time_spent: 5_400_000 })]);
+
+    expect(result.changed).toBe(1);
+    expect((await stored())?.timeSpent).toBe(5_400_000);
+  });
+
   test("reports what it skipped as a cursor anyway", async () => {
     // `newestUpdate` is the next poll's `date_updated_gt`. It has to come from
     // the batch, not from the rows that happened to be written, or a page where
@@ -187,49 +204,5 @@ describe("the skip guard, when nothing is being repaired", () => {
 
     expect(result.changed).toBe(0);
     expect(result.newestUpdate).toEqual(CLICKUP_UPDATED);
-  });
-});
-
-/**
- * Tracking time against a task changes its total and nothing else.
- *
- * ClickUp is not obliged to bump `date_updated` for it, and the guard reads an
- * unchanged `date_updated` as "nothing to do". So the timer stops, ClickUp
- * records the interval, the read-back arrives carrying the new `time_spent` —
- * and the upsert throws it away. There is no error anywhere: the task detail
- * just keeps showing yesterday's total, forever.
- *
- * `syncTask` in the worker and `refreshTask` in the API both force for this
- * reason. These two tests are what says so.
- */
-describe("time tracked against a task", () => {
-  test("is dropped when the read-back is not forced", async () => {
-    await ingestTasks(db, [truth({ time_spent: 3_600_000 })]);
-
-    // Same date_updated: ClickUp did not consider the task itself edited.
-    const result = await ingestTasks(db, [truth({ time_spent: 7_200_000 })]);
-
-    expect(result.changed).toBe(0);
-    expect((await stored())?.timeSpent).toBe(3_600_000);
-  });
-
-  test("lands when it is", async () => {
-    await ingestTasks(db, [truth({ time_spent: 3_600_000 })]);
-    await backdate();
-
-    const result = await ingestTasks(db, [truth({ time_spent: 7_200_000 })], { force: true });
-
-    expect(result.changed).toBe(1);
-    expect((await stored())?.timeSpent).toBe(7_200_000);
-    // synced_at moved too, so the change feed pushes the new total to the tab
-    // that is looking at the task right now.
-    expect((await stored())?.syncedAt.getTime()).toBeGreaterThan(LONG_AGO.getTime());
-  });
-
-  test("a task nobody has tracked stores null, not zero", async () => {
-    // The difference is readable: "no time tracked" prints as nothing, and a
-    // stored 0 would print as `0m` on every task in the workspace.
-    await ingestTasks(db, [truth({ time_spent: null })]);
-    expect((await stored())?.timeSpent).toBeNull();
   });
 });

@@ -42,6 +42,23 @@ export function Menu(props: {
     if (props.anchor) queueMicrotask(() => input?.focus());
   });
 
+  /**
+   * Selects, and puts the caret back in the box.
+   *
+   * A click leaves focus on the item, and a menu that stays open after a
+   * selection rebuilds its rows — so the focused element is removed and focus
+   * falls back to the body. Every key after that reaches the shell instead of
+   * this popover, and the shell reads a stray Escape as "close the task": in
+   * the subtask column picker, ticking a column and then backing out took the
+   * whole detail panel with it.
+   */
+  const select = (id: string) => {
+    props.onSelect(id);
+    queueMicrotask(() => {
+      if (input?.isConnected) input.focus();
+    });
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     const items = filtered();
     if (event.key === "ArrowDown" || (event.key === "n" && event.ctrlKey)) {
@@ -53,7 +70,7 @@ export function Menu(props: {
     } else if (event.key === "Enter") {
       event.preventDefault();
       const item = items[active()];
-      if (item) props.onSelect(item.id);
+      if (item) select(item.id);
     } else if (event.key === "Escape") {
       event.preventDefault();
       props.onClose();
@@ -101,7 +118,7 @@ export function Menu(props: {
                 role="option"
                 aria-selected={active() === index()}
                 onMouseEnter={() => setActive(index())}
-                onClick={() => props.onSelect(item.id)}
+                onClick={() => select(item.id)}
                 class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-base"
                 classList={{
                   "row-selected text-ink": active() === index(),

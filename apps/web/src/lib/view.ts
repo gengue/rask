@@ -156,6 +156,37 @@ export const [viewMembership, setViewMembership] = createSignal<ReadonlySet<stri
 export const [searchScope, setSearchScope] = createSignal<"server" | "loaded">("server");
 
 /**
+ * Whether the panel is showing activity rather than a list of work.
+ *
+ * Only the inbox sets it, and it is one flag rather than three because the
+ * three things it turns off are one idea. A feed is chronological, so grouping
+ * would shuffle it back into buckets and lose the only order it has; it is
+ * about what happened, so "somebody finished your task" — a closed task — is
+ * the entry it most needs and the one the closed-tasks toggle drops; and it is
+ * a sequence, so there are no columns for a board to draw.
+ *
+ * None of those are the user's preferences to lose. `ui.groupBy` and
+ * `ui.layout` keep whatever they held and take effect again the moment you
+ * leave, which is why this overrides them rather than writing to them.
+ *
+ * Cleared by the route on unmount rather than reset by every other route, so a
+ * route added later cannot forget to turn it off.
+ */
+export const [viewIsFeed, setViewIsFeed] = createSignal(false);
+
+/**
+ * Whether a board is on screen — not whether the user prefers one.
+ *
+ * The distinction has to live somewhere shared, because the answer is read by
+ * the thing that renders the panel and by the keyboard that moves the cursor
+ * through it. Split across those two, a view that suppresses the board gets
+ * rows on screen and h/l walking columns that are not there.
+ */
+export function boardLayout(): boolean {
+  return ui.layout === "board" && !viewIsFeed();
+}
+
+/**
  * The clauses the browser evaluates, which is not always all of them.
  *
  * The text clause is the exception, and it is the one that has to be got right:
@@ -185,11 +216,11 @@ export const flatItems = globalMemo((prev: FlatItem[] = []) =>
       selectRows(viewTasks(), {
         clauses: localClauses(),
         member: viewMembership(),
-        showClosed: ui.showClosed,
+        showClosed: ui.showClosed || viewIsFeed(),
         named: namedStatuses(ui.filters),
         now: new Date(),
       }),
-      ui.groupBy,
+      viewIsFeed() ? "none" : ui.groupBy,
     ),
   ),
 );

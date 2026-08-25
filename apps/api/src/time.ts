@@ -36,11 +36,7 @@ export interface TimeDeps {
   db: Db;
   clientFor: (userId: string) => Promise<ClickUpClient | null>;
   pushTo: (userId: string, event: string, data: unknown) => void;
-  refreshTask: (
-    userId: string,
-    taskId: string,
-    options?: { comments?: boolean; force?: boolean },
-  ) => Promise<void>;
+  refreshTask: (userId: string, taskId: string, options?: { comments?: boolean }) => Promise<void>;
 }
 
 /** What the browser sees. `running` is resolved here so nothing downstream has
@@ -141,20 +137,18 @@ export function timeRoutes(deps: TimeDeps) {
   /**
    * Re-reads the tasks whose tracked total just moved.
    *
-   * Forced, because tracking time against a task need not touch its
-   * `date_updated`, and the guard inside `ingestTasks` skips rows on exactly
-   * that basis — unforced, the new total is read from ClickUp and thrown away.
+   * Not forced. The upsert guard in `ingestTasks` ORs `time_spent` in
+   * alongside `date_updated` precisely so a changed total lands on its own, and
+   * forcing on top of that would bump `synced_at` on rows nothing changed on —
+   * fanning each one out over every open SSE connection for nothing.
    *
-   * Without comments, for the reason the attachment upload gives: an interval
-   * says nothing about the conversation, and refreshing it costs a page of
-   * comments plus a request per thread whose count moved. That is a real bill
-   * against this person's own 100/min, and it would be charged on every press
-   * of `t`.
+   * Comments are skipped, for the reason the attachment upload gives: an
+   * interval says nothing about the conversation, and refreshing it costs a
+   * page of comments plus a request per thread whose count moved. That is a
+   * real bill against this person's own 100/min, charged on every press of `t`.
    */
   const repair = (userId: string, taskIds: Iterable<string>) =>
-    Promise.all(
-      [...taskIds].map((id) => refreshTask(userId, id, { force: true, comments: false })),
-    );
+    Promise.all([...taskIds].map((id) => refreshTask(userId, id, { comments: false })));
 
   /** Whether the mirror holds this task. Guards an id that arrived from a caller. */
   const mirrored = async (taskId: string): Promise<boolean> => {

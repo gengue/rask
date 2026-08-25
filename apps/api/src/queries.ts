@@ -34,7 +34,17 @@ export interface Assignee {
   avatar: string | null;
 }
 
-/** Correlated aggregate: one extra index scan per row, no N+1, no GROUP BY. */
+/**
+ * Correlated aggregate: one extra index scan per row, no N+1, no GROUP BY.
+ *
+ * The correlation is written `"tasks"."id"` and has to stay that way. Drizzle
+ * only qualifies a bare `${tasks.id}` when the outer query has a join, and this
+ * subquery joins `users` — which has an `id` of its own. Unqualified, the
+ * predicate silently rebinds to `users.id`, so `ta.task_id = u.id` matches
+ * nothing and every row comes back with no assignees at all. The task list
+ * happens to join `lists`, so it was right; the subtask list joins nothing and
+ * had drawn "Unassigned" next to every subtask since the panel shipped.
+ */
 const assigneesJson = sql<Assignee[]>`(
   select coalesce(
     json_agg(
@@ -51,7 +61,7 @@ const assigneesJson = sql<Assignee[]>`(
   )
   from ${taskAssignees} ta
   join ${users} u on u.id = ta.user_id
-  where ta.task_id = ${tasks.id}
+  where ta.task_id = ${tasks}.${sql.identifier("id")}
 )`;
 
 /**
@@ -140,6 +150,15 @@ export interface TaskFilters {
   includeClosed?: boolean;
   /** Only rows the mirror touched after this instant. Drives the SSE feed. */
   syncedAfter?: Date;
+  /**
+   * Only tasks ClickUp changed after this instant, newest change first. Drives
+   * the inbox.
+   *
+   * ClickUp's clock, not ours: `synced_at` says when we heard, which moves for
+   * a nightly resync that changed nothing and would read as activity that
+   * never happened. `date_updated` is the moment a person did something.
+   */
+  updatedSince?: Date;
   limit?: number;
 }
 
@@ -195,6 +214,8 @@ export async function listTasks(db: Db, filters: TaskFilters) {
     )`);
   }
 
+  if (filters.updatedSince) where.push(gt(tasks.dateUpdated, filters.updatedSince));
+
   where.push(...filterConditions(filters.clauses ?? []));
 
   return db
@@ -203,10 +224,23 @@ export async function listTasks(db: Db, filters: TaskFilters) {
     .leftJoin(lists, eq(lists.id, tasks.listId))
     .where(and(...where))
     .orderBy(
-      // Overdue and soon-due first, then newest activity. Nulls last so a task
-      // with no due date never outranks one that is actually due.
-      sql`${tasks.dueDate} asc nulls last`,
-      desc(tasks.dateUpdated),
+      /*
+       * The inbox asks a different question and needs a different order.
+       *
+       * Everywhere else "what should I do next" wins, so due date leads. The
+       * inbox asks "what happened", and there the answer is chronological —
+       * and it has to be, because the limit truncates: ordered by due date, a
+       * page of 500 would drop the most recent changes rather than the oldest
+       * ones, and the feed would silently miss exactly what it exists to show.
+       */
+      ...(filters.updatedSince
+        ? [desc(tasks.dateUpdated)]
+        : [
+            // Overdue and soon-due first, then newest activity. Nulls last so a
+            // task with no due date never outranks one that is actually due.
+            sql`${tasks.dueDate} asc nulls last`,
+            desc(tasks.dateUpdated),
+          ]),
     )
     .limit((filters.limit ?? 500) + 1);
 }
@@ -279,6 +313,9 @@ export interface TaskRef {
   statusColor: string | null;
   statusType: string | null;
   listId: string;
+  dueDate: Date | null;
+  timeEstimate: number | null;
+  timeSpent: number | null;
   assignees: Assignee[];
 }
 
@@ -290,11 +327,19 @@ const taskRefColumns = {
   statusColor: tasks.statusColor,
   statusType: tasks.statusType,
   listId: tasks.listId,
+  dueDate: tasks.dueDate,
+  timeEstimate: tasks.timeEstimate,
+  timeSpent: tasks.timeSpent,
   assignees: assigneesJson.as("assignees"),
 };
 
 /**
  * Enough of a task to render one line of it and link to it.
+ *
+ * Due date, estimate and tracked time ride along because the subtask list can
+ * be asked to show them. They are three scalars on a row the query was already
+ * reading, so which of them a reader wants stays the browser's business rather
+ * than a second endpoint or a second round trip.
  *
  * Deliberately not `getTaskDetail`: a parent with four subtasks would otherwise
  * fetch four descriptions, four comment threads and four checklists to draw

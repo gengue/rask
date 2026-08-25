@@ -121,6 +121,16 @@ export const users = pgTable("users", {
   profilePicture: text("profile_picture"),
   /** True once they have completed the OAuth flow at least once. */
   isRaskUser: boolean("is_rask_user").notNull().default(false),
+  /**
+   * When this user last opened the inbox. Everything ClickUp touched on their
+   * tasks after it counts as unread.
+   *
+   * Defaults to now rather than to null, on the column and on the backfill
+   * both, so nobody's first visit is 450 unread tasks from before the feature
+   * existed. Local knowledge — ClickUp has no notifications API to read a real
+   * read-state from, and no way to write ours back.
+   */
+  inboxSeenAt: ts("inbox_seen_at").notNull().defaultNow(),
   syncedAt: ts("synced_at").notNull().defaultNow(),
 });
 
@@ -307,11 +317,13 @@ export const tasks = pgTable(
     tags: jsonb<TaskTag[]>("tags").notNull().default(sql`'[]'::jsonb`),
     timeEstimate: bigint("time_estimate", { mode: "number" }),
     /**
-     * Milliseconds tracked against this task, by everyone.
+     * Milliseconds tracked against the task, as ClickUp totals them.
      *
-     * The only piece of time tracking the mirror holds. It costs nothing —
-     * every task payload already carries it — while the running timer and the
-     * individual entries are read from ClickUp live. See `apps/api/src/time.ts`.
+     * Read-only here, and the only piece of time tracking the mirror holds. It
+     * costs nothing to keep: every task payload already carries it. Rask does
+     * start and stop timers now, but never through this column — those writes
+     * go straight to ClickUp and come back in the next read of the task. See
+     * `apps/api/src/time.ts` for why none of the rest of it is mirrored.
      */
     timeSpent: bigint("time_spent", { mode: "number" }),
     points: real("points"),

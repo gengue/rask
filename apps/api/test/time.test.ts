@@ -33,6 +33,7 @@ const USER: SessionUser = {
   color: null,
   avatar: null,
   teamId: TEAM,
+  inboxSeenAt: new Date(0),
 };
 
 interface Call {
@@ -72,7 +73,7 @@ function stub(responses: Array<{ status?: number; body: unknown }>) {
 
 function mount(client: ClickUpClient | null) {
   const pushed: Array<{ event: string; data: unknown }> = [];
-  const refreshed: Array<{ taskId: string; force?: boolean; comments?: boolean }> = [];
+  const refreshed: Array<{ taskId: string; comments?: boolean }> = [];
 
   const app = new Hono<{ Variables: { user: SessionUser } }>();
   app.use("*", async (c, next) => {
@@ -86,7 +87,7 @@ function mount(client: ClickUpClient | null) {
       clientFor: async () => client,
       pushTo: (_userId, event, data) => pushed.push({ event, data }),
       refreshTask: async (_userId, taskId, options) => {
-        refreshed.push({ taskId, force: options?.force, comments: options?.comments });
+        refreshed.push({ taskId, comments: options?.comments });
       },
     }),
   );
@@ -189,7 +190,6 @@ describe("POST /timer", () => {
 
     // Both totals moved, and neither task's `date_updated` need have.
     expect(refreshed.map((r) => r.taskId).sort()).toEqual([TASK, OTHER_TASK].sort());
-    expect(refreshed.every((r) => r.force === true)).toBe(true);
     expect(pushed[0]?.event).toBe("timer");
   });
 
@@ -270,7 +270,7 @@ describe("POST /timer", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(refreshed).toEqual([{ taskId: TASK, force: true, comments: false }]);
+    expect(refreshed).toEqual([{ taskId: TASK, comments: false }]);
   });
 
   test("repairs the task it stopped even when the start then fails", async () => {
@@ -293,7 +293,7 @@ describe("POST /timer", () => {
     });
 
     expect(response.status).toBe(422);
-    expect(refreshed).toEqual([{ taskId: OTHER_TASK, force: true, comments: false }]);
+    expect(refreshed).toEqual([{ taskId: OTHER_TASK, comments: false }]);
     // And no timer is announced, because none is running.
     expect(pushed).toEqual([]);
   });
@@ -329,13 +329,13 @@ describe("DELETE /timer", () => {
     expect(pushed).toEqual([{ event: "timer", data: { entry: null } }]);
   });
 
-  test("forces the re-read of the task it stopped", async () => {
+  test("re-reads the task it stopped", async () => {
     const { client } = stub([{ body: { data: RUNNING } }, { body: { data: entry() } }]);
     const { app, refreshed } = mount(client);
 
     await app.request("/timer", { method: "DELETE" });
 
-    expect(refreshed).toEqual([{ taskId: TASK, force: true, comments: false }]);
+    expect(refreshed).toEqual([{ taskId: TASK, comments: false }]);
   });
 });
 
@@ -393,7 +393,7 @@ describe("GET /tasks/:id/time-entries", () => {
 });
 
 describe("PATCH /time-entries/:id", () => {
-  test("forces the re-read, because the total moved and date_updated may not have", async () => {
+  test("re-reads the task whose total just moved", async () => {
     const { client } = stub([{ body: { data: entry({ description: "drafting" }) } }]);
     const { app, refreshed } = mount(client);
 
@@ -404,7 +404,7 @@ describe("PATCH /time-entries/:id", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(refreshed).toEqual([{ taskId: TASK, force: true, comments: false }]);
+    expect(refreshed).toEqual([{ taskId: TASK, comments: false }]);
   });
 
   test("refuses an end that precedes its start", async () => {
@@ -447,7 +447,7 @@ describe("DELETE /time-entries/:id", () => {
 
     expect(response.status).toBe(200);
     expect(calls[0]?.method).toBe("DELETE");
-    expect(refreshed).toEqual([{ taskId: TASK, force: true, comments: false }]);
+    expect(refreshed).toEqual([{ taskId: TASK, comments: false }]);
   });
 
   test("ignores a task id the mirror has never held", async () => {

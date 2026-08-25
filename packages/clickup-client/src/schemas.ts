@@ -225,9 +225,7 @@ export const clickUpTask = z.looseObject({
     .union([z.string(), z.number()])
     .nullish()
     .transform((v) => (v == null ? null : Number(v))),
-  // Same union as `time_estimate`: ClickUp answers with a number here and a
-  // decimal string over in the time-entry endpoints, and one task payload
-  // typed either way is cheaper than finding out which by endpoint.
+  /** Tracked total, in ms. A string on some responses, which is why it is a union. */
   time_spent: z
     .union([z.string(), z.number()])
     .nullish()

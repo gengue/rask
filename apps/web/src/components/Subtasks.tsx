@@ -1,10 +1,13 @@
 import { isClosedType, isPlaceholder, placeholderId } from "@rask/clickup-client/vocabulary";
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TaskDetail, type TaskRef } from "../lib/api.ts";
+import { DUE_TONE, formatDue, formatDuration } from "../lib/format.ts";
 import { useNavigate } from "../lib/nav.tsx";
+import { SUBTASK_FIELDS, showsField, toggleSubtaskField } from "../lib/subtask-fields.ts";
 import { pushToast } from "../lib/toast.ts";
 import { AvatarStack } from "./Avatar.tsx";
 import { InlineInput } from "./Checklists.tsx";
+import { Menu } from "./Menu.tsx";
 import { StatusIcon } from "./StatusIcon.tsx";
 
 /**
@@ -24,6 +27,9 @@ import { StatusIcon } from "./StatusIcon.tsx";
  * all. Folding would make a task assigned to you disappear because a task
  * assigned to somebody else was missing.
  */
+
+/** Narrow: four labels and a tick, anchored to its right edge under the button. */
+const PICKER_WIDTH = 200;
 
 /** Navigates to a task, in its own list, with the detail panel open. */
 function useOpenTask(): (task: TaskRef) => void {
@@ -76,6 +82,7 @@ export function Subtasks(props: {
 }): JSX.Element {
   const open = useOpenTask();
   const [adding, setAdding] = createSignal(false);
+  const [picker, setPicker] = createSignal<{ x: number; y: number } | null>(null);
 
   const empty = () => props.task.subtasks.length === 0;
   const done = () => props.task.subtasks.filter((t) => isClosedType(t.statusType)).length;
@@ -118,18 +125,44 @@ export function Subtasks(props: {
        Checklists: a task with neither should not pay for both. */
     <section class="px-5" classList={{ "border-line/70 border-t py-4": !empty(), "pt-2": empty() }}>
       <Show when={!empty()}>
-        <h3 class="flex items-baseline gap-1.5 pb-2 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
-          Subtasks
-          <span class="tabular-nums lowercase">
-            {done()}/{props.task.subtasks.length}
-          </span>
-        </h3>
+        <div class="flex items-baseline justify-between pb-2">
+          <h3 class="flex items-baseline gap-1.5 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
+            Subtasks
+            <span class="tabular-nums lowercase">
+              {done()}/{props.task.subtasks.length}
+            </span>
+          </h3>
+          <button
+            type="button"
+            title="Choose what these rows show"
+            aria-label="Choose what these rows show"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setPicker({ x: rect.right - PICKER_WIDTH, y: rect.bottom + 6 });
+            }}
+            class="-mx-1 rounded-[5px] px-1 text-ink-4 text-xs leading-4 hover:bg-hover hover:text-ink-2"
+          >
+            &#8943;
+          </button>
+        </div>
       </Show>
 
       <ul>
         <For each={props.task.subtasks}>
           {(subtask) => {
             const pending = () => isPlaceholder(subtask.id);
+            /*
+             * A name alone says nothing about whose a subtask is or when it is
+             * wanted, which is what a parent is opened to find out. Which of
+             * these the row draws is the reader's call; each still hides when
+             * the task has no value for it, so choosing a column does not buy a
+             * line of blanks.
+             */
+            const due = () => (showsField("due") ? formatDue(subtask.dueDate) : null);
+            const estimate = () =>
+              showsField("estimate") ? formatDuration(subtask.timeEstimate) : null;
+            const tracked = () =>
+              showsField("tracked") ? formatDuration(subtask.timeSpent) : null;
             return (
               <li>
                 <button
@@ -154,9 +187,34 @@ export function Subtasks(props: {
                   >
                     {subtask.name}
                   </span>
-                  <span class="shrink-0">
-                    <AvatarStack users={subtask.assignees} max={2} />
-                  </span>
+                  <Show when={estimate()}>
+                    {(label) => (
+                      <span class="shrink-0 text-ink-3 text-xs tabular-nums" title="Estimate">
+                        {label()}
+                      </span>
+                    )}
+                  </Show>
+                  <Show when={tracked()}>
+                    {(label) => (
+                      <span class="shrink-0 text-ink-3 text-xs tabular-nums" title="Tracked">
+                        {/* Text presentation, or macOS draws a colour emoji
+                            twice the height of the line it sits on. */}
+                        &#9201;&#65038; {label()}
+                      </span>
+                    )}
+                  </Show>
+                  <Show when={due()}>
+                    {(label) => (
+                      <span class={`shrink-0 text-xs ${DUE_TONE[label().tone]}`}>
+                        {label().text}
+                      </span>
+                    )}
+                  </Show>
+                  <Show when={showsField("assignees")}>
+                    <span class="shrink-0">
+                      <AvatarStack users={subtask.assignees} max={2} />
+                    </span>
+                  </Show>
                 </button>
               </li>
             );
@@ -186,6 +244,29 @@ export function Subtasks(props: {
           />
         </Show>
       </div>
+
+      {/* The same popover the status and assignee menus use. Selecting toggles
+          and leaves it open, because picking two columns is one trip. */}
+      <Show when={picker()}>
+        {(anchor) => (
+          <Menu
+            anchor={anchor()}
+            width={PICKER_WIDTH}
+            placeholder="Show…"
+            items={SUBTASK_FIELDS.map((field) => ({
+              id: field.id,
+              label: field.label,
+              hint: showsField(field.id) ? "✓" : undefined,
+            }))}
+            onSelect={(id) => {
+              // The menu speaks in plain ids; only the four we put in it count.
+              const field = SUBTASK_FIELDS.find((candidate) => candidate.id === id);
+              if (field) toggleSubtaskField(field.id);
+            }}
+            onClose={() => setPicker(null)}
+          />
+        )}
+      </Show>
     </section>
   );
 }
@@ -206,6 +287,9 @@ function draft(name: string, parent: TaskDetail): TaskRef {
     statusColor: parent.statusColor,
     statusType: parent.statusType,
     listId: parent.listId,
+    dueDate: null,
+    timeEstimate: null,
+    timeSpent: null,
     assignees: [],
   };
 }

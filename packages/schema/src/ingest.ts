@@ -276,10 +276,23 @@ export async function ingestTasks(
          * it. Guarded, the read-back would restore assignees and checklists —
          * those are replaced unconditionally below — while leaving status, name
          * and due date optimistic forever. Half-repaired is worse than either.
+         *
+         * `time_spent` is ORed in because it was added to a mirror that already
+         * held every row, and a column added after the fact is null on all of
+         * them. Nothing upstream moves `date_updated` to announce a column we
+         * invented, so the guard would skip those rows forever — a full resync
+         * included, since that ignores the cursor and not this predicate.
+         *
+         * It fires once per row and then never again: adding a time entry does
+         * bump ClickUp's `date_updated` (checked against the workspace — the
+         * entry's `date_added` and the task's `date_updated` agree to the
+         * millisecond), so from the backfill onwards the first clause is
+         * already true whenever this one would be.
          */
         setWhere: context.force
           ? undefined
-          : sql`${tasks.dateUpdated} IS DISTINCT FROM excluded.date_updated`,
+          : sql`${tasks.dateUpdated} IS DISTINCT FROM excluded.date_updated
+              or ${tasks.timeSpent} IS DISTINCT FROM excluded.time_spent`,
       })
       .returning({ id: tasks.id });
 
