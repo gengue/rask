@@ -19,12 +19,7 @@ import { Avatar } from "./Avatar.tsx";
  * from anyone but the entry's author would take the ability away from the
  * admins who do have it. ClickUp decides, and says so through a toast.
  */
-export function TimeEntries(props: {
-  taskId: string;
-  taskName: string;
-  /** ClickUp's own total for the task, from the mirror. See `total` below. */
-  timeSpent: number | null;
-}): JSX.Element {
+export function TimeEntries(props: { taskId: string }): JSX.Element {
   const [entries, { refetch, mutate }] = createResource(
     () => props.taskId,
     (id) => api.timeEntries(id).then((r) => r.entries),
@@ -44,22 +39,6 @@ export function TimeEntries(props: {
   const failed = () => entries.state === "errored";
 
   /*
-   * ClickUp's own total, not the sum of the rows below it.
-   *
-   * The two can disagree, and when they do the mirrored one is right: the list
-   * can only show entries belonging to somebody in the `users` table, so a
-   * deactivated member's hours are missing from the sum and present in
-   * `time_spent`. Summing would quietly under-report a task somebody left.
-   *
-   * It falls back to the sum for a task the mirror has not carried a total for
-   * yet — one read old, rather than blank.
-   */
-  const total = () =>
-    props.timeSpent ?? rows().reduce((ms, entry) => ms + (entry.durationMs ?? 0), 0);
-
-  const live = () => (isTracking(props.taskId) ? elapsed() : null);
-
-  /*
    * A stopped timer leaves an interval this list does not have.
    *
    * Watching the transition rather than refetching after our own toggle,
@@ -73,8 +52,6 @@ export function TimeEntries(props: {
     if (wasTracking && !tracking) void refetch();
     wasTracking = tracking;
   });
-
-  const toggle = () => toggleTimer({ id: props.taskId, name: props.taskName });
 
   const remove = async (entry: TimeEntry) => {
     // Optimistic: the row is gone from ClickUp by the time the refetch lands,
@@ -119,25 +96,15 @@ export function TimeEntries(props: {
 
   return (
     <section class="border-line/70 border-t px-5 py-4">
+      {/* "Time entries", not "Time": the total and the start button are up in
+          the property rail, and two sections of one panel answering to the same
+          word is how you end up reading both to find out which is which. The
+          count follows `Attachments`. */}
       <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
-        Time
-        <Show when={total() > 0}>
-          <span class="tabular-nums lowercase">{formatDuration(total())}</span>
+        Time entries
+        <Show when={rows().length > 0}>
+          <span class="tabular-nums lowercase">{rows().length}</span>
         </Show>
-        <div class="flex-1" />
-        <button
-          type="button"
-          onClick={() => void toggle()}
-          class="rounded-[4px] px-1.5 py-0.5 font-medium text-xs normal-case tracking-normal hover:bg-hover"
-          classList={{
-            "text-high hover:text-high": isTracking(props.taskId),
-            "text-ink-3 hover:text-ink": !isTracking(props.taskId),
-          }}
-        >
-          <Show when={isTracking(props.taskId)} fallback="Start  t">
-            Stop {formatClock(live())}
-          </Show>
-        </button>
       </h3>
 
       <Show
@@ -309,22 +276,27 @@ function Editor(props: {
 /**
  * The running timer, wherever the user is.
  *
- * Lives above the sidebar footer rather than in it: this needs a task name, a
- * counter and a stop button, and the footer is a fixed 44px already carrying an
- * avatar, a name, two buttons and the connection dot. A timer nobody can see
- * from the view they wandered off to is a timer that runs all night.
+ * Rendered by the shell, not by the sidebar it used to live in. The sidebar is
+ * a drawer below `dock` and a task expanded with `f` hides the main panel's
+ * header, so both of the places this could sit in the layout disappear under
+ * conditions somebody has a timer running in. A timer you cannot see is a timer
+ * that runs all night, and the whole point of this is to be able to stop one
+ * without navigating back to the task.
+ *
+ * Bottom right: the toasts already own bottom left, and a running timer is the
+ * one thing on screen that has to outlast them.
  */
 export function RunningTimer(props: { onOpen: (taskId: string) => void }): JSX.Element {
   return (
     <Show when={running()}>
       {(entry) => (
-        <div class="flex h-9 items-center gap-2 border-line/70 border-t px-3">
+        <div class="floating fixed right-4 bottom-4 z-50 flex h-9 max-w-[280px] items-center gap-2 rounded-lg pr-1.5 pl-3">
           <span class="size-1.5 shrink-0 animate-pulse rounded-full bg-high" />
           <button
             type="button"
             onClick={() => entry().taskId && props.onOpen(entry().taskId ?? "")}
             disabled={!entry().taskId}
-            class="flex-1 truncate text-left text-ink-2 text-xs hover:text-ink disabled:hover:text-ink-2"
+            class="min-w-0 flex-1 truncate text-left text-ink-2 text-xs hover:text-ink disabled:hover:text-ink-2"
             title={entry().taskName ?? undefined}
           >
             {entry().taskName ?? "Tracking"}
@@ -337,13 +309,94 @@ export function RunningTimer(props: { onOpen: (taskId: string) => void }): JSX.E
             /* `stopTimer`, not the toggle: ClickUp allows an entry with no task,
                and a toggle keyed on a null id reads as "not tracking this". */
             onClick={() => void stopTimer()}
-            aria-label="Stop the timer"
-            class="shrink-0 rounded-[4px] px-1 py-0.5 text-ink-4 text-xs hover:bg-hover hover:text-ink"
+            aria-label="Stop the running timer"
+            class="shrink-0 rounded-[5px] px-1.5 py-1 text-ink-3 text-xs hover:bg-hover hover:text-ink"
           >
             Stop
           </button>
         </div>
       )}
     </Show>
+  );
+}
+
+/**
+ * Start and stop, in the property rail at the top of a task.
+ *
+ * The entry log further down is a record you go looking for; starting a timer
+ * is something you do on the way past, so it belongs with status and priority
+ * rather than below the subtasks. The row doubles as the readout: the tracked
+ * total when nothing is running, the live counter when something is.
+ */
+export function TimeControl(props: {
+  taskId: string;
+  taskName: string;
+  /**
+   * ClickUp's own total, not the sum of the entries listed further down.
+   *
+   * The two can disagree, and when they do this one is right: that list only
+   * shows entries belonging to somebody in the `users` table, so a deactivated
+   * member's hours are missing from a sum and present here.
+   */
+  timeSpent: number | null;
+}): JSX.Element {
+  const tracking = () => isTracking(props.taskId);
+
+  return (
+    <button
+      type="button"
+      onClick={() => void toggleTimer({ id: props.taskId, name: props.taskName })}
+      /* Distinct from the floating pill's "Stop the running timer". Two
+         controls doing the same thing may share a page; two controls answering
+         to the same name may not. */
+      aria-label={tracking() ? "Stop tracking this task" : "Start tracking this task"}
+      class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
+    >
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle
+          cx="8"
+          cy="8"
+          r="6.1"
+          stroke="currentColor"
+          stroke-width="1.4"
+          class={tracking() ? "text-high" : "text-ink-4"}
+        />
+        <Show
+          when={tracking()}
+          fallback={
+            <path
+              d="M8 4.6V8l2.4 1.6"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              class="text-ink-4"
+            />
+          }
+        >
+          <rect
+            x="5.9"
+            y="5.9"
+            width="4.2"
+            height="4.2"
+            rx="0.8"
+            fill="currentColor"
+            class="text-high"
+          />
+        </Show>
+      </svg>
+
+      <Show
+        when={tracking()}
+        fallback={
+          <span class="text-base text-ink-2" classList={{ "text-ink-4": !props.timeSpent }}>
+            {formatDuration(props.timeSpent) ?? "None"}
+          </span>
+        }
+      >
+        <span class="text-base text-high tabular-nums">{formatClock(elapsed())}</span>
+      </Show>
+
+      <span class="ml-auto shrink-0 text-ink-4 text-xs">{tracking() ? "Stop" : "Start  t"}</span>
+    </button>
   );
 }

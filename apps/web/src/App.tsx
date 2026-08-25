@@ -14,6 +14,7 @@ import { Shortcuts } from "./components/Shortcuts.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusIcon } from "./components/StatusIcon.tsx";
 import { TaskDetail } from "./components/TaskDetail.tsx";
+import { RunningTimer } from "./components/Time.tsx";
 import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
@@ -561,12 +562,6 @@ export function AppShell(): JSX.Element {
             queueMicrotask(() => searchInput?.focus());
           }}
           onQuickAdd={() => setUi("quickAdd", true)}
-          onOpenTask={(taskId) =>
-            navigate({
-              to: ".",
-              search: (prev: Record<string, unknown>) => ({ ...prev, task: taskId }),
-            })
-          }
         />
 
         <Show when={ui.sidebarOpen}>
@@ -756,6 +751,19 @@ export function AppShell(): JSX.Element {
             onClose={() => setUi("quickAdd", false)}
           />
         </Show>
+
+        {/* Outside the sidebar and outside the main panel, because both of
+            them disappear: the sidebar is a drawer below `dock`, and `f` hides
+            the panel's header. A timer nobody can see is one that runs all
+            night. */}
+        <RunningTimer
+          onOpen={(taskId) =>
+            navigate({
+              to: ".",
+              search: (prev: Record<string, unknown>) => ({ ...prev, task: taskId }),
+            })
+          }
+        />
 
         <Toasts />
 
