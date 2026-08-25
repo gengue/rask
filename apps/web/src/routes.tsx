@@ -35,12 +35,13 @@ import {
   loadListViews,
 } from "./lib/clickup-views.ts";
 import {
-  byRecency,
   inboxCutoff,
   inboxPredicate,
   inboxScope,
   inboxSeenAt,
+  inFeedOrder,
   loadInbox,
+  resetFeedOrder,
 } from "./lib/inbox.ts";
 import { useLiveTasks } from "./lib/live.ts";
 import { listName, me } from "./lib/session.ts";
@@ -243,7 +244,10 @@ function InboxView(): JSX.Element {
     else void loadInbox(since).then(applyPage(""));
   });
 
-  onCleanup(() => setViewIsFeed(false));
+  onCleanup(() => {
+    setViewIsFeed(false);
+    resetFeedOrder();
+  });
 
   const rows = useLiveTasks(
     createMemo(() => {
@@ -264,10 +268,13 @@ function InboxView(): JSX.Element {
     }),
   );
 
-  // Sorted here rather than in the predicate because `useLiveTasks` filters an
-  // unordered map. The server sent them newest-first; SSE arrivals have to be
-  // put back in that order as they land.
-  createEffect(() => setViewTasks([...rows()].sort(byRecency)));
+  /*
+   * Sorted here rather than in the predicate, because `useLiveTasks` filters an
+   * unordered map — and sorted into the order the feed is *holding* rather than
+   * by recency, which is what stops a row sliding out from under the pointer
+   * every time somebody touches its task. `inFeedOrder` has the reasoning.
+   */
+  createEffect(() => setViewTasks(inFeedOrder(rows())));
 
   return <ListBody listId={null} activeViewId={null} />;
 }

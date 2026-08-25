@@ -226,9 +226,73 @@ export function isRowUnread(task: Task): boolean {
  */
 export const [inboxTruncated, setInboxTruncated] = createSignal(false);
 
-/** Newest change first. A feed is read in the order things happened. */
-export function byRecency(a: Task, b: Task): number {
-  return Date.parse(b.dateUpdated ?? "") - Date.parse(a.dateUpdated ?? "");
+/**
+ * When the feed last had something to say about this task.
+ *
+ * The conversation's clock where there is one, the task's otherwise. A mention
+ * on a task nobody has touched in a fortnight belongs at the top of the feed on
+ * the strength of the mention, not at the bottom on the strength of the task.
+ */
+export function entryAt(task: Task, reason: InboxReason | undefined): number {
+  const at = reason?.latestAt ?? reason?.at ?? task.dateUpdated;
+  return at ? Date.parse(at) : 0;
+}
+
+/** Newest first, by what the feed is about. Takes the reasons explicitly so it
+ *  stays a pure function of its arguments. */
+export function byEntryTime(said: ReadonlyMap<string, InboxReason>) {
+  return (a: Task, b: Task) => entryAt(b, said.get(b.id)) - entryAt(a, said.get(a.id));
+}
+
+/**
+ * The order the feed is holding, by task id.
+ *
+ * Chronological when it is built, and then frozen. That second half is the
+ * point: `date_updated` moves for anything that touches a task — a status
+ * change, a comment, ClickUp recording a minute of tracked time — and a list
+ * that re-sorted on every one of those would slide a row out from under the
+ * pointer that was about to click it. Worse, the window renders through an
+ * `<Index>` keyed by position, so one row moving to the top rebuilds every row
+ * above where it was: measured at 41 nodes on a 12-row screen, which is the
+ * whole page flickering because somebody pressed start on a timer.
+ *
+ * Not a signal. Only the effect that builds the row list reads or writes it,
+ * and that effect already re-runs on the rows themselves.
+ */
+let feedOrder = new Map<string, number>();
+/** Ranks count down, so anything arriving later sorts above what is placed. */
+let feedTop = 0;
+
+/** Forgets the order. The feed re-seeds on its next load, so holding ranks for
+ *  a page nobody is looking at is only a way to be wrong about it later. */
+export function resetFeedOrder(): void {
+  feedOrder = new Map();
+  feedTop = 0;
+}
+
+/** Lays out the window the server just sent. The order everything else keeps. */
+function seedFeedOrder(tasks: Task[], said: ReadonlyMap<string, InboxReason>): void {
+  resetFeedOrder();
+  for (const task of [...tasks].sort(byEntryTime(said))) feedOrder.set(task.id, feedTop++);
+}
+
+/**
+ * Sorts rows into the order the feed is holding.
+ *
+ * A row nobody has placed yet arrived while you were reading — over SSE, or
+ * because you switched scope — and goes on top, newest of them first. It keeps
+ * that place until the next load, so the feed grows upwards instead of
+ * reshuffling.
+ */
+export function inFeedOrder(rows: Task[]): Task[] {
+  const said = reasons();
+  const arrived = rows.filter((task) => !feedOrder.has(task.id)).sort(byEntryTime(said));
+  // Backwards, so the newest arrival ends up with the smallest rank.
+  for (let i = arrived.length - 1; i >= 0; i--) {
+    const task = arrived[i];
+    if (task) feedOrder.set(task.id, --feedTop);
+  }
+  return [...rows].sort((a, b) => (feedOrder.get(a.id) ?? 0) - (feedOrder.get(b.id) ?? 0));
 }
 
 /**
@@ -245,19 +309,26 @@ export function byRecency(a: Task, b: Task): number {
 export async function loadInbox(since = inboxCutoff()): Promise<TaskPageResult | null> {
   let latest: InboxReason[] = [];
   let dismissed: InboxRead[] = [];
+  let window: Task[] = [];
 
   const page = await loadPage("Could not load the inbox", async () => {
     const answer = await api.inbox(since);
     latest = answer.reasons;
     dismissed = answer.reads;
+    window = answer.tasks;
     return answer;
   });
 
   // Null means a newer load superseded this one, and its reasons are the stale
   // half of the same answer. Leave both to whichever load lands last.
   if (page) {
-    setReasons(new Map(latest.map((reason) => [reason.taskId, reason])));
+    const said = new Map(latest.map((reason) => [reason.taskId, reason]));
+    setReasons(said);
     setReads(new Map(dismissed.map((read) => [read.taskId, read.readAt])));
+    // Seeded from every task the window carried, not from the ones currently on
+    // screen: switching to the other scope brings back rows that were filtered
+    // out, and they belong where they were rather than on top as arrivals.
+    seedFeedOrder(window, said);
     setInboxTruncated(page.truncated);
   }
   return page;

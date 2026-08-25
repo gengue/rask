@@ -95,6 +95,70 @@ test("editing one task leaves the other list rows' DOM alone", async ({ page }) 
   expect(churn.removed).toBeLessThanOrEqual(REMOVAL_BUDGET);
 });
 
+/**
+ * The feed is chronological, and that used to mean it re-sorted live.
+ *
+ * `date_updated` moves for anything that touches a task — a status change, a
+ * comment, ClickUp recording a minute of tracked time — so a row well down the
+ * inbox would jump to the top and the `<Index>` keyed by position would rebuild
+ * every row above where it had been. Measured at 41 removed nodes on a 12-row
+ * screen, which is what "the whole page blinks when I press start" turned out
+ * to be. The order is seeded on load and held after it; new arrivals go on top.
+ */
+test("a task changing does not re-sort the inbox under the reader", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await page.goto("/inbox");
+  // The window scope, because `inbox.spec.ts` runs first against the same
+  // database and clears the unread ones. What this measures is the order, not
+  // whether the rows are new.
+  await page.getByRole("button", { name: "Unread", exact: true }).click();
+
+  const list = page.getByRole("listbox", { name: "Tasks" });
+  await expect(list.getByRole("option").first()).toBeVisible();
+
+  const churn = await page.evaluate(async () => {
+    const main = document.querySelector("main");
+    // Well down the list, so a jump to the top would move everything above it.
+    const rows = [...(main?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])];
+    const target = rows[Math.min(6, rows.length - 1)];
+    const id = target?.id.replace("task-", "");
+    if (!main || !id) throw new Error("no inbox row on screen");
+
+    const storePath = "/src/lib/store.ts";
+    const store = (await import(storePath)) as typeof import("../src/lib/store.ts");
+    const current = store.tasks.get(id);
+    if (!current) throw new Error(`row ${id} not in the collection`);
+
+    let removed = 0;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) removed += mutation.removedNodes.length;
+    });
+    observer.observe(main, { childList: true, subtree: true });
+
+    const before = rows.map((row) => row.id);
+    store.merge([{ ...current, dateUpdated: new Date().toISOString() }]);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    for (const mutation of observer.takeRecords()) removed += mutation.removedNodes.length;
+    observer.disconnect();
+
+    return {
+      removed,
+      rows: before.length,
+      order: JSON.stringify(
+        [...main.querySelectorAll<HTMLElement>('[role="option"]')].map((row) => row.id),
+      ),
+      wasOrder: JSON.stringify(before),
+    };
+  });
+  console.log(`[render-stability] inbox: ${JSON.stringify({ ...churn, order: undefined })}`);
+
+  expect(churn.rows).toBeGreaterThan(5);
+  // Nothing moved, so nothing above it had to be rebuilt.
+  expect(churn.order).toBe(churn.wasOrder);
+  expect(churn.removed).toBeLessThanOrEqual(REMOVAL_BUDGET);
+});
+
 test("editing one task leaves the other board cards' DOM alone", async ({ page }) => {
   await page.goto("/__dev-login");
   await page.goto("/list/L1");

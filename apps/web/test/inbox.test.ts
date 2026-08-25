@@ -1,12 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { InboxReason, Task } from "../src/lib/api.ts";
 import {
-  byRecency,
+  byEntryTime,
   cutoffFrom,
   INBOX_WINDOW_DAYS,
   inboxPredicate,
+  inFeedOrder,
   isUnread,
   markFor,
+  resetFeedOrder,
   setReads,
   setReasons,
 } from "../src/lib/inbox.ts";
@@ -263,7 +265,9 @@ describe("isUnread", () => {
   });
 });
 
-describe("byRecency", () => {
+describe("byEntryTime", () => {
+  const none = new Map<string, InboxReason>();
+
   test("sorts newest change first", () => {
     const rows = [
       task({ id: "old", dateUpdated: ago(5) }),
@@ -271,7 +275,94 @@ describe("byRecency", () => {
       task({ id: "middle", dateUpdated: ago(3) }),
     ];
 
-    expect([...rows].sort(byRecency).map((row) => row.id)).toEqual(["new", "middle", "old"]);
+    expect([...rows].sort(byEntryTime(none)).map((row) => row.id)).toEqual([
+      "new",
+      "middle",
+      "old",
+    ]);
+  });
+
+  test("puts a fresh mention above a task that merely changed more recently", () => {
+    /*
+     * A mention lands on a task nobody has touched in a fortnight. It belongs
+     * at the top on the strength of the mention, not at the bottom on the
+     * strength of the task — sorting by `date_updated` alone buries exactly the
+     * row somebody was addressed in.
+     */
+    const said = new Map<string, InboxReason>([
+      [
+        "mentioned",
+        {
+          taskId: "mentioned",
+          commentId: "c1",
+          kind: "mention",
+          authorId: BEN,
+          authorName: "ben",
+          authorAvatar: null,
+          excerpt: "have a look",
+          at: ago(0.5),
+          latestAt: ago(0.5),
+        },
+      ],
+    ]);
+    const rows = [
+      task({ id: "touched", dateUpdated: ago(1) }),
+      task({ id: "mentioned", dateUpdated: ago(14) }),
+    ];
+
+    expect([...rows].sort(byEntryTime(said)).map((row) => row.id)).toEqual([
+      "mentioned",
+      "touched",
+    ]);
+  });
+});
+
+describe("inFeedOrder", () => {
+  // The order is module state on purpose — only the effect that builds the row
+  // list touches it — so each test here starts from an empty feed rather than
+  // from whatever the one above it placed.
+  beforeEach(() => resetFeedOrder());
+  afterEach(() => setReasons(new Map()));
+
+  test("keeps a row where it was when its task changes underneath it", () => {
+    /*
+     * The blink. `date_updated` moves for anything that touches a task — a
+     * status change, a comment, ClickUp recording a minute of tracked time —
+     * and the window renders through an `<Index>` keyed by position, so one row
+     * jumping to the top rebuilds every row above where it was. Measured at 41
+     * removed nodes on a 12-row screen: the whole page, because somebody
+     * pressed start on a timer.
+     */
+    const rows = [
+      task({ id: "a", dateUpdated: ago(1) }),
+      task({ id: "b", dateUpdated: ago(2) }),
+      task({ id: "c", dateUpdated: ago(3) }),
+    ];
+    expect(inFeedOrder(rows).map((row) => row.id)).toEqual(["a", "b", "c"]);
+
+    const poked = rows.map((row) => (row.id === "c" ? task({ ...row, dateUpdated: ago(0) }) : row));
+    expect(inFeedOrder(poked).map((row) => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("puts a row nobody has placed on top", () => {
+    // An SSE arrival while you are reading. The feed grows upwards; it does not
+    // reshuffle to make room.
+    inFeedOrder([task({ id: "a", dateUpdated: ago(2) })]);
+
+    const withArrival = [
+      task({ id: "a", dateUpdated: ago(2) }),
+      task({ id: "fresh", dateUpdated: ago(0) }),
+    ];
+    expect(inFeedOrder(withArrival).map((row) => row.id)).toEqual(["fresh", "a"]);
+  });
+
+  test("orders several arrivals among themselves, newest first", () => {
+    const rows = [
+      task({ id: "older", dateUpdated: ago(2) }),
+      task({ id: "newer", dateUpdated: ago(1) }),
+    ];
+
+    expect(inFeedOrder(rows).map((row) => row.id)).toEqual(["newer", "older"]);
   });
 });
 

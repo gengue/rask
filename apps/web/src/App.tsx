@@ -97,18 +97,17 @@ export function AppShell(): JSX.Element {
      */
     void loadSession()
       /*
-       * Both chained rather than fired alongside, and for the same reason:
-       * each needs a live session, and on the sign-in page they would only
-       * spend a request to be told what `loadSession` is already finding out.
+       * After the session and alongside each other.
        *
-       * The inbox goes first because it has to land before the route loads
-       * anything, whichever route that is — the sidebar's unread count is a
-       * query over the shared collection, so the rows it counts have to be in
-       * there even when you opened a list. The timer read has nobody waiting
-       * on it, so it goes last.
+       * Both need a live session — on the sign-in page they would only spend a
+       * request to be told what `loadSession` is already finding out — and
+       * neither needs the other. Chained, they were: the timer read waited on
+       * the whole inbox window, so the running-timer band took as long to
+       * appear as a workspace's worth of activity took to come back. On a big
+       * one that is the difference between a band that is there when you look
+       * and a band that arrives after you have stopped looking.
        */
-      .then(() => loadInbox())
-      .then(() => hydrateTimer())
+      .then(() => Promise.all([loadInbox(), hydrateTimer()]))
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) return;
         pushToast({
