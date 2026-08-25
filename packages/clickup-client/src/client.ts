@@ -473,6 +473,16 @@ export class ClickUpClient {
     return this.request(clickUpTask, "PUT", `/v2/task/${taskId}`, { body: patch });
   }
 
+  /**
+   * Deletes a task. ClickUp answers with an empty body.
+   *
+   * Reversible only from ClickUp's own Trash, which this app does not read, so
+   * the caller is the last place a person can be asked whether they meant it.
+   */
+  async deleteTask(taskId: string): Promise<void> {
+    await this.request(z.unknown(), "DELETE", `/v2/task/${taskId}`);
+  }
+
   /** Custom Field values have their own endpoint; `updateTask` ignores them. */
   async setCustomFieldValue(taskId: string, fieldId: string, value: unknown): Promise<void> {
     await this.request(z.unknown(), "POST", `/v2/task/${taskId}/field/${fieldId}`, {

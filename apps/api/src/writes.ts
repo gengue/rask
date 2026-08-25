@@ -38,6 +38,14 @@ export const taskPatchInput = z.object({
   priority: z.number().int().min(1).max(4).nullable().optional(),
   dueDate: z.number().int().nullable().optional(),
   assignees: z.array(z.string()).optional(),
+  /**
+   * Archiving, which is a field on the task rather than an endpoint of its own.
+   *
+   * Nothing in Rask reads archived tasks back — every query but the change feed
+   * filters `archived = false` — so from here it looks like a delete that
+   * ClickUp can undo. That asymmetry is the whole reason to offer both.
+   */
+  archived: z.boolean().optional(),
 });
 export type TaskPatchInput = z.infer<typeof taskPatchInput>;
 
@@ -93,6 +101,7 @@ export async function applyTaskPatch(
     if (patch.dueDate !== undefined) {
       local.dueDate = patch.dueDate === null ? null : new Date(patch.dueDate);
     }
+    if (patch.archived !== undefined) local.archived = patch.archived;
 
     await tx.update(tasks).set(local).where(eq(tasks.id, taskId));
 
@@ -179,6 +188,87 @@ export async function createTask(
   });
 
   return id;
+}
+
+/**
+ * Deletes a task and everything nested under it.
+ *
+ * The row is marked rather than dropped, the way a webhook-driven deletion is:
+ * the change feed is what tells open browsers to forget the task, and it reads
+ * rows, so a deleted task has to still be readable for one more tick.
+ *
+ * Subtasks go with it because ClickUp takes them too, and the mirror would
+ * otherwise show orphans pointing at a parent nobody can open until the nightly
+ * reconcile noticed. The recursive term is what makes that the whole subtree
+ * rather than one level; ClickUp nests deeper than that. If this bet is ever
+ * wrong and a subtask survives upstream, the next poll re-ingests it — ingest
+ * clears `deleted_at` — so the failure mode is a row that comes back, not one
+ * that is lost.
+ *
+ * `returning` is the idempotence: the update only sees rows that are still
+ * alive, so a second delete of the same task matches nothing and queues
+ * nothing. Without it, two clicks sent ClickUp a second DELETE, and that one
+ * 404s and reports as a failed write to somebody whose delete worked.
+ *
+ * Answers null when there was nothing left to delete, and otherwise the task's
+ * parent — which the caller needs because a parent's open detail panel carries
+ * its subtasks as a list of its own, and nothing in the change feed can repair
+ * a row that has just left it.
+ */
+/**
+ * How far down the subtree walk will go before it stops.
+ *
+ * ClickUp's own UI nests subtasks seven deep, so this is not a limit anybody
+ * reaches. It is there because `parent_id` has no foreign key and is written
+ * from whatever ClickUp last said about each task *separately* — so two
+ * webhook deliveries landing around a re-parent can leave the mirror briefly
+ * holding a cycle ClickUp itself never had. Unbounded, this recursion would
+ * then run forever inside an open transaction, holding row locks, in the API's
+ * request path.
+ *
+ * ponytail: a depth counter rather than Postgres 14's `CYCLE` clause, which
+ * says the same thing in more SQL and pins a server version. Swap it in the day
+ * the real tree gets deep enough that a bound is a guess.
+ */
+const MAX_SUBTASK_DEPTH = 20;
+
+export async function deleteTask(
+  db: Db,
+  input: { taskId: string; userId: string },
+): Promise<{ parentId: string | null } | null> {
+  const { taskId, userId } = input;
+
+  return await db.transaction(async (tx) => {
+    const now = new Date();
+    const gone = await tx
+      .update(tasks)
+      .set({ deletedAt: now, syncedAt: now })
+      .where(
+        sql`${tasks}.${sql.identifier("id")} in (
+          with recursive doomed as (
+            select t.id, 0 as depth from ${tasks} t
+            where t.id = ${taskId} and t.deleted_at is null
+            union all
+            select child.id, d.depth + 1 from ${tasks} child
+            join doomed d on child.parent_id = d.id
+            where child.deleted_at is null and d.depth < ${MAX_SUBTASK_DEPTH}
+          )
+          select id from doomed
+        )`,
+      )
+      .returning({ id: tasks.id, parentId: tasks.parentId });
+
+    // The subtree comes back in heap order, so the task the user named has to
+    // be picked out rather than assumed first.
+    const root = gone.find((row) => row.id === taskId);
+    if (!root) return null;
+
+    // One outbox row for the task the user asked about. ClickUp cascades to the
+    // subtasks on its side, and a DELETE per descendant would be a request per
+    // row for a tree that is already gone.
+    await tx.insert(outbox).values({ userId, op: "delete_task", entityId: taskId, payload: {} });
+    return { parentId: root.parentId };
+  });
 }
 
 /**
@@ -740,6 +830,7 @@ function toClickUpPatch(
   if (patch.status !== undefined) body.status = patch.status;
   if (patch.priority !== undefined) body.priority = patch.priority;
   if (patch.dueDate !== undefined) body.due_date = patch.dueDate;
+  if (patch.archived !== undefined) body.archived = patch.archived;
   if (assignees) body.assignees = assignees;
   return body;
 }

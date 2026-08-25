@@ -21,6 +21,7 @@ import {
   createTask,
   deleteChecklist,
   deleteComment,
+  deleteTask,
   discardPendingComment,
   findChecklist,
   findChecklistItem,
@@ -44,6 +45,8 @@ import {
 const db = createTestDb();
 
 const TASK = "writes-test-task";
+const CHILD = "writes-test-child";
+const GRANDCHILD = "writes-test-grandchild";
 const AUTHOR = "9001";
 const ALICE = "9002";
 const BOB = "9003";
@@ -54,7 +57,7 @@ beforeEach(async () => {
     .values([{ id: AUTHOR }, { id: ALICE }, { id: BOB }])
     .onConflictDoNothing();
   await db.delete(outbox).where(eq(outbox.userId, AUTHOR));
-  await db.delete(tasks).where(eq(tasks.id, TASK));
+  await db.delete(tasks).where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD]));
   await db
     .insert(tasks)
     .values({ id: TASK, listId: "writes-test-list", name: "before", status: "todo" });
@@ -63,7 +66,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await db.delete(outbox).where(eq(outbox.userId, AUTHOR));
-  await db.delete(tasks).where(eq(tasks.id, TASK));
+  await db.delete(tasks).where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD]));
   await db.delete(users).where(inArray(users.id, [AUTHOR, ALICE, BOB]));
 });
 
@@ -123,6 +126,105 @@ describe("applyTaskPatch", () => {
 
     const [task] = await db.select().from(tasks).where(eq(tasks.id, TASK));
     expect(task?.dueDate?.getTime()).toBe(due);
+  });
+
+  test("archiving is a patch like any other, and the mirror hides the row at once", async () => {
+    await applyTaskPatch(db, { taskId: TASK, userId: AUTHOR, patch: { archived: true } });
+
+    // Every read but the change feed filters `archived = false`, so this alone
+    // takes the task out of every view without waiting for ClickUp.
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, TASK));
+    expect(task?.archived).toBe(true);
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("update_task");
+    expect(rows[0]?.payload).toEqual({ archived: true });
+  });
+});
+
+describe("deleteTask", () => {
+  test("marks the row gone rather than dropping it, and queues the delete", async () => {
+    const before = new Date();
+    await deleteTask(db, { taskId: TASK, userId: AUTHOR });
+
+    // The row has to survive: the change feed is what tells open browsers to
+    // drop the task, and it reads rows, not absences.
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, TASK));
+    expect(task?.deletedAt).not.toBeNull();
+    expect(task?.syncedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+
+    const rows = await queued();
+    expect(rows[0]?.op).toBe("delete_task");
+    expect(rows[0]?.entityId).toBe(TASK);
+  });
+
+  test("takes the whole subtree with it, however deep it goes", async () => {
+    await db.insert(tasks).values([
+      { id: CHILD, listId: "writes-test-list", name: "child", parentId: TASK },
+      { id: GRANDCHILD, listId: "writes-test-list", name: "grandchild", parentId: CHILD },
+    ]);
+
+    await deleteTask(db, { taskId: TASK, userId: AUTHOR });
+
+    // ClickUp deletes subtasks with their parent. Left in the mirror they are
+    // rows pointing at a task nobody can open, and ClickUp nests deeper than
+    // one level, so the grandchild is the case a non-recursive delete misses.
+    const rows = await db
+      .select()
+      .from(tasks)
+      .where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD]));
+    expect(rows).toHaveLength(3);
+    expect(rows.filter((row) => row.deletedAt !== null)).toHaveLength(3);
+
+    // One request, not one per row: ClickUp cascades on its own side.
+    expect(await queued()).toHaveLength(1);
+  });
+
+  test("names the parent, so its open detail can be told a subtask left it", async () => {
+    await db
+      .insert(tasks)
+      .values({ id: CHILD, listId: "writes-test-list", name: "child", parentId: TASK });
+
+    // Picked out of the returned subtree by id rather than taken from the first
+    // row: an UPDATE ... RETURNING has no ordering, and the parent of the
+    // grandchild is not the parent anybody asked about.
+    expect(await deleteTask(db, { taskId: CHILD, userId: AUTHOR })).toEqual({ parentId: TASK });
+    expect(await deleteTask(db, { taskId: TASK, userId: AUTHOR })).toEqual({ parentId: null });
+  });
+
+  test("stops rather than spinning when the mirror holds a parent cycle", async () => {
+    // `parent_id` has no foreign key and each task's copy of it is written
+    // independently, so two deliveries around a re-parent can leave a cycle
+    // ClickUp itself never had. Unbounded, the walk below never returns — and
+    // it runs in an open transaction in the API's request path, so the failure
+    // is a hung request holding row locks rather than a wrong answer.
+    await db
+      .insert(tasks)
+      .values({ id: CHILD, listId: "writes-test-list", name: "child", parentId: TASK });
+    await db.update(tasks).set({ parentId: CHILD }).where(eq(tasks.id, TASK));
+
+    expect(await deleteTask(db, { taskId: TASK, userId: AUTHOR })).toEqual({ parentId: CHILD });
+
+    const rows = await db
+      .select()
+      .from(tasks)
+      .where(inArray(tasks.id, [TASK, CHILD]));
+    expect(rows.filter((row) => row.deletedAt !== null)).toHaveLength(2);
+  });
+
+  test("says nothing was deleted when there was nothing left to delete", async () => {
+    await deleteTask(db, { taskId: TASK, userId: AUTHOR });
+    expect(await deleteTask(db, { taskId: TASK, userId: AUTHOR })).toBeNull();
+  });
+
+  test("deleting twice queues one delete, not two", async () => {
+    await deleteTask(db, { taskId: TASK, userId: AUTHOR });
+    await deleteTask(db, { taskId: TASK, userId: AUTHOR });
+
+    // Two clicks on a row that is already on its way out would otherwise send
+    // ClickUp a second DELETE, and the second one 404s and reports as a failed
+    // write to a user whose delete actually worked.
+    expect(await queued()).toHaveLength(1);
   });
 });
 

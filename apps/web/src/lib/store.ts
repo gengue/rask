@@ -131,7 +131,14 @@ function announceRollback(title: string, error: unknown): void {
   });
 }
 
-/** Folds server rows into the collection: insert, update, or drop if deleted. */
+/**
+ * Folds server rows into the collection: insert, update, or drop if gone.
+ *
+ * Archived counts as gone. The change feed is the only read that carries either
+ * kind of row — every other query filters `deleted_at is null and archived =
+ * false` — so this is where a task actually leaves the app, and an archived one
+ * that stayed sat in every open view until the tab was reloaded.
+ */
 export function merge(rows: Task[]): void {
   if (rows.length === 0) return;
   if (!syncApi) {
@@ -140,12 +147,27 @@ export function merge(rows: Task[]): void {
   }
   syncApi.begin();
   for (const row of rows) {
-    if (row.deletedAt) {
+    if (row.deletedAt || row.archived) {
       syncApi.write({ type: "delete", key: row.id });
     } else {
       syncApi.write({ type: tasks.get(row.id) ? "update" : "insert", key: row.id, value: row });
     }
   }
+  syncApi.commit();
+}
+
+/**
+ * Drops one task from every view without waiting for the change feed.
+ *
+ * Archiving and deleting are the two writes whose whole point is that the row
+ * goes away, and the feed takes up to a second to say so. That second is spent
+ * looking at the row you just told to leave, which reads as the click not
+ * having worked. The feed still arrives and still agrees; this is only earlier.
+ */
+export function removeTask(id: string): void {
+  if (!syncApi || !tasks.get(id)) return;
+  syncApi.begin();
+  syncApi.write({ type: "delete", key: id });
   syncApi.commit();
 }
 

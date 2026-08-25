@@ -43,7 +43,8 @@ import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { signInError } from "./lib/sign-in-error.ts";
 import { markSignedOut, signedOut } from "./lib/signed-out.ts";
 import { connect } from "./lib/sse.ts";
-import { tasks } from "./lib/store.ts";
+import { merge, removeTask, tasks } from "./lib/store.ts";
+import { clickUpTaskUrl, raskTaskUrl, type TaskAction, taskMenuItems } from "./lib/task-menu.ts";
 import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
 import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
@@ -61,6 +62,12 @@ import {
   viewTitle,
   viewTruncated,
 } from "./lib/view.ts";
+
+const MENU_PLACEHOLDER: Record<"status" | "priority" | "task", string> = {
+  status: "Change status…",
+  priority: "Set priority…",
+  task: "Task actions…",
+};
 
 /**
  * The shell: sidebar, main panel, detail panel, and the one keyboard listener
@@ -119,7 +126,7 @@ export function AppShell(): JSX.Element {
   });
 
   const [menu, setMenu] = createSignal<{
-    kind: "status" | "priority";
+    kind: "status" | "priority" | "task";
     task: Task;
     anchor: { x: number; y: number };
     statuses: StatusDef[];
@@ -196,6 +203,132 @@ export function AppShell(): JSX.Element {
     });
     closeMenu();
   };
+
+  // --- the right-click menu ----------------------------------------------
+
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      pushToast({ tone: "info", title: `${what} copied` });
+    } catch (error) {
+      // Clipboard access is refused outright on an insecure origin, and a copy
+      // that silently did nothing is worse than one that says why.
+      pushToast({
+        tone: "error",
+        title: `Could not copy the ${what.toLowerCase()}`,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  /**
+   * Takes the row out first, puts it back if the write is refused.
+   *
+   * Both of these end with the task gone from every view, which the collection
+   * cannot express as a field change — so this is the one write path that does
+   * not go through `tasks.update`, and the rollback has to be written out. The
+   * row handed back to `merge` is the one the collection already holds, so
+   * restoring it is exact rather than reconstructed.
+   */
+  const removeWith = async (task: Task, send: () => Promise<unknown>, failed: string) => {
+    removeTask(task.id);
+    // Nothing left to show in the panel, and closing it after the round trip
+    // would leave the detail of a task that is no longer in any list on screen.
+    if (openTaskId() === task.id) closeTask();
+    try {
+      await send();
+    } catch (error) {
+      merge([task]);
+      pushToast({
+        tone: "error",
+        title: failed,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const runTaskAction = (action: TaskAction, task: Task, anchor: { x: number; y: number }) => {
+    switch (action) {
+      case "open":
+        closeMenu();
+        openTask(task);
+        return;
+      case "copy-link":
+        closeMenu();
+        void copy(raskTaskUrl(window.location.origin, task.id), "Link");
+        return;
+      case "copy-clickup":
+        closeMenu();
+        void copy(clickUpTaskUrl(task.id), "ClickUp URL");
+        return;
+      case "status":
+        // Not `closeMenu` first: both of these replace the open popover in
+        // place, and closing it would unmount the menu under the pointer.
+        void openStatusMenu(task, anchor);
+        return;
+      case "priority":
+        setMenu({ kind: "priority", task, statuses: [], anchor });
+        setUi("menu", "priority");
+        return;
+      case "archive":
+        closeMenu();
+        void removeWith(
+          task,
+          () => api.patchTask(task.id, { archived: true }),
+          "Could not archive that task",
+        );
+        return;
+      case "delete": {
+        closeMenu();
+        /*
+         * The one confirmation in the app.
+         *
+         * Everything else here is a field ClickUp can be told to change back,
+         * and the outbox makes even a rejected write self-correcting. This is
+         * the only action that ends with rows nobody can reach from Rask: the
+         * subtasks go too, and undoing it means ClickUp's own Trash.
+         */
+        const ok = window.confirm(
+          `Delete "${task.name}"?\n\nSubtasks are deleted with it. Rask cannot undo this — the task can only be restored from ClickUp's Trash.`,
+        );
+        if (!ok) return;
+        void removeWith(task, () => api.deleteTask(task.id), "Could not delete that task");
+        return;
+      }
+    }
+  };
+
+  /** The one opener, so the right-click and the panel's button cannot drift. */
+  const openTaskMenu = (task: Task, anchor: { x: number; y: number }) => {
+    closeOverlays();
+    setMenu({ kind: "task", task, statuses: [], anchor });
+    setUi("menu", "task");
+  };
+
+  /**
+   * One listener for every task row in the app.
+   *
+   * Rows, board cards and inbox rows all carry `id="task-<id>"` already, for
+   * `aria-activedescendant`, so the id under the pointer is the whole lookup and
+   * none of the three components needs a prop for this. Anything else keeps the
+   * browser's own context menu, which is what you want over a comment or a URL.
+   */
+  const onContextMenu = (event: MouseEvent) => {
+    const row = (event.target as HTMLElement | null)?.closest?.('[id^="task-"]');
+    const task = row ? tasks.get(row.id.slice("task-".length)) : undefined;
+    if (!task) return;
+
+    event.preventDefault();
+    // The cursor follows the pointer, so `s`, `p` and `t` afterwards act on the
+    // task you just right-clicked rather than on wherever j/k was left.
+    const index = rowTasks().findIndex((row) => row.id === task.id);
+    if (index >= 0) setUi("cursor", index);
+
+    openTaskMenu(task, { x: event.clientX, y: event.clientY });
+  };
+
+  window.addEventListener("contextmenu", onContextMenu);
+  onCleanup(() => window.removeEventListener("contextmenu", onContextMenu));
 
   // --- keyboard ----------------------------------------------------------
 
@@ -297,6 +430,16 @@ export function AppShell(): JSX.Element {
           event.preventDefault();
           setMenu({ kind: "priority", task, statuses: [], anchor: anchorForCursor() });
           setUi("menu", "priority");
+        }
+        break;
+      case "m":
+        // The keyboard's right-click. Without it archiving, deleting and the
+        // two copy actions would be the only things in a keyboard-first app
+        // that need a mouse: a context menu opened from the keyboard reports
+        // the focused element as its target, and that is the listbox, not a row.
+        if (task) {
+          event.preventDefault();
+          openTaskMenu(task, anchorForCursor());
         }
         break;
       case "t":
@@ -535,6 +678,7 @@ export function AppShell(): JSX.Element {
   const menuItems = (): MenuItem[] => {
     const current = menu();
     if (!current) return [];
+    if (current.kind === "task") return taskMenuItems(current.task);
     if (current.kind === "priority") {
       return [
         ...[1, 2, 3, 4].map((priority) => ({
@@ -742,6 +886,19 @@ export function AppShell(): JSX.Element {
                       });
                     }
                   }}
+                  onActionsClick={(event) => {
+                    const task = tasks.get(taskId());
+                    if (!task) return;
+                    const rect = (
+                      event.currentTarget as HTMLElement | null
+                    )?.getBoundingClientRect();
+                    openTaskMenu(task, {
+                      // Right-aligned to the button: anchored at its left edge
+                      // the menu hangs off the window on a collapsed panel.
+                      x: (rect?.right ?? event.clientX) - 220,
+                      y: (rect?.bottom ?? event.clientY) + 6,
+                    });
+                  }}
                 />
               </>
             )}
@@ -794,10 +951,14 @@ export function AppShell(): JSX.Element {
           <Menu
             items={menuItems()}
             anchor={menu()?.anchor ?? { x: 0, y: 0 }}
-            placeholder={menu()?.kind === "status" ? "Change status…" : "Set priority…"}
+            placeholder={MENU_PLACEHOLDER[menu()?.kind ?? "status"]}
             onSelect={(id) => {
               const current = menu();
               if (!current) return;
+              if (current.kind === "task") {
+                runTaskAction(id as TaskAction, current.task, current.anchor);
+                return;
+              }
               if (current.kind === "priority") {
                 applyPriority(current.task, id === "none" ? null : Number(id));
                 return;

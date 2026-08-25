@@ -81,6 +81,8 @@ export function TaskDetail(props: {
   taskId: string;
   onClose: () => void;
   onStatusClick: (event: MouseEvent) => void;
+  /** Opens the task menu — the same one a right-click on a row opens. */
+  onActionsClick: (event: MouseEvent) => void;
 }): JSX.Element {
   const [expanded, setExpanded] = useExpanded();
 
@@ -269,6 +271,22 @@ export function TaskDetail(props: {
           <span class="font-mono text-ink-3 text-xs">{task()?.customId}</span>
         </Show>
         <div class="flex-1" />
+        {/* The same menu the rows open on right-click. It is here because the
+            panel can be the only thing on screen — below `split` it covers the
+            list — and archiving and deleting live nowhere else. */}
+        <button
+          type="button"
+          onClick={props.onActionsClick}
+          title="Task actions"
+          aria-label="Task actions"
+          class="flex size-6 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink"
+        >
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <circle cx="3.5" cy="8" r="1.25" />
+            <circle cx="8" cy="8" r="1.25" />
+            <circle cx="12.5" cy="8" r="1.25" />
+          </svg>
+        </button>
         <button
           type="button"
           onClick={() => setExpanded(!expanded())}

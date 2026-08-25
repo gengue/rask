@@ -29,6 +29,11 @@ const GROUPS: Array<{ title: string; items: Array<[keys: string[], label: string
       [["F"], "Add a filter"],
       [["f"], "Expand the open task"],
       [["t"], "Start or stop the timer"],
+      // Archive, delete and the two copy actions live only in this menu, so a
+      // sheet that never mentioned it would leave four actions undiscoverable.
+      // Right-click is on it too, because that is how most people will find it.
+      [["m"], "Task actions"],
+      [["right-click"], "Task actions"],
     ],
   },
   {

@@ -60,6 +60,7 @@ import {
   deleteChecklist,
   deleteChecklistItem,
   deleteComment,
+  deleteTask,
   discardPendingComment,
   findChecklist,
   findChecklistItem,
@@ -575,6 +576,27 @@ api.patch("/tasks/:id", async (c) => {
   });
 
   return c.json(await getTaskDetail(db, c.req.param("id")));
+});
+
+api.delete("/tasks/:id", async (c) => {
+  const taskId = c.req.param("id");
+  // Nothing to address upstream yet: ClickUp has not assigned an id, so a
+  // DELETE would 404 and the outbox row would fail for a task that only ever
+  // existed in this browser.
+  if (isPlaceholder(taskId)) return c.json({ error: NOT_YET }, 409);
+
+  const deleted = await deleteTask(db, { taskId, userId: c.get("user").id });
+  if (!deleted) return c.json({ error: "not found" }, 404);
+
+  // A subtask is also a line in its parent's detail, and the parent's own row
+  // did not move — same reason the create route pushes it. The change feed
+  // cannot repair this one at all: it carries rows, and this row is a tombstone
+  // the browser drops rather than a parent it re-reads.
+  if (deleted.parentId) await pushDetail(c.get("user").id, deleted.parentId);
+
+  // The tombstone reaches every other client through the feed within the
+  // second; the caller gets told plainly so it can drop the row now.
+  return c.json({ deleted: true });
 });
 
 api.post("/tasks", async (c) => {

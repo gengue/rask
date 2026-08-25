@@ -37,7 +37,7 @@ export const [ui, setUi] = createStore({
    */
   sidebarOpen: false,
   /** Set while a keystroke-driven menu is open, so j/k stop moving the cursor. */
-  menu: null as null | "status" | "assignee" | "priority" | "filter",
+  menu: null as null | "status" | "assignee" | "priority" | "filter" | "task",
   /**
    * The filter, as a list of clauses.
    *

@@ -726,6 +726,7 @@ export type OutboxOp =
   | "remove_tag"
   | "update_task"
   | "create_task"
+  | "delete_task"
   | "create_comment"
   | "update_comment"
   | "delete_comment"

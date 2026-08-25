@@ -590,6 +590,14 @@ export const api = {
     request<TaskDetail>("/api/tasks", { method: "POST", body: JSON.stringify(input) }),
 
   /**
+   * Deletes a task, and its subtasks with it.
+   *
+   * Answers with a flag rather than the detail every other write returns: there
+   * is no task left to describe. Subtasks go too, because ClickUp takes them.
+   */
+  deleteTask: (id: string) => request<{ deleted: true }>(`/api/tasks/${id}`, { method: "DELETE" }),
+
+  /**
    * Every comment write answers with the whole task detail, because the task
    * collection carries no comments and there is nothing to patch into.
    */

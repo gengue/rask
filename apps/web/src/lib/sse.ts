@@ -98,6 +98,7 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
 const FAILURE_LABELS: Record<string, string> = {
   update_task: "edit",
   create_task: "new task",
+  delete_task: "task deletion",
   create_comment: "comment",
   update_comment: "comment edit",
   delete_comment: "comment deletion",

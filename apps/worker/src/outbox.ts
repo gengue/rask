@@ -136,6 +136,14 @@ async function execute(
       return;
     }
 
+    case "delete_task": {
+      if (!row.entity_id) throw new Error("delete_task without an entity_id");
+      // Nothing to ingest: the mirror already holds the tombstone the API
+      // wrote, and there is no task left upstream to read back.
+      await client.deleteTask(row.entity_id);
+      return;
+    }
+
     case "create_task": {
       const { listId, ...input } = payload as { listId: string } & Record<string, unknown>;
       const created = await client.createTask(listId, input as never);
@@ -307,6 +315,12 @@ async function execute(
  * The task refetch covers checklists for free: `GET /task/{id}` carries them,
  * and ingest replaces a task's checklists wholesale, so a rejected tick, rename
  * or delete snaps back to what ClickUp actually holds.
+ *
+ * ponytail: a rejected `delete_task` un-tombstones the task itself, because
+ * ingest clears `deleted_at`, but not the subtasks the API marked with it —
+ * `GET /task/{id}` does not carry them as rows. They come back on the next poll
+ * of their list, which is the same backstop a missed webhook relies on. Walk
+ * the subtree here the day a delete is rejected often enough to notice.
  */
 async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
   try {
