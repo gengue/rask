@@ -96,10 +96,17 @@ export interface InboxReason {
   latestAt: string | null;
 }
 
+/** One feed entry somebody dismissed on its own, and when. */
+export interface InboxRead {
+  taskId: string;
+  readAt: string;
+}
+
 /** A page of tasks, plus what was said on them. `TaskPage` is the half that
  *  goes into the shared collection. */
 export interface InboxPage extends TaskPage {
   reasons: InboxReason[];
+  reads: InboxRead[];
 }
 
 export interface Comment {
@@ -490,6 +497,13 @@ export const api = {
 
   /** The feed window: the tasks in it and, where there is one, what was said. */
   inbox: (since: number) => request<InboxPage>(`/api/inbox?since=${since}&limit=500`),
+
+  /** Marks one entry read without touching the rest of the inbox. */
+  markTaskRead: (taskId: string) =>
+    request<InboxRead>("/api/inbox/read", {
+      method: "POST",
+      body: JSON.stringify({ taskId }),
+    }),
   hierarchy: () => request<Space[]>("/api/hierarchy"),
   members: () => request<Assignee[]>("/api/members"),
 

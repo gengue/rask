@@ -1,7 +1,7 @@
 import { type JSX, Show } from "solid-js";
 import type { InboxReason, Task } from "../lib/api.ts";
-import { isUnread, unreadSince } from "../lib/inbox.ts";
 import { Avatar } from "./Avatar.tsx";
+import { MarkRead, UnreadDot } from "./InboxMarks.tsx";
 
 /**
  * One line of the feed, when the reason somebody should look is a comment.
@@ -54,16 +54,6 @@ export function InboxRow(props: {
   onOpen: () => void;
 }): JSX.Element {
   const kind = () => KIND[props.reason.kind];
-  const unread = () => {
-    const since = unreadSince();
-    if (since === null) return false;
-    // The conversation's clock, not the task's — and the newest thing said on
-    // it rather than the line being shown, which can be an older mention that
-    // outranked it. A task touched since you looked with nothing new said on it
-    // is not what this row is about.
-    const at = props.reason.latestAt ?? props.reason.at;
-    return at !== null ? Date.parse(at) > since : isUnread(props.task, since);
-  };
 
   return (
     // Same contract as TaskRow: the listbox owns focus and the shell owns keys.
@@ -82,14 +72,7 @@ export function InboxRow(props: {
         classList={{ "opacity-100": props.active, "opacity-0": !props.active }}
       />
 
-      <span
-        class="size-1.5 shrink-0 rounded-full bg-accent transition-opacity"
-        classList={{ "opacity-0": !unread() }}
-        aria-hidden="true"
-      />
-      <Show when={unread()}>
-        <span class="sr-only">Unread.</span>
-      </Show>
+      <UnreadDot task={props.task} />
 
       <svg
         width="15"
@@ -138,6 +121,8 @@ export function InboxRow(props: {
       <span class="max-w-[180px] shrink-0 truncate text-xs text-ink-3 @max-row-tight:hidden">
         {props.task.name}
       </span>
+
+      <MarkRead task={props.task} />
     </div>
   );
 }

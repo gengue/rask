@@ -6,6 +6,8 @@ import {
   INBOX_WINDOW_DAYS,
   inboxPredicate,
   isUnread,
+  markFor,
+  setReads,
   setReasons,
 } from "../src/lib/inbox.ts";
 
@@ -169,6 +171,84 @@ describe("inboxPredicate, with something said", () => {
   test("still keeps your own changed task with nothing said on it", () => {
     // The Tier A half has to survive the Tier B one being empty.
     expect(inboxPredicate(ANNA, since)(task({ id: "b", dateUpdated: ago(1) }))).toBe(true);
+  });
+});
+
+describe("dismissing one entry", () => {
+  const since = now - 10 * DAY;
+
+  afterEach(() => setReads(new Map()));
+
+  test("takes the later of the watermark and your own dismissal", () => {
+    // The watermark answers "everything up to here"; a dismissal answers "and
+    // this one too". Taking the earlier of the two would make Mark all read
+    // un-dismiss whatever you had already cleared past it.
+    setReads(new Map([["a", ago(2)]]));
+
+    expect(markFor("a", since)).toBe(Date.parse(ago(2)));
+    expect(markFor("b", since)).toBe(since);
+  });
+
+  test("never moves the mark backwards", () => {
+    // A dismissal older than the watermark is already covered by it, and the
+    // server deletes those — but a clock that disagrees must not resurrect a
+    // row either.
+    setReads(new Map([["a", ago(30)]]));
+
+    expect(markFor("a", since)).toBe(since);
+  });
+
+  test("drops a row you cleared", () => {
+    setReads(new Map([["a", ago(0.5)]]));
+
+    expect(inboxPredicate(ANNA, since)(task({ id: "a", dateUpdated: ago(1) }))).toBe(false);
+  });
+
+  test("brings it back when something happens after you cleared it", () => {
+    /*
+     * The difference between "I have seen this" and "never show me this task
+     * again". A second comment lands after the dismissal and the row is new
+     * again — which is why this is a timestamp and not a flag.
+     */
+    setReads(new Map([["a", ago(2)]]));
+
+    expect(inboxPredicate(ANNA, since)(task({ id: "a", dateUpdated: ago(1) }))).toBe(true);
+  });
+
+  test("drops a comment row you cleared, and returns it on the next comment", () => {
+    // Same rule on the other branch of the predicate: what was said is measured
+    // against the same mark as what changed.
+    const bens = task({
+      id: "a",
+      dateUpdated: ago(30),
+      assignees: [{ id: BEN, username: "ben", initials: "B", color: null, avatar: null }],
+    });
+    setReasons(
+      new Map([
+        [
+          "a",
+          {
+            taskId: "a",
+            commentId: "c1",
+            kind: "mention" as const,
+            authorId: BEN,
+            authorName: "ben",
+            authorAvatar: null,
+            excerpt: "have a look",
+            at: ago(3),
+            latestAt: ago(3),
+          },
+        ],
+      ]),
+    );
+
+    setReads(new Map([["a", ago(2)]]));
+    expect(inboxPredicate(ANNA, since)(bens)).toBe(false);
+
+    setReads(new Map([["a", ago(4)]]));
+    expect(inboxPredicate(ANNA, since)(bens)).toBe(true);
+
+    setReasons(new Map());
   });
 });
 

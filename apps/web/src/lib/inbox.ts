@@ -1,7 +1,8 @@
 import { createSignal } from "solid-js";
-import { api, type InboxReason, type Task } from "./api.ts";
+import { api, type InboxRead, type InboxReason, type Task } from "./api.ts";
 import { me, setMe } from "./session.ts";
 import { loadPage, type TaskPageResult } from "./store.ts";
+import { pushToast } from "./toast.ts";
 import { viewIsFeed } from "./view.ts";
 
 /**
@@ -110,6 +111,54 @@ export function reasonFor(taskId: string): InboxReason | undefined {
 }
 
 /**
+ * Entries dismissed one at a time, keyed by task.
+ *
+ * An exception list over `inboxSeenAt`, not a replacement for it: the watermark
+ * answers "everything up to here" and these answer "and this one too". Marking
+ * the whole inbox read passes every one of them, which is why the server drops
+ * them in the same transaction rather than letting the table grow forever.
+ */
+export const [reads, setReads] = createSignal<ReadonlyMap<string, string>>(new Map());
+
+/**
+ * The instant this task's entry is measured from.
+ *
+ * The later of the watermark and your own dismissal, so a row you cleared stays
+ * cleared until something happens after you cleared it — and a second comment
+ * on the same task does bring it back, because it is newer than both.
+ */
+export function markFor(taskId: string, since: number): number {
+  const readAt = reads().get(taskId);
+  const dismissed = readAt ? Date.parse(readAt) : Number.NaN;
+  return Number.isNaN(dismissed) ? since : Math.max(since, dismissed);
+}
+
+/**
+ * Marks one entry read, on screen before the server has answered.
+ *
+ * Optimistic because the row leaves the unread scope the moment this resolves,
+ * and a click that does nothing for a round trip reads as a click that missed.
+ * The rollback puts the row back rather than leaving it quietly gone.
+ */
+export async function markTaskRead(taskId: string): Promise<void> {
+  const before = reads();
+  setReads(new Map(before).set(taskId, new Date().toISOString()));
+  try {
+    const { readAt } = await api.markTaskRead(taskId);
+    // The server's instant, which is the one the watermark is compared against.
+    setReads(new Map(reads()).set(taskId, readAt));
+  } catch (error) {
+    setReads(before);
+    pushToast({
+      tone: "error",
+      title: "Could not mark that as read",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+/**
  * Yours, and changed since `since`. The page and the badge share this.
  *
  * Built on `isUnread` rather than repeating it, because the badge counts what
@@ -139,18 +188,33 @@ export function inboxPredicate(userId: string | undefined, since: number): (task
      * into a task that is not yours, and an assignee check would drop exactly
      * that row.
      */
+    // The watermark, raised by your own dismissal of this row if there was one.
+    const mark = markFor(task.id, since);
+
     const reason = said.get(task.id);
     // `latestAt`, not `at`: the row shows the strongest reason and this asks
     // whether anything at all was said since you looked. A mention from Tuesday
     // under this morning's "ok" is both.
     const latest = reason?.latestAt ?? reason?.at;
-    if (latest && Date.parse(latest) > since) return true;
+    if (latest && Date.parse(latest) > mark) return true;
 
     return (
-      isUnread(task, since) &&
-      (!userId || task.assignees.some((assignee) => assignee.id === userId))
+      isUnread(task, mark) && (!userId || task.assignees.some((assignee) => assignee.id === userId))
     );
   };
+}
+
+/**
+ * Whether this row is new to you, as the rows themselves ask it.
+ *
+ * The same predicate the page and the badge run, at the read mark rather than
+ * at whichever scope is on screen — so the dot, the count and the list can
+ * never disagree about what "unread" means. The assignee gate is skipped
+ * because a row that is already on screen has passed it.
+ */
+export function isRowUnread(task: Task): boolean {
+  const since = unreadSince();
+  return since !== null && inboxPredicate(undefined, since)(task);
 }
 
 /**
@@ -180,10 +244,12 @@ export function byRecency(a: Task, b: Task): number {
  */
 export async function loadInbox(since = inboxCutoff()): Promise<TaskPageResult | null> {
   let latest: InboxReason[] = [];
+  let dismissed: InboxRead[] = [];
 
   const page = await loadPage("Could not load the inbox", async () => {
     const answer = await api.inbox(since);
     latest = answer.reasons;
+    dismissed = answer.reads;
     return answer;
   });
 
@@ -191,6 +257,7 @@ export async function loadInbox(since = inboxCutoff()): Promise<TaskPageResult |
   // half of the same answer. Leave both to whichever load lands last.
   if (page) {
     setReasons(new Map(latest.map((reason) => [reason.taskId, reason])));
+    setReads(new Map(dismissed.map((read) => [read.taskId, read.readAt])));
     setInboxTruncated(page.truncated);
   }
   return page;

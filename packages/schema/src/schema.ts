@@ -652,6 +652,42 @@ export const comments = pgTable(
 );
 
 /**
+ * Feed entries somebody has dismissed one at a time.
+ *
+ * `users.inbox_seen_at` is a watermark and answers "everything up to here".
+ * This is the exception list that sits on top of it: one row means "this task's
+ * entry is read even though it is newer than the watermark". Unread becomes
+ * `activity > greatest(inbox_seen_at, read_at)`.
+ *
+ * Keyed by task rather than by comment because a feed entry *is* a task — one
+ * row per task, carrying at most one reason — so dismissing the mention and
+ * dismissing the row are the same act. A second comment on the same task after
+ * the dismissal is newer than `read_at` and comes back, which is the behaviour
+ * you want: the conversation moved again.
+ *
+ * Nothing sweeps this on a schedule. Marking the whole inbox read makes every
+ * row for that user redundant by definition, so that is where they are deleted
+ * — in the same transaction, or a failed write would drop dismissals it had no
+ * business touching.
+ */
+export const inboxReads = pgTable(
+  "inbox_reads",
+  {
+    userId: text("user_id").notNull(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    readAt: ts("read_at").notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.taskId] }),
+    // The inbox reads them all for one person at once; the primary key covers
+    // the write, which is always for one task.
+    index("inbox_reads_user_idx").on(t.userId, t.readAt),
+  ],
+);
+
+/**
  * Who a comment mentions.
  *
  * Extracted at ingest rather than matched at read time. The mention lives in

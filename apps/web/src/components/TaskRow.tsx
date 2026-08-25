@@ -2,8 +2,8 @@ import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import { type JSX, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { DUE_TONE, formatDue } from "../lib/format.ts";
-import { isUnread, unreadSince } from "../lib/inbox.ts";
 import { AvatarStack } from "./Avatar.tsx";
+import { MarkRead, UnreadDot } from "./InboxMarks.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
 
 /**
@@ -51,11 +51,6 @@ export function TaskRow(props: {
 }): JSX.Element {
   const due = () => formatDue(props.task.dueDate);
   const pending = () => isPlaceholder(props.task.id);
-  // Null off the inbox, so this is one signal read and nothing drawn.
-  const unread = () => {
-    const since = unreadSince();
-    return since !== null && isUnread(props.task, since);
-  };
 
   return (
     // Rows stay out of the tab order on purpose. The listbox holds focus and
@@ -83,22 +78,7 @@ export function TaskRow(props: {
         classList={{ "opacity-100": props.active, "opacity-0": !props.active }}
       />
 
-      <Show when={unreadSince() !== null}>
-        {/* The slot is drawn for every row in the feed, filled for the ones you
-            have not seen. Showing it only when unread would step the whole row
-            sideways at the boundary between new and already-read. */}
-        <span
-          class="size-1.5 shrink-0 rounded-full bg-accent transition-opacity"
-          classList={{ "opacity-0": !unread() }}
-          title={unread() ? "Changed since your last visit" : undefined}
-          // The dot is decoration; the word below is what gets announced. A
-          // label on the dot itself would have every read row say "Read".
-          aria-hidden="true"
-        />
-        <Show when={unread()}>
-          <span class="sr-only">Unread.</span>
-        </Show>
-      </Show>
+      <UnreadDot task={props.task} />
 
       <PriorityIcon priority={props.task.priority} class="shrink-0" />
 
@@ -183,6 +163,8 @@ export function TaskRow(props: {
       <div class="shrink-0">
         <AvatarStack users={props.task.assignees} />
       </div>
+
+      <MarkRead task={props.task} />
     </div>
   );
 }

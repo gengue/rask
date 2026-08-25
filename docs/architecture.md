@@ -98,6 +98,15 @@ Each of these was dropped for a reason, and each has a way back in.
   cannot be emptied is not an inbox — and a second scope shows the last seven
   days so that clearing is not destruction.
 
+  Read state is a watermark plus an exception list. `users.inbox_seen_at`
+  answers "everything up to here"; `inbox_reads` holds the rows somebody
+  dismissed one at a time and answers "and this one too". Unread is
+  `activity > greatest(inbox_seen_at, read_at)`, which is what makes a
+  dismissal a timestamp rather than a flag: a comment posted afterwards is
+  newer than both and the row comes back. Marking the whole inbox read passes
+  every exception by definition, so that route deletes them in the same
+  transaction — the table has no other sweep and needs none.
+
   A comment is the exception, and the reason the feed can say anything at all:
   a comment *is* an event, with an author, a body and a time. Three signals feed
   the rows that carry one, ranked — you were mentioned, the comment was assigned

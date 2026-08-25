@@ -78,6 +78,27 @@ test("counts what changed, then clears it for good", async ({ page }) => {
   await expect(inbox).toHaveText(`Inbox${unread.length}`);
   await expect(list.getByText("Unread.").first()).toBeVisible();
 
+  /*
+   * One row first, on its own.
+   *
+   * The per-row mark and the bulk one are different writes against different
+   * tables, and the bulk one deletes what the per-row one wrote. Asserting only
+   * the bulk button would leave a dismissal that never survived a reload
+   * looking exactly like one that did.
+   */
+  const first = list.getByRole("option").first();
+  const firstId = await first.getAttribute("id");
+  await first.getByRole("button", { name: /^Mark ".*" as read$/ }).click({ force: true });
+
+  await expect(page.locator(`#${firstId}`)).toHaveCount(0);
+  await expect(inbox).toHaveText(`Inbox${unread.length - 1}`);
+
+  // It went to Postgres, not to a signal in the tab.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await expect(page.locator(`#${firstId}`)).toHaveCount(0);
+  await expect(inbox).toHaveText(`Inbox${unread.length - 1}`);
+
   await page.getByRole("button", { name: "Mark all read" }).click();
 
   // Emptied, not merely dimmed. The unread scope is the default precisely so

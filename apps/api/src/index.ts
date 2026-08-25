@@ -8,6 +8,7 @@ import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import {
   comments,
   createDb,
+  inboxReads,
   ingestComments,
   ingestReplies,
   ingestTasks,
@@ -170,11 +171,51 @@ api.get("/me", (c) => c.json(c.get("user")));
  */
 api.post("/inbox/seen", async (c) => {
   const seenAt = new Date();
-  await db
-    .update(users)
-    .set({ inboxSeenAt: seenAt })
-    .where(eq(users.id, c.get("user").id));
+  const userId = c.get("user").id;
+
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({ inboxSeenAt: seenAt }).where(eq(users.id, userId));
+    /*
+     * Every per-row dismissal is redundant the moment the watermark passes it,
+     * so this is the sweep — no scheduled job, and no table that only ever
+     * grows. Inside the transaction because the other order loses dismissals it
+     * had no business touching: delete first, fail to move the watermark, and
+     * rows somebody had cleared one at a time come back unread.
+     */
+    await tx.delete(inboxReads).where(eq(inboxReads.userId, userId));
+  });
+
   return c.json({ inboxSeenAt: seenAt });
+});
+
+/**
+ * Marks one feed entry read, leaving the rest of the inbox alone.
+ *
+ * Keyed by task because that is what a feed entry is: one row per task,
+ * carrying at most one reason, so dismissing the mention and dismissing the row
+ * are the same act. A comment posted after this is newer than `read_at` and
+ * brings the row back, which is the point — this is "I have seen this", not
+ * "never show me this task again".
+ *
+ * The instant is the server's, like the watermark's, and for the same reason:
+ * the two are compared against each other.
+ */
+api.post("/inbox/read", async (c) => {
+  const body = inboxReadInput.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  const readAt = new Date();
+  await db
+    .insert(inboxReads)
+    .values({ userId: c.get("user").id, taskId: body.data.taskId, readAt })
+    .onConflictDoUpdate({
+      target: [inboxReads.userId, inboxReads.taskId],
+      // Always forward. A second dismissal after a new comment has to cover the
+      // new comment rather than restate the instant of the first one.
+      set: { readAt },
+    });
+
+  return c.json({ taskId: body.data.taskId, readAt });
 });
 
 /**
@@ -198,9 +239,19 @@ api.get("/inbox", async (c) => {
   const since = new Date(query.data.since);
   const limit = query.data.limit ?? 500;
 
-  const [reasons, changed] = await Promise.all([
+  const [reasons, changed, reads] = await Promise.all([
     notableComments(db, userId, since, limit),
     listTasks(db, { assigneeId: userId, includeClosed: true, updatedSince: since, limit }),
+    /*
+     * Sent rather than applied, so the other scope can still show what you
+     * dismissed. Filtering these out here would make "mark as read"
+     * indistinguishable from "delete", which is the door the window scope
+     * exists to keep open.
+     */
+    db
+      .select({ taskId: inboxReads.taskId, readAt: inboxReads.readAt })
+      .from(inboxReads)
+      .where(eq(inboxReads.userId, userId)),
   ]);
 
   const truncated = changed.length > limit;
@@ -220,7 +271,7 @@ api.get("/inbox", async (c) => {
     ? await listTasks(db, { taskIds: missing, includeClosed: true, limit: missing.length })
     : [];
 
-  return c.json({ tasks: [...changed, ...extra], reasons, truncated });
+  return c.json({ tasks: [...changed, ...extra], reasons, reads, truncated });
 });
 
 api.get("/hierarchy", async (c) => c.json(await getHierarchy(db)));
@@ -300,6 +351,8 @@ api.get("/resolve", async (c) => {
  * off the same route: the page shows a few days of history, the badge only what
  * arrived since the last visit.
  */
+const inboxReadInput = z.object({ taskId: z.string().min(1).max(64) });
+
 const inboxQuery = z.object({
   since: z.coerce.number().int().positive().max(8.64e15),
   limit: z.coerce.number().int().min(1).max(1000).optional(),

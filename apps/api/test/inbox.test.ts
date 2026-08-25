@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import {
   commentMentions,
   comments,
   createTestDb,
+  inboxReads,
   oauthTokens,
   saveToken,
   sessions,
@@ -496,6 +497,100 @@ describe("over HTTP", () => {
 
     expect(page.reasons.find((r) => r.taskId === ID("notmine"))?.kind).toBe("mention");
     expect(page.tasks.map((row) => row.id)).toContain(ID("notmine"));
+  });
+});
+
+describe("dismissing one entry", () => {
+  /*
+   * Each test sets up the rows it needs and clears them after.
+   *
+   * The obvious version leans on the test above it — dismiss in one, assert the
+   * sweep in the next — and passes right up until somebody inserts a test
+   * between them. `inbox_reads` is per user and this file has one, so leaving
+   * state behind is leaving it for everything below.
+   */
+  const dismiss = (taskId: string) =>
+    app.request("/api/inbox/read", {
+      method: "POST",
+      headers: { cookie: COOKIE_HEADER, "content-type": "application/json" },
+      body: JSON.stringify({ taskId }),
+    });
+
+  const dismissed = () => db.select().from(inboxReads).where(eq(inboxReads.userId, ANNA));
+
+  /*
+   * The watermark as this block found it, put back afterwards.
+   *
+   * One test in here moves it, and the block below reads the default the column
+   * gave it — an afterEach that set some plausible instant instead of restoring
+   * would leave that assertion testing this file's cleanup rather than the
+   * schema.
+   */
+  let watermark: Date;
+
+  beforeAll(async () => {
+    const [anna] = await db.select().from(users).where(eq(users.id, ANNA)).limit(1);
+    if (!anna) throw new Error("fixture missing");
+    watermark = anna.inboxSeenAt;
+  });
+
+  afterEach(async () => {
+    await db.delete(inboxReads).where(eq(inboxReads.userId, ANNA));
+    await db.update(users).set({ inboxSeenAt: watermark }).where(eq(users.id, ANNA));
+  });
+
+  test("records the instant, and moves it forward on a second dismissal", async () => {
+    const first = (await (await dismiss(ID("fresh"))).json()) as { readAt: string };
+    const again = (await (await dismiss(ID("fresh"))).json()) as { readAt: string };
+
+    // Forward, never restated. A conflict that kept the first instant would
+    // leave a row unread forever once a new comment landed on it.
+    expect(Date.parse(again.readAt)).toBeGreaterThanOrEqual(Date.parse(first.readAt));
+
+    const rows = await dismissed();
+    expect(rows.map((row) => row.taskId)).toEqual([ID("fresh")]);
+  });
+
+  test("rides along on the window rather than being applied to it", async () => {
+    /*
+     * The row stays in the payload with its dismissal beside it. Filtering it
+     * out here would make "mark as read" indistinguishable from "delete" — the
+     * second scope in the browser exists precisely to show what you cleared.
+     */
+    await dismiss(ID("fresh"));
+
+    const page = (await (
+      await app.request(`/api/inbox?since=${ago(120).getTime()}`, {
+        headers: { cookie: COOKIE_HEADER },
+      })
+    ).json()) as { tasks: Array<{ id: string }>; reads: Array<{ taskId: string }> };
+
+    expect(page.reads.map((r) => r.taskId)).toContain(ID("fresh"));
+    expect(page.tasks.map((t) => t.id)).toContain(ID("fresh"));
+  });
+
+  test("refuses a request with no task", async () => {
+    const response = await app.request("/api/inbox/read", {
+      method: "POST",
+      headers: { cookie: COOKIE_HEADER, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  test("marking the whole inbox read sweeps the dismissals it made redundant", async () => {
+    /*
+     * The watermark passes every one of them by definition, so keeping the rows
+     * is a table that only grows. In one transaction with the watermark move,
+     * or a failed write drops dismissals it had no business touching.
+     */
+    await dismiss(ID("fresh"));
+    expect(await dismissed()).not.toEqual([]);
+
+    await app.request("/api/inbox/seen", { method: "POST", headers: { cookie: COOKIE_HEADER } });
+
+    expect(await dismissed()).toEqual([]);
   });
 });
 
