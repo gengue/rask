@@ -176,6 +176,21 @@ async function mirrored(taskId = TASK) {
   return row ?? null;
 }
 
+/**
+ * Whether a placeholder was retired in the way the browser can hear about.
+ *
+ * Deleting the row outright is not that way, and reads as success from
+ * anywhere except a browser: the change feed is a query over `tasks.synced_at`,
+ * so a row that no longer exists produces no frame, and the copy every open tab
+ * received when the API inserted the placeholder stays on screen next to the
+ * real task for the life of the session.
+ */
+async function retired(taskId: string): Promise<boolean> {
+  const row = await mirrored(taskId);
+  if (!row) return false;
+  return row.deletedAt !== null && row.syncedAt.getTime() >= Date.now() - 60_000;
+}
+
 async function assignees() {
   const rows = await db
     .select({ userId: taskAssignees.userId })
@@ -350,8 +365,9 @@ describe("undoing a create", () => {
     });
     await drainOutbox(db, pool);
 
-    expect(await mirrored(placeholderId(CREATE_CLIENT))).toBeNull();
+    expect(await retired(placeholderId(CREATE_CLIENT))).toBe(true);
     expect((await mirrored(CREATE_CLIENT))?.name).toBe("a task that exists in ClickUp");
+    expect((await mirrored(CREATE_CLIENT))?.deletedAt).toBeNull();
     expect((await queued(id))?.status).toBe("failed");
   });
 
@@ -716,7 +732,9 @@ describe("a create ClickUp accepted", () => {
   test("swaps the placeholder for the real row and remembers the id", async () => {
     // The placeholder and the real task both exist for a moment. Leaving the
     // placeholder behind shows the task twice in the list, and one of the two
-    // is a row no later poll will ever touch or remove.
+    // is a row no later poll will ever touch or remove — and "leaving it
+    // behind" includes deleting it, since the only way the browser hears about
+    // a row is the change feed, and the feed cannot see a row that is gone.
     await db
       .insert(tasks)
       .values({ id: placeholderId(CREATE_CLIENT), listId: LIST, name: "typed a second ago" });
@@ -731,7 +749,7 @@ describe("a create ClickUp accepted", () => {
     });
     await drainOutbox(db, pool);
 
-    expect(await mirrored(placeholderId(CREATE_CLIENT))).toBeNull();
+    expect(await retired(placeholderId(CREATE_CLIENT))).toBe(true);
     expect((await mirrored())?.name).toBe("typed a second ago");
     // The API needs this to tell the author which task the failure or the
     // success was about.

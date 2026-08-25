@@ -9,10 +9,10 @@ import {
   ingestComments,
   ingestReplies,
   ingestTasks,
+  markTaskDeleted,
   type OutboxOp,
   outbox,
   taskChecklists,
-  tasks,
 } from "@rask/schema";
 import { eq, sql } from "drizzle-orm";
 
@@ -140,9 +140,22 @@ async function execute(
       const { listId, ...input } = payload as { listId: string } & Record<string, unknown>;
       const created = await client.createTask(listId, input as never);
       await ingestTasks(db, [created], { listId });
-      // Drop the placeholder the API inserted so the browser can swap it for
-      // the real row on the next SSE frame.
-      if (row.client_id) await db.delete(tasks).where(eq(tasks.id, placeholderId(row.client_id)));
+      /*
+       * Retire the placeholder the API inserted, so the browser can swap it for
+       * the real row on the next SSE frame.
+       *
+       * Marked deleted rather than dropped, because the change feed is a query
+       * over `tasks.synced_at` and a row that is gone matches nothing: the
+       * placeholder was pushed to every open tab the moment the API inserted it,
+       * and a DELETE retired it in Postgres while leaving that copy on screen
+       * forever. Both rows then showed the same task, one of them with no id,
+       * no due date and a spinner that never stopped.
+       *
+       * ponytail: the row stays in the table for good, like every task ClickUp
+       * reports deleted. A sweep of placeholders older than a day is worth
+       * writing the day their count is worth counting.
+       */
+      if (row.client_id) await markTaskDeleted(db, placeholderId(row.client_id));
       await db.update(outbox).set({ entityId: created.id }).where(eq(outbox.id, row.id));
       return;
     }
@@ -298,7 +311,10 @@ async function execute(
 async function revert(db: Db, pool: TokenPool, row: OutboxRow): Promise<void> {
   try {
     if (row.op === "create_task") {
-      if (row.client_id) await db.delete(tasks).where(eq(tasks.id, placeholderId(row.client_id)));
+      // Marked deleted, not dropped, for the reason the success path gives: a
+      // vanished row is invisible to the change feed, so the tab that queued
+      // this create would keep showing the task ClickUp just refused.
+      if (row.client_id) await markTaskDeleted(db, placeholderId(row.client_id));
       return;
     }
 
