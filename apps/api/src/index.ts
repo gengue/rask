@@ -41,6 +41,7 @@ import {
   searchTasks,
   statusesForList,
 } from "./queries.ts";
+import { timeRoutes } from "./time.ts";
 import { clickUpWebhookRoutes } from "./webhooks.ts";
 import {
   applyChecklistItemPatch,
@@ -60,6 +61,7 @@ import {
   findChecklist,
   findChecklistItem,
   findComment,
+  NOT_YET,
   newChecklistInput,
   newChecklistItemInput,
   newCommentInput,
@@ -121,16 +123,6 @@ async function pushDetail(userId: string, taskId: string) {
   if (detail) pushTo(userId, "task", detail);
   return detail;
 }
-
-/**
- * A row the outbox has not shipped yet, so ClickUp has no id for it.
- *
- * Addressing one upstream would 404 and take the local state down with it on
- * the revert, so those writes are refused rather than queued. The window is a
- * couple of seconds — the outbox drains every two — and the UI says so.
- */
-
-const NOT_YET = "this has not reached ClickUp yet";
 
 type Env = { Variables: { user: SessionUser } };
 
@@ -711,6 +703,23 @@ api.post("/lists/:id/resync", async (c) => {
   return c.json({ ok: true }, 202);
 });
 
+/*
+ * Time tracking, in a module of its own.
+ *
+ * Mounted on `api` and not `app`, like everything else that needs a session:
+ * `auth.test.ts` walks the route table and asserts anything outside a five-name
+ * allow-list answers 401.
+ */
+api.route(
+  "/",
+  timeRoutes({
+    db,
+    clientFor,
+    pushTo,
+    refreshTask: (userId, taskId, options) => refreshTask(userId, taskId, options),
+  }),
+);
+
 api.get("/events", (c) => {
   const userId = c.get("user").id;
 
@@ -983,7 +992,7 @@ const THREADS_PER_REFRESH = 10;
 async function refreshTask(
   userId: string,
   taskId: string,
-  options: { comments?: boolean } = {},
+  options: { comments?: boolean; force?: boolean } = {},
 ): Promise<void> {
   try {
     if (isPlaceholder(taskId)) return;
@@ -997,7 +1006,14 @@ async function refreshTask(
       // whose count moved, out of the uploader's own rate budget.
       options.comments === false ? null : refreshComments(client, taskId),
     ]);
-    await ingestTasks(db, [task]);
+    /*
+     * `force` is for the caller that already knows something moved. Tracking
+     * time against a task need not touch its `date_updated`, and the guard
+     * inside `ingestTasks` skips rows on exactly that basis — so without it the
+     * timer stops, ClickUp records the interval, and the mirror keeps serving
+     * the old `time_spent` forever with nothing anywhere reporting a failure.
+     */
+    await ingestTasks(db, [task], { force: options.force });
 
     // The change feed watches tasks.synced_at, which does not move when
     // ClickUp had nothing new. Push the refreshed detail directly so newly
