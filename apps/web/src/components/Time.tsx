@@ -1,0 +1,349 @@
+import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { ApiError, api, type TimeEntry } from "../lib/api.ts";
+import { formatClock, formatDuration, formatRelative, parseDuration } from "../lib/format.ts";
+import { elapsed, isTracking, running, stopTimer, toggleTimer } from "../lib/timer.ts";
+import { pushToast } from "../lib/toast.ts";
+import { Avatar } from "./Avatar.tsx";
+
+/**
+ * Time tracked on a task.
+ *
+ * The only panel in the app whose contents are not in the mirror. Entries are
+ * read from ClickUp when the task is opened, the way `spaces/:id/tags` is read
+ * when the tag menu opens — one request beats another table to keep in step for
+ * something nobody filters or sorts by.
+ *
+ * Everyone's entries are here, not just yours. Editing and deleting are offered
+ * on all of them, because Rask cannot tell who is an admin: the workspace
+ * endpoint in ClickUp's vendored spec carries no `role`, and hiding the buttons
+ * from anyone but the entry's author would take the ability away from the
+ * admins who do have it. ClickUp decides, and says so through a toast.
+ */
+export function TimeEntries(props: {
+  taskId: string;
+  taskName: string;
+  /** ClickUp's own total for the task, from the mirror. See `total` below. */
+  timeSpent: number | null;
+}): JSX.Element {
+  const [entries, { refetch, mutate }] = createResource(
+    () => props.taskId,
+    (id) => api.timeEntries(id).then((r) => r.entries),
+  );
+
+  /*
+   * Read through `state`, never by calling the accessor unguarded.
+   *
+   * A resource accessor re-throws whatever its fetcher rejected with, and this
+   * one talks to ClickUp — an expired token answers 409. Read plainly, that
+   * throw escapes into the detail panel's render and takes the whole task with
+   * it: description, comments, checklists, everything, over a panel nobody was
+   * looking at. The section says it failed and the rest of the task survives.
+   */
+  const rows = () =>
+    entries.state === "ready" || entries.state === "refreshing" ? (entries() ?? []) : [];
+  const failed = () => entries.state === "errored";
+
+  /*
+   * ClickUp's own total, not the sum of the rows below it.
+   *
+   * The two can disagree, and when they do the mirrored one is right: the list
+   * can only show entries belonging to somebody in the `users` table, so a
+   * deactivated member's hours are missing from the sum and present in
+   * `time_spent`. Summing would quietly under-report a task somebody left.
+   *
+   * It falls back to the sum for a task the mirror has not carried a total for
+   * yet — one read old, rather than blank.
+   */
+  const total = () =>
+    props.timeSpent ?? rows().reduce((ms, entry) => ms + (entry.durationMs ?? 0), 0);
+
+  const live = () => (isTracking(props.taskId) ? elapsed() : null);
+
+  /*
+   * A stopped timer leaves an interval this list does not have.
+   *
+   * Watching the transition rather than refetching after our own toggle,
+   * because this task's timer can also be stopped from the sidebar band, from
+   * another tab over SSE, or by someone starting a timer somewhere else. All of
+   * them arrive here as tracking going true then false.
+   */
+  let wasTracking = false;
+  createEffect(() => {
+    const tracking = isTracking(props.taskId);
+    if (wasTracking && !tracking) void refetch();
+    wasTracking = tracking;
+  });
+
+  const toggle = () => toggleTimer({ id: props.taskId, name: props.taskName });
+
+  const remove = async (entry: TimeEntry) => {
+    // Optimistic: the row is gone from ClickUp by the time the refetch lands,
+    // and leaving it on screen in between reads as "the delete did nothing".
+    mutate((current) => (current ?? []).filter((row) => row.id !== entry.id));
+    try {
+      await api.deleteTimeEntry(entry.id, props.taskId);
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Could not delete that entry",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+    }
+    void refetch();
+  };
+
+  const save = async (entry: TimeEntry, patch: { description?: string; durationMs?: number }) => {
+    try {
+      const body: Parameters<typeof api.patchTimeEntry>[1] = {};
+      if (patch.description !== undefined) body.description = patch.description;
+      /*
+       * A duration is written as a span, because the endpoint refuses `start`
+       * without `end`. The start is left where it is and the end moves: an
+       * entry says when the work began, and correcting how long it ran should
+       * not quietly reschedule it.
+       */
+      if (patch.durationMs !== undefined && entry.start !== null) {
+        body.span = { start: entry.start, end: entry.start + patch.durationMs };
+      }
+      const { entry: updated } = await api.patchTimeEntry(entry.id, body);
+      mutate((current) => (current ?? []).map((row) => (row.id === updated.id ? updated : row)));
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Could not save that entry",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+      void refetch();
+    }
+  };
+
+  return (
+    <section class="border-line/70 border-t px-5 py-4">
+      <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
+        Time
+        <Show when={total() > 0}>
+          <span class="tabular-nums lowercase">{formatDuration(total())}</span>
+        </Show>
+        <div class="flex-1" />
+        <button
+          type="button"
+          onClick={() => void toggle()}
+          class="rounded-[4px] px-1.5 py-0.5 font-medium text-xs normal-case tracking-normal hover:bg-hover"
+          classList={{
+            "text-high hover:text-high": isTracking(props.taskId),
+            "text-ink-3 hover:text-ink": !isTracking(props.taskId),
+          }}
+        >
+          <Show when={isTracking(props.taskId)} fallback="Start  t">
+            Stop {formatClock(live())}
+          </Show>
+        </button>
+      </h3>
+
+      <Show
+        when={rows().length > 0 || entries.loading}
+        fallback={
+          <p class="text-ink-4 text-xs">
+            {failed() ? "Could not read time from ClickUp." : "No time tracked yet."}
+          </p>
+        }
+      >
+        <ul class="space-y-1">
+          <For each={rows()}>
+            {(entry) => <Row entry={entry} onSave={save} onDelete={remove} />}
+          </For>
+        </ul>
+      </Show>
+    </section>
+  );
+}
+
+function Row(props: {
+  entry: TimeEntry;
+  onSave: (entry: TimeEntry, patch: { description?: string; durationMs?: number }) => Promise<void>;
+  onDelete: (entry: TimeEntry) => Promise<void>;
+}): JSX.Element {
+  const [editing, setEditing] = createSignal(false);
+  const [confirming, setConfirming] = createSignal(false);
+
+  /*
+   * The running entry cannot be edited: its duration is still being decided by
+   * ClickUp, and writing a span over it would stop it in a way the user did not
+   * ask for. It shows the counter from the header instead.
+   */
+  const editable = () => !props.entry.running && props.entry.start !== null;
+
+  return (
+    <li class="group/entry flex items-center gap-2 rounded-[5px] px-1 py-1 hover:bg-hover/60">
+      <Avatar user={props.entry.user} size={18} />
+
+      <Show
+        when={editing()}
+        fallback={
+          <>
+            <span
+              class="w-14 shrink-0 text-right font-medium text-ink text-xs tabular-nums"
+              classList={{ "text-high": props.entry.running }}
+            >
+              <Show when={!props.entry.running} fallback="running">
+                {formatDuration(props.entry.durationMs)}
+              </Show>
+            </span>
+
+            <button
+              type="button"
+              disabled={!editable()}
+              onClick={() => setEditing(true)}
+              class="flex-1 cursor-text truncate text-left text-ink-2 text-xs disabled:cursor-default"
+            >
+              {props.entry.description || (
+                <span class="text-ink-4">{editable() ? "Add a note…" : "—"}</span>
+              )}
+            </button>
+
+            <span class="shrink-0 text-ink-4 text-xs">
+              {formatRelative(
+                props.entry.start === null ? null : new Date(props.entry.start).toISOString(),
+              )}
+            </span>
+
+            <Show when={editable()}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirming()) void props.onDelete(props.entry);
+                  else setConfirming(true);
+                }}
+                onBlur={() => setConfirming(false)}
+                aria-label={confirming() ? "Confirm deleting this entry" : "Delete this time entry"}
+                class="shrink-0 rounded-[4px] px-1 py-0.5 text-xs opacity-0 hover:bg-hover focus-visible:opacity-100 group-hover/entry:opacity-100"
+                classList={{
+                  "text-high opacity-100": confirming(),
+                  "text-ink-4 hover:text-ink-2": !confirming(),
+                }}
+              >
+                {/* Two steps, because ClickUp has no undo for this and the row
+                    is somebody's paid hours. */}
+                {confirming() ? "Sure?" : "Delete"}
+              </button>
+            </Show>
+          </>
+        }
+      >
+        <Editor entry={props.entry} onCancel={() => setEditing(false)} onSave={props.onSave} />
+      </Show>
+    </li>
+  );
+}
+
+function Editor(props: {
+  entry: TimeEntry;
+  onCancel: () => void;
+  onSave: (entry: TimeEntry, patch: { description?: string; durationMs?: number }) => Promise<void>;
+}): JSX.Element {
+  const [length, setLength] = createSignal(formatDuration(props.entry.durationMs) ?? "");
+  const [note, setNote] = createSignal(props.entry.description);
+
+  const submit = (event: Event) => {
+    event.preventDefault();
+    const parsed = parseDuration(length());
+    if (parsed === null) {
+      // Refusing beats writing a zero: an unreadable box is a typo, and a typo
+      // that silently becomes "no time worked" is the worst available answer.
+      pushToast({
+        tone: "error",
+        title: "That is not a length I can read",
+        detail: "Try 1h 30m, 1:30, or 90.",
+      });
+      return;
+    }
+
+    const patch: { description?: string; durationMs?: number } = {};
+    if (note() !== props.entry.description) patch.description = note();
+    if (parsed !== props.entry.durationMs) patch.durationMs = parsed;
+
+    props.onCancel();
+    if (patch.description !== undefined || patch.durationMs !== undefined) {
+      void props.onSave(props.entry, patch);
+    }
+  };
+
+  return (
+    <form class="flex flex-1 items-center gap-2" onSubmit={submit}>
+      <input
+        value={length()}
+        onInput={(event) => setLength(event.currentTarget.value)}
+        aria-label="Length"
+        class="w-14 shrink-0 rounded-[4px] bg-chip px-1.5 py-0.5 text-right text-ink text-xs tabular-nums outline-none focus:ring-1 focus:ring-accent"
+      />
+      <input
+        value={note()}
+        onInput={(event) => setNote(event.currentTarget.value)}
+        placeholder="Note…"
+        aria-label="Note"
+        // The row was clicked in order to be edited; landing anywhere else
+        // would mean a second click before typing.
+        autofocus
+        class="flex-1 rounded-[4px] bg-chip px-1.5 py-0.5 text-ink text-xs outline-none focus:ring-1 focus:ring-accent"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            props.onCancel();
+          }
+        }}
+      />
+      <button type="submit" class="shrink-0 px-1 py-0.5 font-medium text-accent text-xs">
+        Save
+      </button>
+      <button
+        type="button"
+        onClick={props.onCancel}
+        class="shrink-0 px-1 py-0.5 text-ink-4 text-xs hover:text-ink-2"
+      >
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+/**
+ * The running timer, wherever the user is.
+ *
+ * Lives above the sidebar footer rather than in it: this needs a task name, a
+ * counter and a stop button, and the footer is a fixed 44px already carrying an
+ * avatar, a name, two buttons and the connection dot. A timer nobody can see
+ * from the view they wandered off to is a timer that runs all night.
+ */
+export function RunningTimer(props: { onOpen: (taskId: string) => void }): JSX.Element {
+  return (
+    <Show when={running()}>
+      {(entry) => (
+        <div class="flex h-9 items-center gap-2 border-line/70 border-t px-3">
+          <span class="size-1.5 shrink-0 animate-pulse rounded-full bg-high" />
+          <button
+            type="button"
+            onClick={() => entry().taskId && props.onOpen(entry().taskId ?? "")}
+            disabled={!entry().taskId}
+            class="flex-1 truncate text-left text-ink-2 text-xs hover:text-ink disabled:hover:text-ink-2"
+            title={entry().taskName ?? undefined}
+          >
+            {entry().taskName ?? "Tracking"}
+          </button>
+          <span class="shrink-0 font-medium text-ink text-xs tabular-nums">
+            {formatClock(elapsed())}
+          </span>
+          <button
+            type="button"
+            /* `stopTimer`, not the toggle: ClickUp allows an entry with no task,
+               and a toggle keyed on a null id reads as "not tracking this". */
+            onClick={() => void stopTimer()}
+            aria-label="Stop the timer"
+            class="shrink-0 rounded-[4px] px-1 py-0.5 text-ink-4 text-xs hover:bg-hover hover:text-ink"
+          >
+            Stop
+          </button>
+        </div>
+      )}
+    </Show>
+  );
+}

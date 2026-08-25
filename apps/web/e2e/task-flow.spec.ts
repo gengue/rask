@@ -340,6 +340,12 @@ test("picks the columns a subtask row shows, and keeps the task open on the way 
  * Last on purpose, with the refused-sign-in test that needs no session: signing
  * out ends the one seeded session every `/__dev-login` above hands out, so a
  * test placed after this one lands on the sign-in page instead of a list.
+ *
+ * That constraint crosses files, which is the part worth spelling out. Logout
+ * deletes the session row, and `/__dev-login` only replays the fixed token in
+ * `.dev-session` — it does not mint a new one. With `workers: 1` Playwright
+ * runs spec files in alphabetical order, so any new file needing a session has
+ * to sort before `task-flow`. `keyboard-timer.spec.ts` is named for that.
  */
 test("signs out, and a signed-out visit gets a way back in", async ({ page }) => {
   await page.goto("/__dev-login");

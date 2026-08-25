@@ -13,6 +13,7 @@ import {
   type ClickUpTag,
   type ClickUpTask,
   type ClickUpTeam,
+  type ClickUpTimeEntry,
   type ClickUpUser,
   type ClickUpView,
   type ClickUpWebhook,
@@ -30,8 +31,11 @@ import {
   clickUpWebhook,
   createdComment,
   listViewsResponse,
+  runningTimeEntryResponse,
   taskPage,
   threadedCommentCreated,
+  timeEntriesResponse,
+  timeEntryResponse,
   viewResponse,
 } from "./schemas.ts";
 
@@ -520,6 +524,101 @@ export class ClickUpClient {
     );
   }
 
+  // --- Time tracking ------------------------------------------------------
+
+  /**
+   * The timer running for one user right now, or null.
+   *
+   * `assignee` is not optional in practice: without it ClickUp answers for the
+   * token's own owner, which is the same person here but says so by accident
+   * rather than on purpose.
+   */
+  getRunningTimeEntry(teamId: string, assignee: string): Promise<ClickUpTimeEntry | null> {
+    return this.request(
+      runningTimeEntryResponse,
+      "GET",
+      `/v2/team/${teamId}/time_entries/current`,
+      { query: { assignee } },
+    ).then((r) => r.data ?? null);
+  }
+
+  /** Starts a timer for the token's owner. ClickUp stamps the start, not us. */
+  startTimeEntry(teamId: string, input: { taskId: string }): Promise<ClickUpTimeEntry> {
+    return this.request(timeEntryResponse, "POST", `/v2/team/${teamId}/time_entries/start`, {
+      body: { tid: input.taskId },
+    }).then((r) => r.data);
+  }
+
+  /** Stops whatever is running for the token's owner. Errors when nothing is. */
+  stopTimeEntry(teamId: string): Promise<ClickUpTimeEntry> {
+    return this.request(timeEntryResponse, "POST", `/v2/team/${teamId}/time_entries/stop`).then(
+      (r) => r.data,
+    );
+  }
+
+  /**
+   * Entries on one task.
+   *
+   * Both filters have to be spelled out every time, because both defaults are
+   * wrong and neither failure says anything: without `startDate`/`endDate`
+   * ClickUp answers with the last 30 days, and without `assignee` it answers
+   * with the token owner's entries alone. A task tracked by three people last
+   * quarter would come back looking empty.
+   *
+   * `assignee` is comma-joined rather than passed as an array: this is the one
+   * parameter ClickUp wants that way, and `url()` would render an array as the
+   * repeated `assignee[]=` form the endpoint ignores.
+   */
+  getTimeEntries(
+    teamId: string,
+    params: { taskId: string; assignees: string[]; startDate: number; endDate: number },
+  ): Promise<ClickUpTimeEntry[]> {
+    return this.request(timeEntriesResponse, "GET", `/v2/team/${teamId}/time_entries`, {
+      query: {
+        task_id: params.taskId,
+        assignee: params.assignees.length ? params.assignees.join(",") : undefined,
+        start_date: params.startDate,
+        end_date: params.endDate,
+      },
+    }).then((r) => r.data ?? []);
+  }
+
+  /**
+   * Edits one entry.
+   *
+   * `tags` is a required field on this endpoint even when the caller only wants
+   * to move a duration, and getting it wrong empties the entry's tags with no
+   * error. `tag_action: "add"` over an empty array is the no-op that satisfies
+   * the requirement, and it is applied here rather than at the call sites so
+   * that none of them can forget.
+   *
+   * `start` and `end` travel together or not at all — the spec says so — which
+   * is why they are one optional pair in the input rather than two fields.
+   */
+  updateTimeEntry(
+    teamId: string,
+    entryId: string,
+    patch: { description?: string; billable?: boolean; span?: { start: number; end: number } },
+  ): Promise<ClickUpTimeEntry> {
+    const body: Record<string, unknown> = { tags: [], tag_action: "add" };
+    if (patch.description !== undefined) body.description = patch.description;
+    if (patch.billable !== undefined) body.billable = patch.billable;
+    if (patch.span) {
+      body.start = patch.span.start;
+      body.end = patch.span.end;
+      body.duration = patch.span.end - patch.span.start;
+    }
+
+    return this.request(timeEntryResponse, "PUT", `/v2/team/${teamId}/time_entries/${entryId}`, {
+      body,
+    }).then((r) => r.data);
+  }
+
+  /** Removes an entry. ClickUp has no undo for this. */
+  async deleteTimeEntry(teamId: string, entryId: string): Promise<void> {
+    await this.request(z.unknown(), "DELETE", `/v2/team/${teamId}/time_entries/${entryId}`);
+  }
+
   // --- Attachments --------------------------------------------------------
 
   /**
@@ -819,6 +918,7 @@ export const WEBHOOK_TASK_EVENTS = [
   "taskTagUpdated",
   "taskMoved",
   "taskTimeEstimateUpdated",
+  "taskTimeTrackedUpdated",
   /*
    * The two comment events, which are the only way a conversation reaches the
    * mirror without somebody opening the task.

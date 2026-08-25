@@ -90,6 +90,16 @@ from ClickUp to repair the mirror, and the author gets a `write-failed` SSE even
 Rows not yet shipped carry a `tmp_` placeholder id; addressing one upstream would
 404, so those writes are refused with 409 rather than queued.
 
+**Time tracking is the one thing read live, not mirrored.** The running timer
+and the individual entries come straight from ClickUp ([apps/api/src/time.ts](apps/api/src/time.ts)); the only
+mirrored trace is `tasks.time_spent`, which rides free on the task payload every
+sync already reads. A running timer is one row per *user* that changes only when
+that person acts, so a table plus a poll loop plus a reconcile path would all
+exist to keep a single row honest. Its writes leave the outbox for the same
+reason attachments do: `POST /time_entries/start` is stamped with ClickUp's clock
+when it arrives, so a queued start that drains three minutes late records the
+wrong interval and says nothing.
+
 The exception is `POST /api/tasks/:id/attachments` ([attachments.ts](apps/api/src/attachments.ts)): an outbox
 payload is jsonb and a file is bytes, so an upload waits for ClickUp and the task
 is re-read into the mirror afterwards. It is also the only multipart request in

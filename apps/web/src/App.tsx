@@ -27,6 +27,7 @@ import { markSignedOut, signedOut } from "./lib/signed-out.ts";
 import { connect } from "./lib/sse.ts";
 import { tasks } from "./lib/store.ts";
 import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
+import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
 import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
@@ -66,6 +67,10 @@ export function AppShell(): JSX.Element {
 
   onMount(() => {
     /*
+     * `hydrateTimer` is what makes the running-timer band survive a reload, and
+     * what picks up a timer started from ClickUp's own app or another device.
+     * Nothing about it is mirrored, so asking is the only way to know.
+     *
      * A 401 here is not an error, it is the answer: `markSignedOut` has already
      * run inside the client and the shell is about to swap to the sign-in page.
      * Left unhandled it was a rejected promise in the console on every
@@ -73,10 +78,19 @@ export function AppShell(): JSX.Element {
      * failed sign-in would be looking.
      */
     void loadSession()
-      // Before the route loads anything, and whichever route that is. The
-      // sidebar's unread count is a query over the shared collection, so the
-      // rows it counts have to be in there even when you opened a list.
+      /*
+       * Both chained rather than fired alongside, and for the same reason:
+       * each needs a live session, and on the sign-in page they would only
+       * spend a request to be told what `loadSession` is already finding out.
+       *
+       * The inbox goes first because it has to land before the route loads
+       * anything, whichever route that is — the sidebar's unread count is a
+       * query over the shared collection, so the rows it counts have to be in
+       * there even when you opened a list. The timer read has nobody waiting
+       * on it, so it goes last.
+       */
       .then(() => loadInbox())
+      .then(() => hydrateTimer())
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) return;
         pushToast({
@@ -268,6 +282,15 @@ export function AppShell(): JSX.Element {
           setUi("menu", "priority");
         }
         break;
+      case "t":
+        // A toggle: pressed on the task already being tracked, it stops. The
+        // decision lives in `toggleTimer` so the palette and the detail button
+        // cannot drift away from what the key does.
+        if (task) {
+          event.preventDefault();
+          void toggleTimer(task);
+        }
+        break;
       case "f":
         if (openTaskId()) {
           event.preventDefault();
@@ -444,6 +467,16 @@ export function AppShell(): JSX.Element {
       },
     },
     {
+      id: "task:timer",
+      label: isTracking(cursorTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
+      section: "Task",
+      hint: "t",
+      run: () => {
+        const target = cursorTask();
+        if (target) void toggleTimer(target);
+      },
+    },
+    {
       id: "help:shortcuts",
       label: "Keyboard shortcuts",
       section: "Help",
@@ -528,6 +561,12 @@ export function AppShell(): JSX.Element {
             queueMicrotask(() => searchInput?.focus());
           }}
           onQuickAdd={() => setUi("quickAdd", true)}
+          onOpenTask={(taskId) =>
+            navigate({
+              to: ".",
+              search: (prev: Record<string, unknown>) => ({ ...prev, task: taskId }),
+            })
+          }
         />
 
         <Show when={ui.sidebarOpen}>

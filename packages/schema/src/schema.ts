@@ -319,9 +319,11 @@ export const tasks = pgTable(
     /**
      * Milliseconds tracked against the task, as ClickUp totals them.
      *
-     * Read-only here. Rask has no timer and does not write time entries, so
-     * this is a number to show next to an estimate, not a value the outbox can
-     * ever carry back.
+     * Read-only here, and the only piece of time tracking the mirror holds. It
+     * costs nothing to keep: every task payload already carries it. Rask does
+     * start and stop timers now, but never through this column — those writes
+     * go straight to ClickUp and come back in the next read of the task. See
+     * `apps/api/src/time.ts` for why none of the rest of it is mirrored.
      */
     timeSpent: bigint("time_spent", { mode: "number" }),
     points: real("points"),

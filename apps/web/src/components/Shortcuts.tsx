@@ -28,6 +28,7 @@ const GROUPS: Array<{ title: string; items: Array<[keys: string[], label: string
       [["/"], "Search this view"],
       [["F"], "Add a filter"],
       [["f"], "Expand the open task"],
+      [["t"], "Start or stop the timer"],
     ],
   },
   {

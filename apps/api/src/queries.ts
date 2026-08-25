@@ -388,6 +388,7 @@ export async function getTaskDetail(db: Db, taskId: string) {
       creatorId: tasks.creatorId,
       folderId: tasks.folderId,
       timeEstimate: tasks.timeEstimate,
+      timeSpent: tasks.timeSpent,
       points: tasks.points,
       dateClosed: tasks.dateClosed,
     })

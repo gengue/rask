@@ -1,4 +1,14 @@
 import { placeholderId } from "@rask/clickup-client/vocabulary";
+
+/**
+ * A row the outbox has not shipped yet, so ClickUp has no id for it.
+ *
+ * Addressing one upstream would 404 and take the local state down with it on
+ * the revert, so those writes are refused rather than queued. The window is a
+ * couple of seconds — the outbox drains every two — and the UI says so.
+ */
+export const NOT_YET = "this has not reached ClickUp yet";
+
 import {
   checklistItems,
   comments,
