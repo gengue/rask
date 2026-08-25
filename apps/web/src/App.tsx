@@ -18,6 +18,7 @@ import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
+import { loadInbox } from "./lib/inbox.ts";
 import { lightboxOpen } from "./lib/lightbox.ts";
 import { useExpanded } from "./lib/nav.tsx";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
@@ -29,12 +30,14 @@ import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
 import { pushToast } from "./lib/toast.ts";
 import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
+  boardLayout,
   cursorTask,
   rowTasks,
   searchScope,
   setFilterRequest,
   setStatusRequest,
   statusRequest,
+  viewIsFeed,
   viewListId,
   viewTitle,
   viewTruncated,
@@ -69,14 +72,19 @@ export function AppShell(): JSX.Element {
      * signed-out visit, which is noise in exactly the place someone debugging a
      * failed sign-in would be looking.
      */
-    void loadSession().catch((error: unknown) => {
-      if (error instanceof ApiError && error.status === 401) return;
-      pushToast({
-        tone: "error",
-        title: "Could not load the workspace",
-        detail: error instanceof Error ? error.message : String(error),
+    void loadSession()
+      // Before the route loads anything, and whichever route that is. The
+      // sidebar's unread count is a query over the shared collection, so the
+      // rows it counts have to be in there even when you opened a list.
+      .then(() => loadInbox())
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) return;
+        pushToast({
+          tone: "error",
+          title: "Could not load the workspace",
+          detail: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
   });
 
   const [menu, setMenu] = createSignal<{
@@ -283,7 +291,7 @@ export function AppShell(): JSX.Element {
       case "H":
       case "L":
         // The keyboard's drag: the same write, one column over.
-        if (task && ui.layout === "board") {
+        if (task && boardLayout()) {
           event.preventDefault();
           shiftColumn(task, key === "L" ? 1 : -1);
         }
@@ -299,7 +307,7 @@ export function AppShell(): JSX.Element {
           key,
           ui.cursor,
           rowTasks().length,
-          ui.layout === "board" ? boardColumns() : null,
+          boardLayout() ? boardColumns() : null,
         );
         if (next !== null) {
           event.preventDefault();
@@ -632,8 +640,14 @@ export function AppShell(): JSX.Element {
               </Show>
 
               <FilterBar />
-              <span class="h-3.5 w-px shrink-0 bg-line-strong" />
-              <GroupPicker />
+              {/* Hidden rather than disabled in the feed: the inbox forces its
+                own order, and a control that visibly does nothing is worse than
+                one that is not there. It comes back with your setting intact
+                the moment you leave. */}
+              <Show when={!viewIsFeed()}>
+                <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+                <GroupPicker />
+              </Show>
             </header>
 
             <Outlet />

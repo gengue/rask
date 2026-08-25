@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { setUi, ui } from "../lib/ui.ts";
-import { flatItems, viewListId, viewLoading } from "../lib/view.ts";
+import { flatItems, viewIsFeed, viewListId, viewLoading } from "../lib/view.ts";
 import { sameRange, visibleRange } from "../lib/windowing.ts";
 import { StatusIcon } from "./StatusIcon.tsx";
 import { TaskRow } from "./TaskRow.tsx";
@@ -38,6 +38,15 @@ export function TaskList(props: {
   const [viewport, setViewport] = createSignal(0);
 
   const items = flatItems;
+
+  const emptyTitle = () => {
+    if (ui.search) return "No matches";
+    return viewIsFeed() ? "You are caught up" : "Nothing here";
+  };
+  const emptyHint = () => {
+    if (ui.search) return "Try a different search";
+    return viewIsFeed() ? "Changes to your tasks land here" : "Press c to create a task";
+  };
 
   /** Cumulative pixel offset of every item, plus the total at the end. */
   const offsets = createMemo(() => {
@@ -125,10 +134,10 @@ export function TaskList(props: {
         fallback={
           <Show when={!viewLoading()} fallback={<SkeletonRows />}>
             <div class="flex h-full flex-col items-center justify-center gap-1 text-ink-3">
-              <div class="text-base">{ui.search ? "No matches" : "Nothing here"}</div>
-              <div class="text-ink-3 text-xs">
-                {ui.search ? "Try a different search" : "Press c to create a task"}
-              </div>
+              {/* An empty feed is an achievement, not a gap to fill, and "press
+                  c to create a task" is advice for the wrong page entirely. */}
+              <div class="text-base">{emptyTitle()}</div>
+              <div class="text-ink-3 text-xs">{emptyHint()}</div>
             </div>
           </Show>
         }

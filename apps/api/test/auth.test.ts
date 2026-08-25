@@ -109,6 +109,9 @@ describe("currentUser", () => {
       // From oauth_tokens, not from users: which workspace they are in is a
       // property of the token, and every query downstream is scoped by it.
       teamId: "9001",
+      // Defaulted by the column, so a user who has never opened the inbox has a
+      // window that starts when their row did rather than at the epoch.
+      inboxSeenAt: expect.any(Date),
     });
   });
 

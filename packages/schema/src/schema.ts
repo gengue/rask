@@ -121,6 +121,16 @@ export const users = pgTable("users", {
   profilePicture: text("profile_picture"),
   /** True once they have completed the OAuth flow at least once. */
   isRaskUser: boolean("is_rask_user").notNull().default(false),
+  /**
+   * When this user last opened the inbox. Everything ClickUp touched on their
+   * tasks after it counts as unread.
+   *
+   * Defaults to now rather than to null, on the column and on the backfill
+   * both, so nobody's first visit is 450 unread tasks from before the feature
+   * existed. Local knowledge — ClickUp has no notifications API to read a real
+   * read-state from, and no way to write ours back.
+   */
+  inboxSeenAt: ts("inbox_seen_at").notNull().defaultNow(),
   syncedAt: ts("synced_at").notNull().defaultNow(),
 });
 

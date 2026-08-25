@@ -13,6 +13,7 @@ import {
   createSignal,
   type JSX,
   Match,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -33,16 +34,26 @@ import {
   listViewsOf,
   loadListViews,
 } from "./lib/clickup-views.ts";
+import {
+  byRecency,
+  inboxCutoff,
+  inboxPredicate,
+  inboxSeenAt,
+  loadInbox,
+  markInboxSeen,
+  setUnreadSince,
+} from "./lib/inbox.ts";
 import { useLiveTasks } from "./lib/live.ts";
 import { listName, me } from "./lib/session.ts";
 import { load, loadViewTasks, type TaskPageResult } from "./lib/store.ts";
-import { ui } from "./lib/ui.ts";
 import {
+  boardLayout,
   filterFieldIds,
   includeClosed,
   serverFilter,
   setSearchScope,
   setStatusRequest,
+  setViewIsFeed,
   setViewListId,
   setViewLoading,
   setViewMembership,
@@ -95,6 +106,12 @@ const myTasksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: MyTasksView,
+});
+
+const inboxRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/inbox",
+  component: InboxView,
 });
 
 const listRoute = createRoute({
@@ -175,6 +192,82 @@ function MyTasksView(): JSX.Element {
   );
 
   createEffect(() => setViewTasks(rows()));
+
+  return <ListBody listId={null} activeViewId={null} />;
+}
+
+/**
+ * What changed on your tasks while you were away.
+ *
+ * Not a mirror of ClickUp's inbox — there is no endpoint for that one, in
+ * either direction — but a query over the mirror we already keep. `lib/inbox.ts`
+ * has the reasoning and the ceiling.
+ *
+ * Arriving is what marks it read, the way opening any inbox is. The instant it
+ * was read up to is captured first and held for as long as the page is on
+ * screen, so the dots stay where they were while you are still looking at them.
+ */
+function InboxView(): JSX.Element {
+  /*
+   * Captured once, when we first know who is asking, and never recomputed.
+   *
+   * Both halves have to be frozen together. `markInboxSeen` moves the user's
+   * read mark to now, so a cutoff that kept tracking it would narrow to the
+   * plain seven-day window a moment after mount and drop anything older that
+   * was still unread — the rows somebody away for a fortnight came here for.
+   */
+  const [cutoff, setCutoff] = createSignal<number | null>(null);
+  let captured = false;
+
+  createEffect(() => {
+    // Deep-linking to /inbox mounts this before the session has landed, and a
+    // read mark of "now" is the wrong thing to freeze.
+    if (captured || !me()) return;
+    captured = true;
+    setUnreadSince(inboxSeenAt());
+    setCutoff(inboxCutoff());
+    // Arriving is what marks it read, the way opening any inbox is. Not awaited:
+    // the dots are already drawn from the instant captured above, so a slow
+    // round trip delays nothing on screen.
+    void markInboxSeen();
+  });
+
+  createEffect(() => {
+    setViewTitle("Inbox");
+    setViewListId(null);
+    setSearchScope("server");
+    // Chronological, closed tasks included, no board. See `viewIsFeed`.
+    setViewIsFeed(true);
+    clearListViews();
+
+    const since = cutoff();
+    // The skeleton covers the gap before the session lands, the same way it
+    // covers the fetch after. Left alone, a deep link to /inbox draws "nothing
+    // here" for as long as `/api/me` takes.
+    if (since === null) setViewLoading(true);
+    else void loadInbox(since).then(applyPage(""));
+  });
+
+  onCleanup(() => {
+    setUnreadSince(null);
+    setViewIsFeed(false);
+  });
+
+  const rows = useLiveTasks(
+    createMemo(() => {
+      const since = cutoff();
+      // Nothing rather than everything until the window is known: the rows are
+      // in the shared collection already, and an unfiltered flash of every task
+      // the session has loaded is not what this page is.
+      if (since === null) return () => false;
+      return inboxPredicate(me()?.id, since);
+    }),
+  );
+
+  // Sorted here rather than in the predicate because `useLiveTasks` filters an
+  // unordered map. The server sent them newest-first; SSE arrivals have to be
+  // put back in that order as they land.
+  createEffect(() => setViewTasks([...rows()].sort(byRecency)));
 
   return <ListBody listId={null} activeViewId={null} />;
 }
@@ -529,7 +622,7 @@ function ListBody(props: { listId: string | null; activeViewId: string | null })
         <ViewTabs activeViewId={props.activeViewId} />
       </Show>
       <Dynamic
-        component={ui.layout === "board" ? Board : TaskList}
+        component={boardLayout() ? Board : TaskList}
         openTaskId={(search() as { task?: string }).task ?? null}
         onOpen={(task) =>
           navigate({
@@ -551,6 +644,7 @@ function ListBody(props: { listId: string | null; activeViewId: string | null })
 
 const routeTree = rootRoute.addChildren([
   myTasksRoute,
+  inboxRoute,
   listRoute,
   savedViewRoute,
   viewRoute,

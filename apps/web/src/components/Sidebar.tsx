@@ -1,5 +1,7 @@
 import { createEffect, createMemo, For, type JSX, Show } from "solid-js";
 import type { Me, Space } from "../lib/api.ts";
+import { inboxPredicate, inboxSeenAt, inboxTruncated } from "../lib/inbox.ts";
+import { useLiveTasks } from "../lib/live.ts";
 import { A, useMatchRoute, useParams } from "../lib/nav.tsx";
 import {
   isOpen,
@@ -45,6 +47,18 @@ export function Sidebar(props: {
 }): JSX.Element {
   useRevealActiveList(() => props.spaces);
 
+  /*
+   * Counted from the shared collection rather than from a count endpoint.
+   *
+   * It is live for free — SSE folds every changed task into the same rows this
+   * reads — and it is only correct because the shell loads the inbox window at
+   * boot. Without that load this would be a count of whatever the open view
+   * happened to have fetched, which is a number that looks authoritative and
+   * is not.
+   */
+  const unreadRows = useLiveTasks(createMemo(() => inboxPredicate(props.me?.id, inboxSeenAt())));
+  const unread = () => unreadRows().length;
+
   return (
     <aside
       class="flex w-[236px] shrink-0 flex-col max-dock:absolute max-dock:inset-y-0 max-dock:left-0 max-dock:z-40 max-dock:border-line max-dock:border-r max-dock:bg-app"
@@ -64,6 +78,10 @@ export function Sidebar(props: {
       <nav class="flex flex-col gap-px px-2">
         <NavItem to="/" label="My Tasks">
           <path d="M5.5 8.5 7 10l3.5-4M13.5 8A5.5 5.5 0 1 1 2.5 8a5.5 5.5 0 0 1 11 0Z" />
+        </NavItem>
+        <NavItem to="/inbox" label="Inbox" badge={unread()} more={inboxTruncated()}>
+          {/* A bell. */}
+          <path d="M6.4 12.5a1.6 1.6 0 0 0 3.2 0M4 7a4 4 0 0 1 8 0c0 2.4.9 3.4 1.3 3.8a.4.4 0 0 1-.3.7H3a.4.4 0 0 1-.3-.7C3.1 10.4 4 9.4 4 7Z" />
         </NavItem>
       </nav>
 
@@ -278,7 +296,15 @@ function PinnedLists(props: { spaces: Space[] }): JSX.Element {
   );
 }
 
-function NavItem(props: { to: string; label: string; children: JSX.Element }): JSX.Element {
+function NavItem(props: {
+  to: string;
+  label: string;
+  /** Zero draws nothing. Undefined for the entries that never count anything. */
+  badge?: number;
+  /** There were more than the count could see. Draws a "+", as the header does. */
+  more?: boolean;
+  children: JSX.Element;
+}): JSX.Element {
   const matchRoute = useMatchRoute();
   const active = () => Boolean(matchRoute({ to: props.to, fuzzy: false }));
 
@@ -304,7 +330,13 @@ function NavItem(props: { to: string; label: string; children: JSX.Element }): J
           {props.children}
         </g>
       </svg>
-      {props.label}
+      <span class="flex-1 truncate">{props.label}</span>
+      <Show when={(props.badge ?? 0) > 0}>
+        <span class="shrink-0 rounded-full bg-accent px-1.5 font-medium text-[11px] text-on-accent tabular-nums">
+          {props.badge}
+          {props.more ? "+" : ""}
+        </span>
+      </Show>
     </A>
   );
 }
