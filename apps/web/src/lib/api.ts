@@ -178,6 +178,9 @@ export interface TaskRef {
   statusColor: string | null;
   statusType: string | null;
   listId: string;
+  dueDate: string | null;
+  timeEstimate: number | null;
+  timeSpent: number | null;
   assignees: Assignee[];
 }
 

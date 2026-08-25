@@ -123,6 +123,13 @@ don't reintroduce `useLiveQuery`.
   reads back fine through the ORM while `@>` silently matches nothing.
   `packages/schema/test/jsonb.test.ts` asserts `jsonb_typeof` and is the only thing
   that catches it.
+- **A correlated `sql` subquery has to name its outer table.** Drizzle writes a
+  bare `${tasks.id}` as `"id"` and only qualifies it when the outer query has a
+  join, so `assigneesJson` — which joins `users`, and `users` has an `id` —
+  silently rebound to `users.id` in every query without one. Every subtask row
+  read as Unassigned for as long as the panel existed. Write
+  `${tasks}.${sql.identifier("id")}`; `apps/api/test/subtasks.test.ts` is what
+  catches it.
 - **Never invent a ClickUp endpoint.** The v2 spec is vendored at
   `packages/clickup-client/openapi/clickup-v2.json`. Not in there means it does not
   exist.

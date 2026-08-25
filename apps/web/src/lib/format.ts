@@ -12,6 +12,15 @@ export interface DueLabel {
   tone: "overdue" | "today" | "soon" | "normal";
 }
 
+/** The ink a due label is painted in, per tone. Shared so a row, a card and a
+ *  subtask cannot drift apart on what "overdue" looks like. */
+export const DUE_TONE: Record<DueLabel["tone"], string> = {
+  overdue: "text-urgent",
+  today: "text-high",
+  soon: "text-ink-2",
+  normal: "text-ink-3",
+};
+
 /** Short, calendar-aware due date. "Today" beats "Jun 24" at a glance. */
 export function formatDue(value: string | null, now = new Date()): DueLabel | null {
   if (!value) return null;
@@ -42,6 +51,28 @@ function shortDate(date: Date): string {
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
   });
+}
+
+/**
+ * A duration in the shape ClickUp writes one: "45m", "2h", "1h 30m".
+ *
+ * Two units at most, and no seconds. An estimate is set in hours and minutes
+ * and a tracked total is read to answer "roughly how long did that take" —
+ * neither question gets a better answer from "1h 30m 12s".
+ *
+ * Zero reads as nothing, not "0m": ClickUp sends 0 for every task nobody has
+ * ever tracked against, and a column of zeroes is noise pretending to be data.
+ */
+export function formatDuration(ms: number | null): string | null {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return null;
+
+  const minutes = Math.round(ms / 60_000);
+  if (minutes === 0) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
 export function formatRelative(value: string | null, now = new Date()): string {

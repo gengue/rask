@@ -316,6 +316,14 @@ export const tasks = pgTable(
     /** [{ name, fg, bg }]. Kept whole so the UI can render colors without a join. */
     tags: jsonb<TaskTag[]>("tags").notNull().default(sql`'[]'::jsonb`),
     timeEstimate: bigint("time_estimate", { mode: "number" }),
+    /**
+     * Milliseconds tracked against the task, as ClickUp totals them.
+     *
+     * Read-only here. Rask has no timer and does not write time entries, so
+     * this is a number to show next to an estimate, not a value the outbox can
+     * ever carry back.
+     */
+    timeSpent: bigint("time_spent", { mode: "number" }),
     points: real("points"),
     url: text("url"),
 

@@ -176,6 +176,23 @@ describe("the skip guard, when nothing is being repaired", () => {
     expect((await stored())?.name).toBe("edited upstream");
   });
 
+  test("fills in a column that was added after the rows were", async () => {
+    // `time_spent` arrived on a mirror that already held every task. Nothing
+    // upstream moves `date_updated` to announce a column we invented, so a
+    // guard that only reads it would skip those rows forever and the number
+    // would stay blank until somebody edited the task for an unrelated reason.
+    // A full resync would not repair it either: it ignores the cursor, not
+    // this predicate.
+    await ingestTasks(db, [truth({ time_spent: null })]);
+    await backdate();
+    expect((await stored())?.timeSpent).toBeNull();
+
+    const result = await ingestTasks(db, [truth({ time_spent: 5_400_000 })]);
+
+    expect(result.changed).toBe(1);
+    expect((await stored())?.timeSpent).toBe(5_400_000);
+  });
+
   test("reports what it skipped as a cursor anyway", async () => {
     // `newestUpdate` is the next poll's `date_updated_gt`. It has to come from
     // the batch, not from the rows that happened to be written, or a page where
