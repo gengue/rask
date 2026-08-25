@@ -1,5 +1,13 @@
 import { Outlet, useNavigate, useSearch } from "@tanstack/solid-router";
-import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import {
   buildNavigationCommands,
   type Command,
@@ -18,8 +26,17 @@ import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
-import { loadInbox } from "./lib/inbox.ts";
+import {
+  INBOX_WINDOW_DAYS,
+  inboxPredicate,
+  inboxScope,
+  inboxSeenAt,
+  loadInbox,
+  markInboxSeen,
+  setInboxScope,
+} from "./lib/inbox.ts";
 import { lightboxOpen } from "./lib/lightbox.ts";
+import { useLiveTasks } from "./lib/live.ts";
 import { useExpanded } from "./lib/nav.tsx";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { signInError } from "./lib/sign-in-error.ts";
@@ -679,11 +696,11 @@ export function AppShell(): JSX.Element {
               </Show>
 
               <FilterBar />
-              {/* Hidden rather than disabled in the feed: the inbox forces its
-                own order, and a control that visibly does nothing is worse than
-                one that is not there. It comes back with your setting intact
-                the moment you leave. */}
-              <Show when={!viewIsFeed()}>
+              {/* Grouping is hidden rather than disabled in the feed: the inbox
+                forces its own order, and a control that visibly does nothing is
+                worse than one that is not there. It comes back with your
+                setting intact the moment you leave. */}
+              <Show when={!viewIsFeed()} fallback={<InboxControls />}>
                 <span class="h-3.5 w-px shrink-0 bg-line-strong" />
                 <GroupPicker />
               </Show>
@@ -790,6 +807,71 @@ export function AppShell(): JSX.Element {
         <Lightbox />
       </div>
     </Show>
+  );
+}
+
+/**
+ * Where the feed says what it is showing, and how to empty it.
+ *
+ * Both controls exist because the first version had neither: arriving marked
+ * everything read on its own, and the list showed a rolling week either way. So
+ * the badge went quiet, nothing on screen changed, and there was no way to ask
+ * for it again — an inbox with no way to clear it and no way to tell whether it
+ * had been.
+ */
+function InboxControls(): JSX.Element {
+  const unread = useLiveTasks(createMemo(() => inboxPredicate(me()?.id, inboxSeenAt())));
+  const [clearing, setClearing] = createSignal(false);
+
+  const clear = async () => {
+    setClearing(true);
+    try {
+      await markInboxSeen();
+    } catch (error) {
+      // The rows are still on screen and still unread, so the only thing that
+      // went wrong is invisible unless it is said out loud.
+      pushToast({
+        tone: "error",
+        title: "Could not clear the inbox",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <>
+      <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+
+      {/* One button that toggles rather than two that look like a choice: there
+          are only two scopes, and the label says which one you are in. */}
+      <button
+        type="button"
+        onClick={() => setInboxScope(inboxScope() === "unread" ? "window" : "unread")}
+        class="flex h-[22px] shrink-0 items-center rounded-[5px] px-1.5 text-xs text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
+        title={
+          inboxScope() === "unread"
+            ? `Showing what is new. Click for the last ${INBOX_WINDOW_DAYS} days.`
+            : `Showing the last ${INBOX_WINDOW_DAYS} days. Click for what is new.`
+        }
+      >
+        {inboxScope() === "unread" ? "Unread" : `Last ${INBOX_WINDOW_DAYS} days`}
+      </button>
+
+      {/* Absent rather than disabled at zero: a permanently greyed control on an
+          empty inbox is a thing to wonder about, and there is nothing to do. */}
+      <Show when={unread().length > 0}>
+        <button
+          type="button"
+          disabled={clearing()}
+          onClick={() => void clear()}
+          class="flex h-[22px] shrink-0 items-center rounded-[5px] px-1.5 text-xs text-ink-2 transition-colors hover:bg-hover hover:text-ink disabled:opacity-50"
+        >
+          Mark all read
+        </button>
+      </Show>
+    </>
   );
 }
 

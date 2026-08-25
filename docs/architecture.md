@@ -93,6 +93,11 @@ Each of these was dropped for a reason, and each has a way back in.
   `users.inbox_seen_at` per person for where that was. Marking it read here
   changes nothing in ClickUp, and clearing it there changes nothing here.
 
+  Clearing is a button, not a side effect of looking. The feed shows unread by
+  default so that pressing it has somewhere visible to land — an inbox that
+  cannot be emptied is not an inbox — and a second scope shows the last seven
+  days so that clearing is not destruction.
+
   A comment is the exception, and the reason the feed can say anything at all:
   a comment *is* an event, with an author, a body and a time. Three signals feed
   the rows that carry one, ranked — you were mentioned, the comment was assigned

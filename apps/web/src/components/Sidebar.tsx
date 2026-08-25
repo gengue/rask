@@ -2,7 +2,7 @@ import { createEffect, createMemo, For, type JSX, Show } from "solid-js";
 import type { Me, Space } from "../lib/api.ts";
 import { inboxPredicate, inboxSeenAt, inboxTruncated } from "../lib/inbox.ts";
 import { useLiveTasks } from "../lib/live.ts";
-import { A, useMatchRoute, useParams } from "../lib/nav.tsx";
+import { A, useParams, useRouterState } from "../lib/nav.tsx";
 import {
   isOpen,
   isPinned,
@@ -312,8 +312,20 @@ function NavItem(props: {
   more?: boolean;
   children: JSX.Element;
 }): JSX.Element {
-  const matchRoute = useMatchRoute();
-  const active = () => Boolean(matchRoute({ to: props.to, fuzzy: false }));
+  /*
+   * The pathname, not `matchRoute`.
+   *
+   * Same trap `ListItem` documents above, one level up: `matchRoute({ to, fuzzy:
+   * false })` returned true here for every destination on every route, so My
+   * Tasks and Inbox were both drawn selected while you were looking at a list.
+   * It only became visible when there were two of them — one link that is
+   * always marked reads as "you are here", two read as a bug.
+   *
+   * These have no parameters, so an exact pathname comparison is the whole
+   * question, and it is one TanStack cannot answer differently than it looks.
+   */
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const active = () => pathname() === props.to;
 
   return (
     <A

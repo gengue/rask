@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { api, type InboxReason, type Task } from "./api.ts";
 import { me, setMe } from "./session.ts";
 import { loadPage, type TaskPageResult } from "./store.ts";
+import { viewIsFeed } from "./view.ts";
 
 /**
  * What changed on your tasks while you were not looking.
@@ -63,19 +64,31 @@ export function cutoffFrom(seenAt: number, now: number): number {
 }
 
 /**
+ * What the feed is showing: only what is new, or the window behind it.
+ *
+ * Unread by default, because an inbox you cannot empty is not an inbox. The
+ * other scope exists so clearing is not destruction — the thing you just marked
+ * read is one click away rather than gone until somebody touches it again.
+ */
+export const [inboxScope, setInboxScope] = createSignal<"unread" | "window">("unread");
+
+/**
  * The instant the unread dots measure from, or null when nothing is measuring.
  *
- * Read by `TaskRow`, which is why this is a signal rather than a prop: the row
- * is rendered through a windowed `<Index>` and threading a flag from the route
- * through the list to it would put an inbox-shaped argument on every view that
- * has nothing to do with the inbox. Null everywhere but the inbox, so the dot
- * is off by construction rather than by whoever remembers to pass `false`.
+ * Read by the rows rather than passed to them: they render through a windowed
+ * `<Index>`, and threading an inbox-shaped flag through the list would put it
+ * on every view that has nothing to do with the inbox. Null off the feed, so
+ * the dot is off by construction rather than by whoever remembers `false`.
  *
- * It is captured when the route mounts and does not follow `inboxSeenAt`,
- * because opening the inbox is what marks it read: read from the user's record
- * the dots would all clear in the same frame that drew them.
+ * Derived rather than captured. It used to be frozen on mount because arriving
+ * marked the inbox read and the dots would have cleared in the frame that drew
+ * them — but arriving no longer marks anything, so this can follow the read
+ * mark directly, and pressing Mark all read clears the dots in the same frame.
+ * That *is* the feedback that the button did something.
  */
-export const [unreadSince, setUnreadSince] = createSignal<number | null>(null);
+export function unreadSince(): number | null {
+  return viewIsFeed() ? inboxSeenAt() : null;
+}
 
 /** Whether a task changed after `seenAt`. Both in epoch milliseconds. */
 export function isUnread(task: Task, seenAt: number): boolean {
@@ -185,6 +198,11 @@ export async function loadInbox(since = inboxCutoff()): Promise<TaskPageResult |
 
 /**
  * Marks everything up to now as read.
+ *
+ * Pressed, never automatic. Arriving used to do this, which meant a glance at
+ * the inbox silently cleared things nobody had read and left no control to undo
+ * or repeat it — the badge went quiet and the list did not change, so there was
+ * nothing on screen that looked like clearing.
  *
  * The instant is the server's, not ours: it is the one that gets stored, and a
  * browser whose clock runs fast would otherwise mark unread things it never

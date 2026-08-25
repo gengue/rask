@@ -9,6 +9,10 @@ import { expect, test } from "@playwright/test";
  * in the tab. Everything here would still pass a suite that stubbed the API,
  * and none of it would work.
  *
+ * Clearing is pressed, not implied. Arriving used to mark everything read,
+ * which cleared things nobody had read and left nothing on screen that looked
+ * like clearing had happened.
+ *
  * The fixture makes every task look freshly changed: `seed-dev` inserts the
  * user before the tasks, so `inbox_seen_at` defaults to an instant just before
  * every `date_updated` it then writes. That is the state the feature is for.
@@ -57,13 +61,35 @@ test("counts what changed, then clears it for good", async ({ page }) => {
   const list = page.getByRole("listbox", { name: "Tasks" });
   await expect(list.getByRole("option").first()).toBeVisible();
 
-  // Arriving marks it read, but the dots hold: the instant they measure from is
-  // captured before the write, so the page does not blank itself as you look.
-  await expect(list.getByText("Unread.").first()).toBeVisible();
-  await expect(inbox).toHaveText("Inbox");
+  /*
+   * Exactly one fixed destination is marked, and it is this one.
+   *
+   * `matchRoute` used to answer true for both on every route, so My Tasks and
+   * Inbox were drawn selected at the same time — and while looking at a list,
+   * neither of them was where you were. One link always marked reads as "you
+   * are here"; two read as a bug.
+   */
+  const marked = page.locator("aside nav a.row-selected");
+  await expect(marked).toHaveCount(1);
+  await expect(marked).toHaveAttribute("href", "/inbox");
 
-  // Away and back. The read mark went to Postgres, so this is a fresh read of
-  // it rather than a signal that happens to still be in the tab.
+  // Arriving changes nothing. The count is still the count and the rows are
+  // still unread, which is what makes the button below mean something.
+  await expect(inbox).toHaveText(`Inbox${unread.length}`);
+  await expect(list.getByText("Unread.").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Mark all read" }).click();
+
+  // Emptied, not merely dimmed. The unread scope is the default precisely so
+  // that clearing has somewhere visible to land.
+  await expect(list.getByRole("option")).toHaveCount(0);
+  await expect(page.getByText("You are caught up")).toBeVisible();
+  await expect(inbox).toHaveText("Inbox");
+  // And nothing left to press.
+  await expect(page.getByRole("button", { name: "Mark all read" })).toHaveCount(0);
+
+  // Away and back, and a reload. The read mark went to Postgres, so this is a
+  // fresh read of it rather than a signal that happens to still be in the tab.
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "My Tasks" })).toBeVisible();
   await expect(inbox).toHaveText("Inbox");
@@ -72,11 +98,18 @@ test("counts what changed, then clears it for good", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "My Tasks" })).toBeVisible();
   await expect(inbox).toHaveText("Inbox");
 
-  // The page itself still has something on it. The window reaches back a week
-  // whatever the read mark says, which is what stops a cleared inbox from
-  // reading as a broken one.
+  /*
+   * Cleared is not destroyed.
+   *
+   * The window scope is what stops Mark all read from being a one-way door: the
+   * rows are still there, just no longer new. Without it the only way back to
+   * something you cleared is remembering which task it was on.
+   */
   await inbox.click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await expect(page.getByText("You are caught up")).toBeVisible();
+
+  await page.getByRole("button", { name: "Unread", exact: true }).click();
   await expect(list.getByRole("option").first()).toBeVisible();
   await expect(list.getByText("Unread.")).toHaveCount(0);
 });
@@ -96,6 +129,15 @@ test("shows who said what, and opens the task they said it on", async ({ page })
 
   await page.goto("/inbox");
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+
+  /*
+   * The window scope, because the test above cleared the inbox and the database
+   * is shared across this file. Switching is the honest fix rather than
+   * reordering: what this test is about is the shape of a comment row, not
+   * whether the row is new, and a suite that depends on the order it runs in is
+   * a suite that breaks the day somebody adds a test above it.
+   */
+  await page.getByRole("button", { name: "Unread", exact: true }).click();
 
   const list = page.getByRole("listbox", { name: "Tasks" });
   await expect(list.getByRole("option").first()).toBeVisible();

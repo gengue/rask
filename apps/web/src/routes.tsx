@@ -38,10 +38,9 @@ import {
   byRecency,
   inboxCutoff,
   inboxPredicate,
+  inboxScope,
   inboxSeenAt,
   loadInbox,
-  markInboxSeen,
-  setUnreadSince,
 } from "./lib/inbox.ts";
 import { useLiveTasks } from "./lib/live.ts";
 import { listName, me } from "./lib/session.ts";
@@ -209,27 +208,23 @@ function MyTasksView(): JSX.Element {
  */
 function InboxView(): JSX.Element {
   /*
-   * Captured once, when we first know who is asking, and never recomputed.
+   * The window is captured once, when we first know who is asking.
    *
-   * Both halves have to be frozen together. `markInboxSeen` moves the user's
-   * read mark to now, so a cutoff that kept tracking it would narrow to the
-   * plain seven-day window a moment after mount and drop anything older that
-   * was still unread — the rows somebody away for a fortnight came here for.
+   * Marking the inbox read moves `inboxSeenAt` to now, which would narrow
+   * `inboxCutoff` to the plain seven-day window under somebody who had been
+   * away a fortnight — the rows they came here for, disappearing as they
+   * cleared them. Frozen, the page they are looking at stays the page they
+   * opened.
    */
   const [cutoff, setCutoff] = createSignal<number | null>(null);
   let captured = false;
 
   createEffect(() => {
     // Deep-linking to /inbox mounts this before the session has landed, and a
-    // read mark of "now" is the wrong thing to freeze.
+    // window measured from "now" is the wrong thing to freeze.
     if (captured || !me()) return;
     captured = true;
-    setUnreadSince(inboxSeenAt());
     setCutoff(inboxCutoff());
-    // Arriving is what marks it read, the way opening any inbox is. Not awaited:
-    // the dots are already drawn from the instant captured above, so a slow
-    // round trip delays nothing on screen.
-    void markInboxSeen();
   });
 
   createEffect(() => {
@@ -248,10 +243,7 @@ function InboxView(): JSX.Element {
     else void loadInbox(since).then(applyPage(""));
   });
 
-  onCleanup(() => {
-    setUnreadSince(null);
-    setViewIsFeed(false);
-  });
+  onCleanup(() => setViewIsFeed(false));
 
   const rows = useLiveTasks(
     createMemo(() => {
@@ -260,7 +252,15 @@ function InboxView(): JSX.Element {
       // in the shared collection already, and an unfiltered flash of every task
       // the session has loaded is not what this page is.
       if (since === null) return () => false;
-      return inboxPredicate(me()?.id, since);
+
+      /*
+       * Two scopes over one loaded set.
+       *
+       * Both read the same rows and differ only in where they measure from, so
+       * switching is free and Mark all read empties the unread one on the spot
+       * — which is the only thing on screen that says the button worked.
+       */
+      return inboxPredicate(me()?.id, inboxScope() === "unread" ? inboxSeenAt() : since);
     }),
   );
 

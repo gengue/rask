@@ -8,9 +8,9 @@ import { useNavigate, useSearch } from "@tanstack/solid-router";
 
 export {
   Link as A,
-  useMatchRoute,
   useNavigate,
   useParams,
+  useRouterState,
   useSearch,
 } from "@tanstack/solid-router";
 
