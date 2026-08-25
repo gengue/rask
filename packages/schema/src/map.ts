@@ -44,6 +44,7 @@ export interface MappedTask {
     archived: boolean;
     tags: TaskTag[];
     timeEstimate: number | null;
+    timeSpent: number | null;
     points: number | null;
     url: string | null;
   };
@@ -229,6 +230,7 @@ export function mapTask(task: ClickUpTask): MappedTask {
         bg: tag.tag_bg ?? null,
       })),
       timeEstimate: task.time_estimate ?? null,
+      timeSpent: task.time_spent ?? null,
       points: task.points ?? null,
       url: task.url ?? null,
     },

@@ -288,6 +288,44 @@ test("opens a calendar on the due date, and keeps the date it is given", async (
 });
 
 /**
+ * Choosing what a subtask row shows, and getting back out of the choosing.
+ *
+ * The columns themselves are a preference and a couple of spans. The part only
+ * a browser can catch is the Escape: the popover stays open across a selection
+ * so two columns are one trip, which means a click leaves focus on an item that
+ * the re-render then removes. Focus lands on the body, the next key reaches the
+ * shell instead of the popover, and the shell reads a stray Escape as "close
+ * the task" — so ticking a column and backing out took the whole panel with it.
+ */
+test("picks the columns a subtask row shows, and keeps the task open on the way out", async ({
+  page,
+}) => {
+  await page.goto("/__dev-login");
+  // A seeded parent: the fixture gives the first tasks in L1 subtasks of their
+  // own, which is the only place this panel exists without a real workspace.
+  await page.goto("/list/L1?task=t2601");
+
+  const section = page.locator("section", {
+    has: page.getByRole("heading", { name: /Subtasks/i }),
+  });
+  await expect(section).toBeVisible();
+
+  await section.getByRole("button", { name: "Choose what these rows show" }).click();
+  await page.getByRole("option", { name: "Tracked time" }).click();
+
+  await page.keyboard.press("Escape");
+
+  await expect(page.getByRole("option", { name: "Tracked time" })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Add index on tasks.date_updated" }),
+  ).toBeVisible();
+
+  // And the choice is a preference, not a session: it survives the reload.
+  await page.reload();
+  await expect(section.getByTitle("Tracked").first()).toBeVisible();
+});
+
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,

@@ -2,17 +2,10 @@ import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import { type JSX, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { CARD_GAP, cardHeight, draggingId, setDraggingId } from "../lib/board.ts";
-import { formatDue } from "../lib/format.ts";
+import { DUE_TONE, formatDue } from "../lib/format.ts";
 import { ui } from "../lib/ui.ts";
 import { AvatarStack } from "./Avatar.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
-
-const DUE_TONE: Record<string, string> = {
-  overdue: "text-urgent",
-  today: "text-high",
-  soon: "text-ink-2",
-  normal: "text-ink-3",
-};
 
 /**
  * One task, as a card.

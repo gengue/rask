@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "time_spent" bigint;
