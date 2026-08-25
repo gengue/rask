@@ -225,6 +225,13 @@ export const clickUpTask = z.looseObject({
     .union([z.string(), z.number()])
     .nullish()
     .transform((v) => (v == null ? null : Number(v))),
+  // Same union as `time_estimate`: ClickUp answers with a number here and a
+  // decimal string over in the time-entry endpoints, and one task payload
+  // typed either way is cheaper than finding out which by endpoint.
+  time_spent: z
+    .union([z.string(), z.number()])
+    .nullish()
+    .transform((v) => (v == null ? null : Number(v))),
   points: z.number().nullish(),
   custom_fields: z.array(clickUpCustomField).default([]),
   list: parentRef.nullish(),
@@ -574,3 +581,66 @@ export const webhookEvent = z.looseObject({
   history_items: z.array(z.unknown()).nullish(),
 });
 export type WebhookEvent = z.infer<typeof webhookEvent>;
+
+/**
+ * One tracked interval.
+ *
+ * Three of ClickUp's own quirks are absorbed here rather than at the call site:
+ *
+ *  - `duration` is a decimal string from the list endpoints and a number from
+ *    the create one, so it is a union like every other numeric field.
+ *  - A **negative** `duration` means the timer is still running. The vendored
+ *    spec says so under `GET /team/{id}/time_entries`. Nothing derives elapsed
+ *    time from it; `isTimeEntryRunning` is the only reader.
+ *  - `task` is absent entirely when the entry is not attached to one. ClickUp
+ *    allows that on the higher plans, and `.nullish()` is the difference
+ *    between showing an orphan entry and throwing mid-render.
+ */
+export const clickUpTimeEntry = z.looseObject({
+  id: id,
+  task: z
+    .looseObject({
+      id: z.string(),
+      name: z.string().nullish(),
+      status: clickUpStatus.nullish(),
+    })
+    .nullish(),
+  wid: id.nullish(),
+  user: clickUpUser.nullish(),
+  billable: z.boolean().nullish(),
+  start: epochMs,
+  /** Absent on a running entry: `GET .../current` does not list it as required. */
+  end: epochMs,
+  duration: z
+    .union([z.string(), z.number()])
+    .nullish()
+    .transform((v) => (v == null || v === "" ? null : Number(v))),
+  description: z.string().nullish(),
+  tags: z.array(clickUpTag).default([]),
+});
+export type ClickUpTimeEntry = z.infer<typeof clickUpTimeEntry>;
+
+/**
+ * Whether this entry is the one currently running.
+ *
+ * The rule lives here, next to the schema, because it is a fact about ClickUp's
+ * wire format rather than a word Rask shares between packages — the API
+ * normalises it into a boolean before anything else sees an entry, so the web
+ * side never has to know.
+ */
+export function isTimeEntryRunning(entry: ClickUpTimeEntry): boolean {
+  return entry.duration !== null && entry.duration < 0;
+}
+
+/**
+ * `GET .../current` answers `{ data: null }` when nothing is running, and the
+ * key is documented as required — so `null` is the answer, not an absence.
+ */
+export const runningTimeEntryResponse = z.looseObject({
+  data: clickUpTimeEntry.nullish(),
+});
+
+export const timeEntryResponse = z.looseObject({ data: clickUpTimeEntry });
+export const timeEntriesResponse = z.looseObject({
+  data: z.array(clickUpTimeEntry).nullish(),
+});
