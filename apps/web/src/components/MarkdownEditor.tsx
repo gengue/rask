@@ -5,6 +5,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { type JSX, onCleanup, onMount } from "solid-js";
+import { filesFrom } from "../lib/attach.ts";
 
 /**
  * Markdown editing for task descriptions.
@@ -72,12 +73,40 @@ const theme = EditorView.theme({
   "& ::selection": { backgroundColor: "var(--color-selection)" },
 });
 
+/**
+ * Writing an upload's markdown back into the document, on a line of its own.
+ *
+ * At the caret rather than at the position the file arrived at: an upload takes
+ * as long as ClickUp takes, and by then the person has usually carried on
+ * typing. `replaceSelection` also does the obvious thing with a selection,
+ * which is what pasting over selected text means everywhere else.
+ *
+ * The newlines are the same rule the comment composer's `insertBlock` uses, and
+ * for the same reason: an image spliced into the middle of a sentence renders
+ * inline, halfway through the paragraph it interrupted. Two screenshots pasted
+ * one after the other would otherwise end up on the same line as each other.
+ */
+function insertBlock(view: EditorView, markdown: string): void {
+  const { from } = view.state.selection.main;
+  const lead = from > 0 && view.state.sliceDoc(from - 1, from) !== "\n" ? "\n" : "";
+  view.dispatch(view.state.replaceSelection(`${lead}${markdown}\n`));
+}
+
 export function MarkdownEditor(props: {
   value: string;
   placeholder?: string;
   onCommit: (value: string) => void;
   onCancel?: () => void;
   autofocus?: boolean;
+  /**
+   * Files pasted or dropped into the document.
+   *
+   * The editor knows where text goes and nothing about where bytes go, so it
+   * hands over both: the files, and the way to write the answer back in.
+   * `insert` is called once the caller has a URL — seconds later, on the far
+   * side of an upload — which is why it is a callback and not a return value.
+   */
+  onFiles?: (files: File[], insert: (markdown: string) => void) => void;
 }): JSX.Element {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
@@ -138,6 +167,36 @@ export function MarkdownEditor(props: {
             keydown: (event) => {
               event.stopPropagation();
               return false;
+            },
+            /*
+             * A pasted screenshot becomes an attachment rather than nothing.
+             *
+             * CodeMirror handles both of these itself and neither knows what to
+             * do with bytes: paste reads the clipboard's *text*, drop reads the
+             * drag's, so a file goes in and nothing comes out. Preventing the
+             * default is also what tells the surrounding panel to stand down —
+             * its own drop target checks `defaultPrevented` before uploading.
+             */
+            paste: (event, target) => {
+              const onFiles = props.onFiles;
+              const files = filesFrom(event.clipboardData);
+              if (files.length === 0 || !onFiles) return false;
+              event.preventDefault();
+              onFiles(files, (markdown) => insertBlock(target, markdown));
+              return true;
+            },
+            drop: (event, target) => {
+              const onFiles = props.onFiles;
+              const files = filesFrom(event.dataTransfer);
+              if (files.length === 0 || !onFiles) return false;
+              event.preventDefault();
+              // Where it was dropped, not where the caret was left behind. The
+              // upload outlives the drag by seconds, so this is the last moment
+              // the pointer's position is worth anything.
+              const at = target.posAtCoords({ x: event.clientX, y: event.clientY });
+              if (at !== null) target.dispatch({ selection: { anchor: at } });
+              onFiles(files, (markdown) => insertBlock(target, markdown));
+              return true;
             },
             blur: (_event, target) => {
               const next = target.state.doc.toString();

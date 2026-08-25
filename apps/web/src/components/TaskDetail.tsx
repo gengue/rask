@@ -154,6 +154,33 @@ export function TaskDetail(props: {
       if (taskId === props.taskId) mutate(stable(result.detail));
     },
   });
+
+  /**
+   * The same upload, started from inside the description.
+   *
+   * Its own uploader rather than the panel's, because the two want different
+   * things from the answer: this one also writes a link into the text being
+   * edited, and the panel's drop target is the whole panel — sharing it would
+   * push a file dropped on the attachments strip into the description too.
+   *
+   * The insert is held rather than passed in, because it does not exist until
+   * a paste happens: the editor supplies one per paste, and it is the only
+   * thing that knows where the caret is. It outlives the editor, though — an
+   * upload takes seconds and Escape takes none — so the answer only goes in
+   * while there is still something open to put it in. The file is attached
+   * either way; the link is what has nowhere to land.
+   */
+  let insertIntoDescription: ((markdown: string) => void) | null = null;
+  const descriptionUploader = createUploader({
+    taskId: () => props.taskId,
+    onUploaded: (result, file, taskId) => {
+      if (taskId !== props.taskId) return;
+      mutate(stable(result.detail));
+      if (editingDescription()) {
+        insertIntoDescription?.(attachmentMarkdown(file, result.attachment));
+      }
+    },
+  });
   let filePicker!: HTMLInputElement;
 
   /**
@@ -200,6 +227,17 @@ export function TaskDetail(props: {
   createEffect(() => {
     props.taskId;
     lastSeenUpdate = undefined;
+    /*
+     * And the description editor closes with it.
+     *
+     * The panel does not remount when another task is opened and the editor
+     * does not re-read its `value` — deliberately, so a background refresh
+     * cannot eat what someone is typing. Left open across a switch it went on
+     * holding the previous task's body, and committing wrote that body over
+     * the new task's. Blur usually got there first, which is why it took a
+     * click straight from an unedited description onto another row to see it.
+     */
+    setEditingDescription(false);
   });
 
   // `GET /tasks/:id` refreshes from ClickUp in the background and pushes the
@@ -530,6 +568,9 @@ export function TaskDetail(props: {
                 fallback={
                   <button
                     type="button"
+                    // Named, or the button announces the whole body as its
+                    // name — several hundred words for one "edit this".
+                    aria-label="Edit description"
                     onClick={() => setEditingDescription(true)}
                     class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
                   >
@@ -550,6 +591,10 @@ export function TaskDetail(props: {
                 <MarkdownEditor
                   value={task().description ?? ""}
                   autofocus
+                  onFiles={(files, insert) => {
+                    insertIntoDescription = insert;
+                    void descriptionUploader.upload(files);
+                  }}
                   onCancel={() => setEditingDescription(false)}
                   onCommit={(description) => {
                     setEditingDescription(false);
@@ -560,7 +605,16 @@ export function TaskDetail(props: {
                     void api.patchTask(props.taskId, { description });
                   }}
                 />
-                <div class="pt-2 text-xs text-ink-4">⌘↵ to save · esc to cancel</div>
+                <div class="pt-2 text-xs text-ink-4">
+                  {/* An upload waits on ClickUp, and the attachments strip that
+                      would otherwise say so is below the fold while editing. */}
+                  <Show
+                    when={descriptionUploader.pending()[0]}
+                    fallback="⌘↵ to save · esc to cancel"
+                  >
+                    {(name) => <>Uploading {name()}…</>}
+                  </Show>
+                </div>
               </Show>
             </section>
 
@@ -571,7 +625,7 @@ export function TaskDetail(props: {
             <div classList={{ "col-start-1": expanded() }}>
               <Attachments
                 items={task().attachments}
-                pending={uploader.pending()}
+                pending={[...uploader.pending(), ...descriptionUploader.pending()]}
                 onPick={() => filePicker.click()}
               />
 

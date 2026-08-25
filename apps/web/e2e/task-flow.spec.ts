@@ -326,6 +326,79 @@ test("picks the columns a subtask row shows, and keeps the task open on the way 
 });
 
 /**
+ * A screenshot pasted into the description becomes an attachment and a link.
+ *
+ * Stubbed at the network edge on purpose. The upload is the one write that
+ * waits on ClickUp instead of going through the outbox, and the e2e stack has
+ * no token, so the call itself can only ever fail here. Everything on this side
+ * of it is what breaks in practice: whether the paste is intercepted at all
+ * (CodeMirror otherwise swallows the file and inserts nothing), what markdown
+ * comes back, and whether it survives a commit as an image rather than as text.
+ *
+ * The stub answers with the task's own detail because the real route does: the
+ * panel writes that response straight into what it is rendering, and a stub
+ * that skimps on the shape blanks the task under test instead of failing.
+ */
+test("pastes an image into the description and keeps the link", async ({ page }) => {
+  // The same seeded task the subtasks test opens by id, for the same reason:
+  // the fixture is deterministic, and reading an id off the first row costs a
+  // navigation and a list render this has no other use for.
+  const taskId = "t2601";
+  const url = "https://attachments.example.test/shot.png";
+
+  await page.goto("/__dev-login");
+
+  // Read up front rather than from inside the handler below: a route handler
+  // that awaits a second request of its own leaves the interception open while
+  // that one goes through the same dev server, and the whole suite would start
+  // losing every test after this one to a server that had stopped answering.
+  const mirrored = await (await page.request.get(`/api/tasks/${taskId}`)).json();
+  await page.route(`**/api/tasks/${taskId}/attachments`, (route) =>
+    route.fulfill({
+      status: 201,
+      json: {
+        attachment: { id: "a1", title: "shot.png", url, urlWithQuery: url },
+        detail: mirrored,
+      },
+    }),
+  );
+
+  await page.goto(`/list/L1?task=${taskId}`);
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await detail.getByRole("button", { name: "Edit description" }).click();
+
+  const editor = detail.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+End");
+
+  // The only way to paste a file: Playwright can drive the keyboard but not
+  // fill the OS clipboard with bytes, so the event is built in the page.
+  const pasteScreenshot = () =>
+    editor.evaluate((element) => {
+      const data = new DataTransfer();
+      data.items.add(
+        new File([new Uint8Array([137, 80, 78, 71])], "shot.png", { type: "image/png" }),
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    });
+
+  await pasteScreenshot();
+  await expect(editor).toContainText(`![shot.png](${url})`);
+
+  // The second one gets its own line rather than sitting beside the first: an
+  // image spliced into a paragraph renders inline, halfway through it.
+  await pasteScreenshot();
+  await expect(detail.locator('.cm-line:has-text("![shot.png](")')).toHaveCount(2);
+
+  // Committed, the markdown is an image and not the text of one.
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(detail.locator(`img[src="${url}"]`)).toHaveCount(2);
+});
+
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,
