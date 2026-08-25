@@ -189,3 +189,47 @@ describe("the skip guard, when nothing is being repaired", () => {
     expect(result.newestUpdate).toEqual(CLICKUP_UPDATED);
   });
 });
+
+/**
+ * Tracking time against a task changes its total and nothing else.
+ *
+ * ClickUp is not obliged to bump `date_updated` for it, and the guard reads an
+ * unchanged `date_updated` as "nothing to do". So the timer stops, ClickUp
+ * records the interval, the read-back arrives carrying the new `time_spent` —
+ * and the upsert throws it away. There is no error anywhere: the task detail
+ * just keeps showing yesterday's total, forever.
+ *
+ * `syncTask` in the worker and `refreshTask` in the API both force for this
+ * reason. These two tests are what says so.
+ */
+describe("time tracked against a task", () => {
+  test("is dropped when the read-back is not forced", async () => {
+    await ingestTasks(db, [truth({ time_spent: 3_600_000 })]);
+
+    // Same date_updated: ClickUp did not consider the task itself edited.
+    const result = await ingestTasks(db, [truth({ time_spent: 7_200_000 })]);
+
+    expect(result.changed).toBe(0);
+    expect((await stored())?.timeSpent).toBe(3_600_000);
+  });
+
+  test("lands when it is", async () => {
+    await ingestTasks(db, [truth({ time_spent: 3_600_000 })]);
+    await backdate();
+
+    const result = await ingestTasks(db, [truth({ time_spent: 7_200_000 })], { force: true });
+
+    expect(result.changed).toBe(1);
+    expect((await stored())?.timeSpent).toBe(7_200_000);
+    // synced_at moved too, so the change feed pushes the new total to the tab
+    // that is looking at the task right now.
+    expect((await stored())?.syncedAt.getTime()).toBeGreaterThan(LONG_AGO.getTime());
+  });
+
+  test("a task nobody has tracked stores null, not zero", async () => {
+    // The difference is readable: "no time tracked" prints as nothing, and a
+    // stored 0 would print as `0m` on every task in the workspace.
+    await ingestTasks(db, [truth({ time_spent: null })]);
+    expect((await stored())?.timeSpent).toBeNull();
+  });
+});
