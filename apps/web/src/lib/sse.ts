@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
-import { type Task, type TaskDetail, taskHalf } from "./api.ts";
+import { type Task, type TaskDetail, type TimeEntry, taskHalf } from "./api.ts";
 import { merge, tasks } from "./store.ts";
+import { setRunningTimer } from "./timer.ts";
 import { pushToast } from "./toast.ts";
 
 /**
@@ -61,6 +62,19 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
     merge([row]);
     setPushedDetail(detail);
     handlers.onDetail?.(detail);
+  });
+
+  /*
+   * The timer this person has running, pushed by the API after any start or
+   * stop. It is how a second tab — or the same browser after the phone started
+   * one — finds out, since the timer lives in ClickUp and not in the mirror the
+   * `tasks` feed watches.
+   */
+  source.addEventListener("timer", (event) => {
+    const { entry } = JSON.parse((event as MessageEvent<string>).data) as {
+      entry: TimeEntry | null;
+    };
+    setRunningTimer(entry);
   });
 
   source.addEventListener("write-failed", (event) => {

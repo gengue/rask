@@ -14,6 +14,7 @@ import { connected } from "../lib/sse.ts";
 import { nextTheme, setTheme, themeChoice, themeLabel } from "../lib/theme.ts";
 import { Avatar } from "./Avatar.tsx";
 import { LogoCompact } from "./Logo.tsx";
+import { RunningTimer } from "./Time.tsx";
 
 /**
  * The sidebar.
@@ -42,6 +43,8 @@ export function Sidebar(props: {
   open: boolean;
   onSearch: () => void;
   onQuickAdd: () => void;
+  /** Where the running-timer band sends you when you click the task name. */
+  onOpenTask: (taskId: string) => void;
 }): JSX.Element {
   useRevealActiveList(() => props.spaces);
 
@@ -74,6 +77,10 @@ export function Sidebar(props: {
         </div>
         <For each={props.spaces}>{(space) => <SpaceNode space={space} />}</For>
       </div>
+
+      {/* Above the footer, not inside it: this needs a name, a counter and a
+          button, and the footer is a fixed 44px already carrying five things. */}
+      <RunningTimer onOpen={props.onOpenTask} />
 
       <Show when={props.me}>
         {(me) => (

@@ -186,6 +186,8 @@ export interface TaskDetail extends Task {
   creatorId: string | null;
   folderId: string | null;
   timeEstimate: number | null;
+  /** Milliseconds tracked by everyone. The one mirrored trace of time tracking. */
+  timeSpent: number | null;
   points: number | null;
   dateClosed: string | null;
   comments: CommentThread[];
@@ -209,6 +211,7 @@ const DETAIL_ONLY: Record<Exclude<keyof TaskDetail, keyof Task>, true> = {
   creatorId: true,
   folderId: true,
   timeEstimate: true,
+  timeSpent: true,
   points: true,
   dateClosed: true,
   comments: true,
@@ -417,6 +420,28 @@ async function requestPage(path: string): Promise<TaskPage> {
   };
 }
 
+/**
+ * One tracked interval, already normalised by the API.
+ *
+ * `running` is a field rather than something derived here: ClickUp signals a
+ * live timer with a negative duration, and that rule is kept on the server so
+ * exactly one place has to know it.
+ */
+export interface TimeEntry {
+  id: string;
+  taskId: string | null;
+  taskName: string | null;
+  user: Assignee | null;
+  /** Epoch milliseconds. A live counter is `now - start`, never a stored total. */
+  start: number | null;
+  end: number | null;
+  /** Null while running. */
+  durationMs: number | null;
+  running: boolean;
+  description: string;
+  billable: boolean;
+}
+
 export const api = {
   me: () => request<Me>("/api/me"),
   hierarchy: () => request<Space[]>("/api/hierarchy"),
@@ -578,4 +603,39 @@ export const api = {
 
   resync: (listId: string) =>
     request<{ ok: true }>(`/api/lists/${listId}/resync`, { method: "POST" }),
+
+  /**
+   * Time tracking, which does not come from the mirror.
+   *
+   * These are the only calls in the app that wait on ClickUp for a write. The
+   * running timer is one row per person that changes only when they act, so it
+   * is read live rather than mirrored; see `apps/api/src/time.ts`.
+   */
+  runningTimer: () => request<{ entry: TimeEntry | null }>("/api/timer"),
+
+  startTimer: (taskId: string) =>
+    request<{ started: TimeEntry; stopped: TimeEntry | null }>("/api/timer", {
+      method: "POST",
+      body: JSON.stringify({ taskId }),
+    }),
+
+  stopTimer: () => request<{ stopped: TimeEntry | null }>("/api/timer", { method: "DELETE" }),
+
+  timeEntries: (taskId: string) =>
+    request<{ entries: TimeEntry[] }>(`/api/tasks/${taskId}/time-entries`),
+
+  patchTimeEntry: (
+    entryId: string,
+    patch: { description?: string; billable?: boolean; span?: { start: number; end: number } },
+  ) =>
+    request<{ entry: TimeEntry }>(`/api/time-entries/${entryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /** `taskId` only tells the server which task to re-read; the delete does not need it. */
+  deleteTimeEntry: (entryId: string, taskId: string) =>
+    request<{ ok: true }>(`/api/time-entries/${entryId}?taskId=${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+    }),
 };

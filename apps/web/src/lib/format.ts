@@ -77,6 +77,59 @@ export function formatBytes(bytes: number | null): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
+/**
+ * A tracked interval, at the precision a timesheet is read in.
+ *
+ * `1:04:09` while something is running, because a live counter with no seconds
+ * looks frozen; `1h 4m` once it has stopped, because that is the number people
+ * copy into an invoice. Under a minute reads as `0m` rather than `0h 0m` — an
+ * entry someone opened and closed by mistake should look like nothing, not like
+ * a row of zeroes.
+ */
+export function formatDuration(ms: number | null, style: "clock" | "short" = "short"): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return style === "clock" ? "0:00" : "0m";
+
+  const total = Math.floor(ms / 1000);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+
+  if (style === "clock") {
+    const seconds = total % 60;
+    const mm = String(minutes).padStart(2, "0");
+    const ss = String(seconds).padStart(2, "0");
+    return hours > 0 ? `${hours}:${mm}:${ss}` : `${minutes}:${ss}`;
+  }
+
+  if (hours === 0) return `${minutes}m`;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}
+
+/**
+ * The inverse of `formatDuration`, tolerant of how people actually type.
+ *
+ * `1h 30m`, `1h30m`, `1:30`, `90m`, `1.5h` and a bare `90` (read as minutes,
+ * which is what a bare number means on a timesheet) all land on the same value.
+ * Anything it cannot read returns null rather than 0 — the difference between
+ * "I could not understand that" and "you worked no time" is a row of somebody's
+ * week, so the caller refuses instead of writing a zero.
+ */
+export function parseDuration(raw: string): number | null {
+  const text = raw.trim().toLowerCase();
+  if (!text) return null;
+
+  const clock = /^(\d+):([0-5]?\d)$/.exec(text);
+  if (clock) return (Number(clock[1]) * 60 + Number(clock[2])) * 60_000;
+
+  if (/^\d+(\.\d+)?$/.test(text)) return Math.round(Number(text) * 60_000);
+
+  const units = /^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m)?$/.exec(text);
+  if (!units || (units[1] === undefined && units[2] === undefined)) return null;
+
+  const hours = Number(units[1] ?? 0);
+  const minutes = Number(units[2] ?? 0);
+  return Math.round((hours * 60 + minutes) * 60_000);
+}
+
 export function initialsOf(name: string | null, fallback: string | null): string {
   if (fallback) return fallback.slice(0, 2).toUpperCase();
   if (!name) return "?";

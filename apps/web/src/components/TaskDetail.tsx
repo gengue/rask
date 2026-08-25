@@ -67,6 +67,7 @@ const MarkdownEditor = lazy(() =>
 import { Menu, type MenuItem } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
 import { ParentLink, Subtasks } from "./Subtasks.tsx";
+import { TimeEntries } from "./Time.tsx";
 
 /**
  * The detail panel.
@@ -556,6 +557,12 @@ export function TaskDetail(props: {
               />
 
               <Subtasks task={task()} onOptimistic={optimistic} onRefresh={() => void refetch()} />
+
+              <TimeEntries
+                taskId={props.taskId}
+                taskName={task().name}
+                timeSpent={task().timeSpent}
+              />
 
               <Comments
                 taskId={props.taskId}

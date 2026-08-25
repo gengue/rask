@@ -26,6 +26,7 @@ import { markSignedOut, signedOut } from "./lib/signed-out.ts";
 import { connect } from "./lib/sse.ts";
 import { tasks } from "./lib/store.ts";
 import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
+import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
 import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
@@ -63,20 +64,30 @@ export function AppShell(): JSX.Element {
 
   onMount(() => {
     /*
+     * `hydrateTimer` is what makes the running-timer band survive a reload, and
+     * what picks up a timer started from ClickUp's own app or another device.
+     * Nothing about it is mirrored, so asking is the only way to know.
+     *
      * A 401 here is not an error, it is the answer: `markSignedOut` has already
      * run inside the client and the shell is about to swap to the sign-in page.
      * Left unhandled it was a rejected promise in the console on every
      * signed-out visit, which is noise in exactly the place someone debugging a
      * failed sign-in would be looking.
      */
-    void loadSession().catch((error: unknown) => {
-      if (error instanceof ApiError && error.status === 401) return;
-      pushToast({
-        tone: "error",
-        title: "Could not load the workspace",
-        detail: error instanceof Error ? error.message : String(error),
+    void loadSession()
+      // Chained rather than fired alongside: the timer read needs a live
+      // session, and on the sign-in page it would only spend a request to be
+      // told what `loadSession` is already finding out. One round trip late is
+      // invisible next to the band appearing at all.
+      .then(() => hydrateTimer())
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) return;
+        pushToast({
+          tone: "error",
+          title: "Could not load the workspace",
+          detail: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
   });
 
   const [menu, setMenu] = createSignal<{
@@ -260,6 +271,15 @@ export function AppShell(): JSX.Element {
           setUi("menu", "priority");
         }
         break;
+      case "t":
+        // A toggle: pressed on the task already being tracked, it stops. The
+        // decision lives in `toggleTimer` so the palette and the detail button
+        // cannot drift away from what the key does.
+        if (task) {
+          event.preventDefault();
+          void toggleTimer(task);
+        }
+        break;
       case "f":
         if (openTaskId()) {
           event.preventDefault();
@@ -436,6 +456,16 @@ export function AppShell(): JSX.Element {
       },
     },
     {
+      id: "task:timer",
+      label: isTracking(cursorTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
+      section: "Task",
+      hint: "t",
+      run: () => {
+        const target = cursorTask();
+        if (target) void toggleTimer(target);
+      },
+    },
+    {
       id: "help:shortcuts",
       label: "Keyboard shortcuts",
       section: "Help",
@@ -520,6 +550,12 @@ export function AppShell(): JSX.Element {
             queueMicrotask(() => searchInput?.focus());
           }}
           onQuickAdd={() => setUi("quickAdd", true)}
+          onOpenTask={(taskId) =>
+            navigate({
+              to: ".",
+              search: (prev: Record<string, unknown>) => ({ ...prev, task: taskId }),
+            })
+          }
         />
 
         <Show when={ui.sidebarOpen}>
