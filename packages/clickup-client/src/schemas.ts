@@ -225,6 +225,11 @@ export const clickUpTask = z.looseObject({
     .union([z.string(), z.number()])
     .nullish()
     .transform((v) => (v == null ? null : Number(v))),
+  /** Tracked total, in ms. A string on some responses, which is why it is a union. */
+  time_spent: z
+    .union([z.string(), z.number()])
+    .nullish()
+    .transform((v) => (v == null ? null : Number(v))),
   points: z.number().nullish(),
   custom_fields: z.array(clickUpCustomField).default([]),
   list: parentRef.nullish(),

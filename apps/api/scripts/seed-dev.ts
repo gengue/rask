@@ -93,6 +93,18 @@ const TITLES = [
   "Deduplicate supplier records",
 ];
 
+/** Shorter than a task title, because a subtask is a step and not a problem. */
+const SUBTASK_TITLES = [
+  "Write the migration",
+  "Back-fill the existing rows",
+  "Add the index",
+  "Update the client",
+  "Review with infra",
+  "Ship behind a flag",
+  "Measure before and after",
+  "Delete the old path",
+];
+
 const DESCRIPTIONS = [
   "Render UI before `vehicle_state` sync when minimum required state is present, instead of blocking on full refresh during iOS startup.\n\n- Measure cold start with the profiler\n- Gate on `hasMinimumState`\n- Keep the spinner for the genuinely empty case",
   "## Context\n\nThe reconnect handler assumes the socket is still open. Backgrounding the app on iOS closes it silently, so the first message after resume is dropped.\n\n## Fix\n\nCheck `readyState` before writing and requeue on failure.",
@@ -297,6 +309,48 @@ async function seed() {
           fieldId: "cf-sprint",
           value: `S${20 + Math.floor(random() * 6)}`,
         });
+      }
+
+      /*
+       * A few parents, so the subtask panel is reachable without a real
+       * workspace. It used to be invisible here: the fixture had 450 tasks and
+       * not one `parentId`, so every change to that panel had to be checked
+       * against ClickUp or not at all.
+       *
+       * Estimates and tracked totals are deliberately patchy. Most ClickUp
+       * tasks carry neither, and a row that shows a number for every subtask
+       * would hide the case the layout actually has to survive.
+       */
+      if (list.id === "L1" && i < 6) {
+        const howMany = 2 + Math.floor(random() * 3);
+        for (let c = 0; c < howMany; c++) {
+          const childStatus = pick(STATUS_SET);
+          const child = `${id}-s${c}`;
+          taskRows.push({
+            id: child,
+            customId: null,
+            listId: list.id,
+            folderId: list.folderId,
+            spaceId: list.spaceId,
+            teamId: TEAM_ID,
+            parentId: id,
+            name: pick(SUBTASK_TITLES),
+            status: childStatus.status,
+            statusColor: childStatus.color,
+            statusType: childStatus.type,
+            orderindex: String(c),
+            dueDate:
+              random() > 0.25 ? new Date(now + (Math.floor(random() * 20) - 5) * 86_400_000) : null,
+            timeEstimate: random() > 0.5 ? (1 + Math.floor(random() * 8)) * 1_800_000 : null,
+            timeSpent: random() > 0.5 ? Math.floor(random() * 300) * 60_000 : 0,
+            dateCreated: new Date(now - Math.floor(random() * 30) * 86_400_000),
+            dateUpdated: new Date(now - Math.floor(random() * 5) * 86_400_000),
+            creatorId: pick(PEOPLE).id,
+            tags: [],
+            url: `https://app.clickup.com/t/${child}`,
+          });
+          if (random() > 0.3) assigneeRows.push({ taskId: child, userId: pick(PEOPLE).id });
+        }
       }
 
       if (random() > 0.75) {
