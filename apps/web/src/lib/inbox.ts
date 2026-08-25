@@ -306,22 +306,37 @@ export function inFeedOrder(rows: Task[]): Task[] {
  * be of whatever the open view happened to have loaded, which is a number that
  * looks authoritative and is not.
  */
+let windowReads = 0;
+
 export async function loadInbox(since = inboxCutoff()): Promise<TaskPageResult | null> {
   let latest: InboxReason[] = [];
   let dismissed: InboxRead[] = [];
   let window: Task[] = [];
+  let truncated = false;
 
+  const reading = ++windowReads;
   const page = await loadPage("Could not load the inbox", async () => {
     const answer = await api.inbox(since);
     latest = answer.reasons;
     dismissed = answer.reads;
     window = answer.tasks;
+    truncated = answer.truncated;
     return answer;
   });
 
-  // Null means a newer load superseded this one, and its reasons are the stale
-  // half of the same answer. Leave both to whichever load lands last.
-  if (page) {
+  /*
+   * Ordered against the other window reads, not against the view.
+   *
+   * `loadPage` answers null once any later load has taken over the main panel,
+   * which is the right question for "are these the rows on screen" and the
+   * wrong one for these four. The boot read runs beside whichever route was
+   * opened, so on a slow enough machine the route's load lands second and the
+   * window's reasons were thrown away with a page nobody was going to render
+   * anyway — leaving the badge blind to every row that is in the feed for a
+   * comment rather than for an assignment. It undercounted by exactly those
+   * rows, which is a number that looks authoritative and is not.
+   */
+  if (reading === windowReads) {
     const said = new Map(latest.map((reason) => [reason.taskId, reason]));
     setReasons(said);
     setReads(new Map(dismissed.map((read) => [read.taskId, read.readAt])));
@@ -329,7 +344,7 @@ export async function loadInbox(since = inboxCutoff()): Promise<TaskPageResult |
     // screen: switching to the other scope brings back rows that were filtered
     // out, and they belong where they were rather than on top as arrivals.
     seedFeedOrder(window, said);
-    setInboxTruncated(page.truncated);
+    setInboxTruncated(truncated);
   }
   return page;
 }
