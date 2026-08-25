@@ -67,7 +67,7 @@ const MarkdownEditor = lazy(() =>
 import { Menu, type MenuItem } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
 import { ParentLink, Subtasks } from "./Subtasks.tsx";
-import { TimeEntries } from "./Time.tsx";
+import { TimeControl, TimeEntries } from "./Time.tsx";
 
 /**
  * The detail panel.
@@ -478,6 +478,14 @@ export function TaskDetail(props: {
                 </button>
               </Property>
 
+              <Property label="Time">
+                <TimeControl
+                  taskId={props.taskId}
+                  taskName={task().name}
+                  timeSpent={task().timeSpent}
+                />
+              </Property>
+
               <Property label="List">
                 <span class="flex h-6 items-center truncate text-base text-ink-2">
                   {task().listName ?? "—"}
@@ -558,11 +566,7 @@ export function TaskDetail(props: {
 
               <Subtasks task={task()} onOptimistic={optimistic} onRefresh={() => void refetch()} />
 
-              <TimeEntries
-                taskId={props.taskId}
-                taskName={task().name}
-                timeSpent={task().timeSpent}
-              />
+              <TimeEntries taskId={props.taskId} />
 
               <Comments
                 taskId={props.taskId}

@@ -19,10 +19,11 @@ import { E2E, E2E_ENV } from "./e2e/env.ts";
  */
 
 /*
- * Generous, because the first thing Vite does on a cold checkout is optimize
- * dependencies. Thirty seconds is plenty on a warm laptop and not enough on a
- * CI runner that has never seen node_modules before, which is what turned the
- * end-to-end job red while every test in it still passed locally.
+ * This used to say the wait was for Vite optimizing dependencies on a cold
+ * checkout. Measured, that is not what happens: a cold start with no
+ * `node_modules/.vite` at all is under a second, and eight consecutive starts
+ * landed between 400 and 500ms. The number stays generous because the API's
+ * first boot is the slow one, not because anybody has seen Vite take a minute.
  */
 const WEB_SERVER_TIMEOUT_MS = 120_000;
 
@@ -40,7 +41,16 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "bun run --cwd ../api start:local",
+      /*
+       * The script's body rather than `bun run --cwd ../api start:local`, for
+       * the same reason Vite is run directly below: `bun run` is a parent that
+       * takes the teardown signal and leaves the server behind holding this
+       * port. That orphan is not theoretical — a failed run used to log
+       * `script "start:local" was terminated by signal SIGTERM` and then keep
+       * answering on 3210, so the next run refused to start at all.
+       */
+      command: "bun --env-file=../../.env src/index.ts",
+      cwd: "../api",
       url: `http://localhost:${E2E.apiPort}/health`,
       env: E2E_ENV,
       // Never reuse: a server already up is one pointed at the dev database.
@@ -50,8 +60,31 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: "bun run dev",
-      url: `http://localhost:${E2E.webPort}`,
+      /*
+       * Vite directly, not through `bun run dev`.
+       *
+       * That script is `bun --env-file=../../.env --bun vite`, and every part
+       * of it was a layer between Playwright and the process it is waiting on.
+       * `bun run` puts a parent in between, so Playwright's teardown signal
+       * lands on the wrapper and Vite can outlive the run holding this port.
+       * `--env-file` reads a file that does not exist in CI, since `.env` is
+       * ignored — everything Vite needs is in `E2E_ENV` already.
+       *
+       * `--bun` is the one that earned this change. It runs Vite on Bun rather
+       * than Node, which is the most exotic thing in the stack and the only
+       * layer whose failure looks like what CI kept showing: the command
+       * echoes, nothing is ever printed, and the wait runs out two minutes
+       * later. Vite starts in half a second every time it is run directly.
+       *
+       * Not reproduced, so this is not a proven root cause — it is the removal
+       * of the three things between here and a process that has never once
+       * been seen to hang on its own.
+       */
+      command: "node_modules/.bin/vite",
+      // The address Vite actually binds; `server.host` is 127.0.0.1 and
+      // `localhost` resolves to ::1 first on a dual-stack box, which costs a
+      // refused connection on every poll before the fallback succeeds.
+      url: `http://127.0.0.1:${E2E.webPort}`,
       env: E2E_ENV,
       reuseExistingServer: false,
       timeout: WEB_SERVER_TIMEOUT_MS,

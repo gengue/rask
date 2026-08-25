@@ -61,7 +61,7 @@ test("starts and stops a timer from the list with `t`", async ({ page }) => {
   // The cursor starts on the first row, so `t` acts on it without a click.
   await page.keyboard.press("t");
 
-  const band = page.getByRole("button", { name: "Stop the timer" });
+  const band = page.getByRole("button", { name: "Stop the running timer" });
   await expect(band).toBeVisible();
   expect(started).toEqual([taskId]);
 
@@ -69,13 +69,28 @@ test("starts and stops a timer from the list with `t`", async ({ page }) => {
   const counter = page.locator("text=/^\\d+:\\d{2}$|^\\d+:\\d{2}:\\d{2}$/").first();
   await expect(counter).toBeVisible();
 
-  // Leaving the list does not lose it: the band lives in the shell, which is
+  // Leaving the list does not lose it: the pill lives in the shell, which is
   // the entire point of a timer you can forget about.
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Stop the timer" })).toBeVisible();
+  await expect(band).toBeVisible();
 
-  await page.getByRole("button", { name: "Stop the timer" }).click();
-  await expect(page.getByRole("button", { name: "Stop the timer" })).toHaveCount(0);
+  /*
+   * Narrow enough that the sidebar becomes a closed drawer (`--breakpoint-dock`
+   * is 1090px). This is the case the pill exists for: it used to sit inside the
+   * sidebar, so below that width a running timer was invisible and the only way
+   * to stop it was to find the task again.
+   */
+  await page.setViewportSize({ width: 900, height: 700 });
+  await expect(page.getByRole("button", { name: "Show navigation" })).toBeVisible();
+  await expect(band).toBeVisible();
+
+  // And still reachable with a task expanded, which hides the panel header.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(`/list/L1?task=${taskId}&expanded=1`);
+  await expect(band).toBeVisible();
+
+  await band.click();
+  await expect(band).toHaveCount(0);
 });
 
 test("recovers a timer started elsewhere on the next load", async ({ page }) => {

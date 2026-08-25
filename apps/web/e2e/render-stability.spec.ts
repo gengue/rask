@@ -115,3 +115,77 @@ test("editing one task leaves the other board cards' DOM alone", async ({ page }
   expect(churn.rows).toBeGreaterThan(5);
   expect(churn.removed).toBeLessThanOrEqual(REMOVAL_BUDGET);
 });
+
+test("the 30 second task refresh leaves the open detail alone", async ({ page }) => {
+  await page.clock.install();
+
+  const timerLoaded = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/timer",
+  );
+  await page.goto("/__dev-login");
+  await (await timerLoaded).finished();
+
+  const taskUrl = "/api/tasks/t2726";
+  const timeEntriesUrl = `${taskUrl}/time-entries`;
+  const initial = page.waitForResponse((response) => new URL(response.url()).pathname === taskUrl);
+  const timeEntries = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === timeEntriesUrl,
+  );
+  await page.goto("/list/L1?task=t2726");
+  await (await initial).finished();
+  const timeEntryResponse = await timeEntries;
+  const timeEntryCount = timeEntryResponse.ok()
+    ? ((await timeEntryResponse.json()) as { entries: unknown[] }).entries.length
+    : null;
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail).toBeVisible();
+  await expect(detail.locator(".prose-rask").first()).toBeVisible();
+  const timeSection = detail.getByRole("heading", { name: /^Time entries/ }).locator("..");
+  if (timeEntryCount === null) {
+    await expect(timeSection).toContainText("Could not read time");
+  } else if (timeEntryCount > 0) {
+    await expect(timeSection.getByRole("listitem")).toHaveCount(timeEntryCount);
+  } else {
+    await expect(timeSection).toContainText("No time tracked");
+  }
+
+  await page.evaluate(() => {
+    const detail = document.querySelector<HTMLElement>('aside[aria-label="Task detail"]');
+    if (!detail) throw new Error("no task detail on screen");
+
+    let removed = 0;
+    let added = 0;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        removed += mutation.removedNodes.length;
+        added += mutation.addedNodes.length;
+      }
+    });
+    observer.observe(detail, { childList: true, subtree: true });
+
+    Object.assign(globalThis, {
+      readPollChurn: () => {
+        for (const mutation of observer.takeRecords()) {
+          removed += mutation.removedNodes.length;
+          added += mutation.addedNodes.length;
+        }
+        observer.disconnect();
+        return { removed, added };
+      },
+    });
+  });
+
+  const polled = page.waitForResponse((response) => new URL(response.url()).pathname === taskUrl);
+  await page.clock.fastForward(30_000);
+  await (await polled).finished();
+
+  const churn = await page.evaluate(() => {
+    const read = Reflect.get(globalThis, "readPollChurn") as () => Pick<Churn, "removed" | "added">;
+    return read();
+  });
+  console.log(`[render-stability] 30s poll: ${JSON.stringify(churn)}`);
+
+  expect(churn.removed).toBe(0);
+  expect(churn.added).toBe(0);
+});
