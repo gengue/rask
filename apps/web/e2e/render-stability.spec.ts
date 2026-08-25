@@ -95,6 +95,67 @@ test("editing one task leaves the other list rows' DOM alone", async ({ page }) 
   expect(churn.removed).toBeLessThanOrEqual(REMOVAL_BUDGET);
 });
 
+test("an unchanged server row leaves the rendered page alone", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1?task=t2726");
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByText("Could not read time from ClickUp.")).toBeVisible();
+  await expect(
+    page.getByRole("listbox", { name: "Tasks" }).getByRole("option").first(),
+  ).toBeVisible();
+
+  await page.evaluate(async () => {
+    const storePath = "/src/lib/store.ts";
+    const store = (await import(storePath)) as typeof import("../src/lib/store.ts");
+    const current = store.tasks.get("t2726");
+    if (!current) throw new Error("task t2726 is not in the collection");
+
+    store.merge([
+      {
+        ...structuredClone(current),
+        tags: [{ name: "render-stability-alpha" }, { name: "render-stability-beta" }],
+      },
+    ]);
+  });
+  await expect(detail.getByText("render-stability-alpha", { exact: true })).toBeVisible();
+  await expect(detail.getByText("render-stability-beta", { exact: true })).toBeVisible();
+
+  const churn = await page.evaluate(async () => {
+    const main = document.querySelector("main");
+    if (!main) throw new Error("no main panel on screen");
+
+    const storePath = "/src/lib/store.ts";
+    const store = (await import(storePath)) as typeof import("../src/lib/store.ts");
+    const current = store.tasks.get("t2726");
+    if (!current) throw new Error("task t2726 is not in the collection");
+
+    let removed = 0;
+    let added = 0;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        removed += mutation.removedNodes.length;
+        added += mutation.addedNodes.length;
+      }
+    });
+    observer.observe(main, { childList: true, subtree: true });
+
+    store.merge([structuredClone(current)]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    for (const mutation of observer.takeRecords()) {
+      removed += mutation.removedNodes.length;
+      added += mutation.addedNodes.length;
+    }
+    observer.disconnect();
+    return { removed, added };
+  });
+
+  console.log(`[render-stability] unchanged row: ${JSON.stringify(churn)}`);
+  expect(churn).toEqual({ removed: 0, added: 0 });
+});
+
 /**
  * The feed is chronological, and that used to mean it re-sorted live.
  *

@@ -1,6 +1,6 @@
 import type { Accessor } from "solid-js";
-import { createMemo, createRoot } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { batch, createMemo, createRoot } from "solid-js";
+import { createStore, produce, reconcile } from "solid-js/store";
 import type { Task } from "./api.ts";
 import { tasks } from "./store.ts";
 
@@ -27,14 +27,22 @@ const [rows, setRows] = createStore<Record<string, Task>>({});
 createRoot(() =>
   tasks.subscribeChanges(
     (changes) => {
-      setRows(
-        produce((draft) => {
-          for (const change of changes) {
-            if (change.type === "delete") delete draft[change.key];
-            else draft[change.key] = change.value as Task;
+      batch(() => {
+        for (const change of changes) {
+          const key = String(change.key);
+          if (change.type === "delete") {
+            setRows(
+              produce((draft) => {
+                delete draft[key];
+              }),
+            );
+          } else {
+            // Server refreshes yield fresh snapshots. Reconcile them so equal
+            // fields retain their identity and do not churn the rendered DOM.
+            setRows(key, reconcile(change.value as Task));
           }
-        }),
-      );
+        }
+      });
     },
     { includeInitialState: true },
   ),
