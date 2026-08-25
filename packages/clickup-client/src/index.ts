@@ -3,9 +3,11 @@ export {
   ClickUpClient,
   type ClickUpClientOptions,
   ClickUpError,
+  isCommentEvent,
   type ListTasksParams,
   type NewTask,
   type TaskPatch,
+  WEBHOOK_COMMENT_EVENTS,
   WEBHOOK_TASK_EVENTS,
 } from "./client.ts";
 export { renderCommentBody } from "./comment-body.ts";

@@ -1,4 +1,9 @@
-import type { ClickUpTask, ClickUpView } from "@rask/clickup-client";
+import {
+  type ClickUpTask,
+  type ClickUpView,
+  findMentions,
+  isCommentEvent,
+} from "@rask/clickup-client";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "./db.ts";
 import {
@@ -16,6 +21,7 @@ import {
 } from "./map.ts";
 import {
   checklistItems,
+  commentMentions,
   comments,
   customFieldDefs,
   folders,
@@ -463,10 +469,9 @@ export async function ingestComments(
 ): Promise<void> {
   if (batch.length === 0) return;
   await upsertCommentAuthors(db, batch);
-  await upsertComments(
-    db,
-    batch.map((c) => mapComment(c, taskId)),
-  );
+  const rows = batch.map((c) => mapComment(c, taskId));
+  await upsertComments(db, rows);
+  await replaceMentions(db, rows);
 }
 
 /**
@@ -485,10 +490,9 @@ export async function ingestReplies(
   batch: CommentPayload[],
 ): Promise<void> {
   await upsertCommentAuthors(db, batch);
-  await upsertComments(
-    db,
-    batch.map((c) => mapComment(c, taskId, parentCommentId)),
-  );
+  const rows = batch.map((c) => mapComment(c, taskId, parentCommentId));
+  await upsertComments(db, rows);
+  await replaceMentions(db, rows);
 
   const keep = batch.map((c) => c.id);
   await db
@@ -506,6 +510,41 @@ export async function ingestReplies(
     .where(eq(comments.id, parentCommentId));
 }
 
+/**
+ * Rewrites who each comment mentions.
+ *
+ * Deleted and reinserted per comment rather than merged, because an edit can
+ * remove a mention and a merge would leave the old row behind — the one shape
+ * of staleness that shows up as a notification for something nobody said.
+ *
+ * The ids come from the rendered markdown rather than from `segments`, because
+ * `renderCommentBody` has already done the work of deciding which `tag` runs
+ * carry a real user, and a locally authored comment is written in that dialect
+ * before ClickUp has ever seen it. One reader, both origins.
+ */
+async function replaceMentions(db: Db, rows: ReturnType<typeof mapComment>[]): Promise<void> {
+  if (rows.length === 0) return;
+
+  await db.delete(commentMentions).where(
+    inArray(
+      commentMentions.commentId,
+      rows.map((row) => row.id),
+    ),
+  );
+
+  const mentioned = rows.flatMap((row) =>
+    // A body that mentions the same person twice is one row, not a conflict.
+    [...new Set(findMentions(row.markdown ?? "").map((mention) => String(mention.id)))].map(
+      (userId) => ({ commentId: row.id, userId }),
+    ),
+  );
+  if (mentioned.length === 0) return;
+
+  for (const chunk of chunks(mentioned, ROW_CHUNK)) {
+    await db.insert(commentMentions).values(chunk).onConflictDoNothing();
+  }
+}
+
 async function upsertComments(db: Db, rows: ReturnType<typeof mapComment>[]): Promise<void> {
   if (rows.length === 0) return;
   await db
@@ -514,7 +553,7 @@ async function upsertComments(db: Db, rows: ReturnType<typeof mapComment>[]): Pr
     .onConflictDoUpdate({
       target: comments.id,
       set: {
-        ...pick(["text", "markdown", "segments", "resolved", "replyCount", "date"], {
+        ...pick(["text", "markdown", "segments", "assigneeId", "resolved", "replyCount", "date"], {
           syncedAt: true,
         }),
         // A reply re-read as part of some other batch must not lose its thread.
@@ -559,7 +598,12 @@ export async function enqueueWebhookEvent(
 ): Promise<void> {
   await db
     .insert(webhookEvents)
-    .values({ taskId: input.taskId, event: input.event, webhookId: input.webhookId ?? null })
+    .values({
+      taskId: input.taskId,
+      event: input.event,
+      webhookId: input.webhookId ?? null,
+      needsComments: isCommentEvent(input.event),
+    })
     .onConflictDoUpdate({
       target: webhookEvents.taskId,
       set: {
@@ -568,6 +612,11 @@ export async function enqueueWebhookEvent(
         // not erase the id an earlier one did, since that id is the only thing
         // pointing at which registration is misbehaving.
         webhookId: sql`coalesce(excluded.webhook_id, ${webhookEvents.webhookId})`,
+        // ORed, never replaced. The row is keyed by task, so a task event
+        // landing behind a comment event would otherwise clear the only record
+        // that the conversation moved, and the comment would wait for whenever
+        // somebody next opened the task.
+        needsComments: sql`${webhookEvents.needsComments} or excluded.needs_comments`,
         receivedAt: new Date(),
       },
     });

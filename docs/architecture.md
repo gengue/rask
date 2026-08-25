@@ -93,17 +93,30 @@ Each of these was dropped for a reason, and each has a way back in.
   `users.inbox_seen_at` per person for where that was. Marking it read here
   changes nothing in ClickUp, and clearing it there changes nothing here.
 
-  Its ceiling is the mirror's: state, not history. The Inbox can say *that* a
-  task changed and show what it looks like now — it cannot say what it changed
-  from, or who changed it, which is the half that would let a row read
-  "Ana moved this to Done". That needs an event per change, and the two places
-  one could come from both cost something. The webhook payload carries
-  `history_items` with the actor in it, deliberately ignored today for the
-  reasons in [webhooks.md](webhooks.md); a diff at ingest would catch the
-  polled changes too, but `ingestTasks` upserts in bulk and never reads the row
-  it is replacing, so it would mean a second SELECT on the hottest write path
-  in the system. Neither is hard. Both are more than a feed of "these eight
-  moved" is worth until somebody asks for the sentence.
+  A comment is the exception, and the reason the feed can say anything at all:
+  a comment *is* an event, with an author, a body and a time. Three signals feed
+  the rows that carry one, ranked — you were mentioned, the comment was assigned
+  to you, somebody said something on a task of yours. `notableComments` in
+  `apps/api/src/queries.ts` is the query and the ranking.
+
+  Mentions are indexed at ingest into `comment_mentions` rather than matched at
+  read time, because "did this mention me" is otherwise a scan of every comment
+  in the workspace. ClickUp omits the user on roughly one tag in ten and those
+  are not represented at all — a display name matched out of free text notifies
+  whoever happens to share it. What covers most of that gap is the blunt third
+  signal: a mention usually lands on a task that is already yours.
+
+  What is left is the task half's ceiling: state, not history. The Inbox can say
+  *that* a task changed and show what it looks like now — it cannot say what it
+  changed from, or who changed it, which is what would let a row read "Ana moved
+  this to Done". That needs an event per change, and the two places one could
+  come from both cost something. The webhook payload carries `history_items`
+  with the actor in it, deliberately ignored today for the reasons in
+  [webhooks.md](webhooks.md); a diff at ingest would catch the polled changes
+  too, but `ingestTasks` upserts in bulk and never reads the row it is
+  replacing, so it would mean a second SELECT on the hottest write path in the
+  system. Neither is hard. Both are more than "this task moved" is worth until
+  somebody asks for the sentence.
 
 ## Measured against the real workspace
 

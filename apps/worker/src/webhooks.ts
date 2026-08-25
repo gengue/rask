@@ -10,7 +10,7 @@ import {
 } from "@rask/schema";
 import { eq, sql } from "drizzle-orm";
 import type { Config } from "./config.ts";
-import { syncTask } from "./sync.ts";
+import { syncComments, syncTask } from "./sync.ts";
 import type { TokenPool } from "./tokens.ts";
 
 /**
@@ -46,6 +46,8 @@ export interface DrainResult {
 interface QueuedEvent {
   task_id: string;
   event: string;
+  /** Postgres sends a boolean column back as a boolean; the claim selects it. */
+  needs_comments: boolean;
   attempts: number;
 }
 
@@ -75,8 +77,22 @@ export async function drainWebhookEvents(
     if (!entry) break;
 
     try {
-      if (row.event === "taskDeleted") await markTaskDeleted(db, row.task_id);
-      else await syncTask(db, entry.client, row.task_id);
+      if (row.event === "taskDeleted") {
+        await markTaskDeleted(db, row.task_id);
+      } else {
+        await syncTask(db, entry.client, row.task_id);
+        /*
+         * The conversation, but only when something said so.
+         *
+         * This is the second request a comment event costs, and the only place
+         * a comment reaches the mirror without somebody opening the task. It
+         * runs after the task read-back rather than instead of it: a comment
+         * event still moves the task's own mtime, and a mention on a task the
+         * mirror has never seen has nothing to hang off until the task is
+         * there.
+         */
+        if (row.needs_comments) await syncComments(db, entry.client, row.task_id);
+      }
       await release(db, row.task_id);
       result.done++;
     } catch (error) {
@@ -130,7 +146,7 @@ async function claim(db: Db, limit: number): Promise<QueuedEvent[]> {
         next_attempt_at = now() + (least(300, 2 ^ (w.attempts + 1)))::int * interval '1 second'
     from claimed c
     where w.task_id = c.task_id
-    returning w.task_id, w.event, w.attempts
+    returning w.task_id, w.event, w.needs_comments, w.attempts
   `);
   return (
     Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])

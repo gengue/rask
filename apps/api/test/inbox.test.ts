@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+  commentMentions,
+  comments,
   createTestDb,
   oauthTokens,
   saveToken,
@@ -9,10 +11,10 @@ import {
   tasks,
   users,
 } from "@rask/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 import type * as honoModule from "hono";
 import { hashSession } from "../src/auth.ts";
-import { listTasks } from "../src/queries.ts";
+import { listTasks, notableComments } from "../src/queries.ts";
 
 /**
  * The inbox window, over real rows.
@@ -36,8 +38,14 @@ import { listTasks } from "../src/queries.ts";
 const db = createTestDb();
 
 const ID = (suffix: string) => `inb-${suffix}`;
-const ANNA = ID("u-anna");
-const BEN = ID("u-ben");
+/*
+ * Numeric, because ClickUp's user ids are and `findMentions` only matches
+ * digits — `@[name](clickup://user/inb-u-anna)` is not a mention, it is a link
+ * to nothing. A fixture with prose ids passes every query in this file and
+ * would have quietly asserted that mentions do not work.
+ */
+const ANNA = "990001";
+const BEN = "990002";
 const LIST = ID("list");
 
 const KEY = Buffer.alloc(32, 7);
@@ -146,7 +154,102 @@ beforeAll(async () => {
     },
   ]);
 
+  await db.insert(tasks).values([
+    {
+      id: ID("notmine"),
+      listId: LIST,
+      name: "Somebody else's task, and you were pulled into it",
+      status: "Open",
+      statusType: "open",
+      // Untouched inside the window on purpose: a mention has to drag its task
+      // in by itself, or the one case the feature exists for does not work.
+      dateUpdated: ago(20_160),
+    },
+    {
+      id: ID("quiet"),
+      listId: LIST,
+      name: "Yours, stale, and the only voice on it is your own",
+      status: "Open",
+      statusType: "open",
+      dateUpdated: ago(20_160),
+    },
+  ]);
+
+  await db.insert(comments).values([
+    {
+      id: ID("c-mention"),
+      taskId: ID("notmine"),
+      userId: BEN,
+      text: `@anna can you look at this`,
+      markdown: `@[anna](clickup://user/${ANNA}) can you look at this`,
+      date: ago(3),
+    },
+    {
+      id: ID("c-assigned"),
+      taskId: ID("ancient"),
+      userId: BEN,
+      text: "handing this one to you",
+      assigneeId: ANNA,
+      date: ago(4),
+    },
+    // On a task of Anna's, so notable by the blunt signal alone.
+    {
+      id: ID("c-plain"),
+      taskId: ID("fresh"),
+      userId: BEN,
+      text: "ok",
+      date: ago(2),
+    },
+    // Older than the "ok" above and on the same task: the ranking has to put
+    // this one on the row anyway.
+    {
+      id: ID("c-mention-fresh"),
+      taskId: ID("fresh"),
+      userId: BEN,
+      text: "@anna the numbers do not add up",
+      markdown: `@[anna](clickup://user/${ANNA}) the numbers do not add up`,
+      date: ago(30),
+    },
+    // Anna's own, and the newest thing on the task.
+    {
+      id: ID("c-mine"),
+      taskId: ID("fresh"),
+      userId: ANNA,
+      text: "on it",
+      date: ago(1),
+    },
+    /*
+     * Anna's own, and the only comment on its task.
+     *
+     * `inb-fresh` above cannot test this on its own: it carries a mention that
+     * outranks anything Anna said, so the row would look right whether or not
+     * her own words were being filtered. This task has nothing else to hide
+     * behind.
+     */
+    {
+      id: ID("c-solo"),
+      taskId: ID("quiet"),
+      userId: ANNA,
+      text: "note to self",
+      date: ago(2),
+    },
+    // A plain comment on somebody else's task is not addressed to anyone.
+    {
+      id: ID("c-noise"),
+      taskId: ID("notmine"),
+      userId: BEN,
+      text: "unrelated chatter",
+      date: ago(2),
+    },
+  ]);
+
+  await db.insert(commentMentions).values([
+    { commentId: ID("c-mention"), userId: ANNA },
+    { commentId: ID("c-mention-fresh"), userId: ANNA },
+  ]);
+
   await db.insert(taskAssignees).values([
+    { taskId: ID("quiet"), userId: ANNA },
     { taskId: ID("fresh"), userId: ANNA },
     { taskId: ID("older"), userId: ANNA },
     { taskId: ID("closed"), userId: ANNA },
@@ -159,10 +262,13 @@ beforeAll(async () => {
 afterAll(cleanup);
 
 async function cleanup() {
+  // Comments cascade from tasks and mentions cascade from comments, so the one
+  // delete is enough — but say it out loud, because a fixture that half-cleans
+  // reads as a passing test the next time somebody adds a row.
   await db.delete(tasks).where(like(tasks.id, "inb-%"));
   await db.delete(sessions).where(eq(sessions.id, hashSession(COOKIE)));
-  await db.delete(oauthTokens).where(like(oauthTokens.userId, "inb-%"));
-  await db.delete(users).where(like(users.id, "inb-%"));
+  await db.delete(oauthTokens).where(inArray(oauthTokens.userId, [ANNA, BEN]));
+  await db.delete(users).where(inArray(users.id, [ANNA, BEN]));
 }
 
 /** The inbox read, as the route issues it. */
@@ -227,6 +333,97 @@ describe("the inbox window", () => {
   });
 });
 
+describe("notable comments", () => {
+  const reasons = (minutes: number) => notableComments(db, ANNA, ago(minutes));
+
+  test("finds a mention on a task that is not yours and never moved", async () => {
+    /*
+     * The case the whole comment path exists for. `inb-notmine` has no Anna
+     * assignee and its own `date_updated` is a fortnight old, so every query in
+     * the file above misses it. Only the comment puts it on screen.
+     */
+    const found = await reasons(120);
+    const mention = found.find((r) => r.taskId === ID("notmine"));
+
+    expect(mention?.kind).toBe("mention");
+    expect(mention?.commentId).toBe(ID("c-mention"));
+    expect(mention?.authorName).toBe("ben");
+  });
+
+  test("ranks a mention above a newer plain comment on the same task", async () => {
+    // "ok" is newer. It is also not addressed to anybody, and showing it would
+    // bury the only line in the thread written at you.
+    const found = await reasons(120);
+    const fresh = found.find((r) => r.taskId === ID("fresh"));
+
+    expect(fresh?.kind).toBe("mention");
+    expect(fresh?.commentId).toBe(ID("c-mention-fresh"));
+    expect(fresh?.excerpt).toBe("@anna the numbers do not add up");
+  });
+
+  test("flattens a mention out of the excerpt", async () => {
+    // The stored markdown spells it `@[anna](clickup://user/...)`, which is not
+    // something to put in front of a reader.
+    const found = await reasons(120);
+
+    expect(found.find((r) => r.taskId === ID("notmine"))?.excerpt).toBe(
+      "@anna can you look at this",
+    );
+  });
+
+  test("finds a comment assigned to you", async () => {
+    const found = await reasons(120);
+    const assigned = found.find((r) => r.taskId === ID("ancient"));
+
+    expect(assigned?.kind).toBe("assigned");
+    expect(assigned?.commentId).toBe(ID("c-assigned"));
+  });
+
+  test("ignores what you said yourself", async () => {
+    /*
+     * `inb-quiet` is assigned to Anna and the only thing said on it is hers, so
+     * the task appears here or it does not at all — no stronger reason can
+     * stand in front of the filter and make it look like it worked.
+     *
+     * Being notified about your own words is how a feed teaches somebody to
+     * stop reading it.
+     */
+    const found = await reasons(120);
+
+    expect(found.map((r) => r.taskId)).not.toContain(ID("quiet"));
+    expect(found.map((r) => r.commentId)).not.toContain(ID("c-mine"));
+  });
+
+  test("ignores chatter on somebody else's task", async () => {
+    // Same task as the mention, same author, nothing addressed to anyone. The
+    // blunt "any comment" signal is scoped to tasks that are yours.
+    const found = await reasons(120);
+
+    expect(found.map((r) => r.commentId)).not.toContain(ID("c-noise"));
+  });
+
+  test("reports the newest thing said alongside the strongest", async () => {
+    /*
+     * `inb-fresh` shows Tuesday's mention and had an "ok" on it since. The row
+     * is about the mention; whether the task is unread is about the "ok".
+     *
+     * Read unread off the ranked comment and a task whose conversation is still
+     * moving goes quiet the moment an old mention outranks the new line — which
+     * is a badge that counts one fewer than the window it is counting.
+     */
+    const fresh = (await reasons(120)).find((r) => r.taskId === ID("fresh"));
+
+    expect(fresh?.commentId).toBe(ID("c-mention-fresh"));
+    expect(fresh?.at?.getTime()).toBe(ago(30).getTime());
+    // `inb-c-mine` is newer still, but Anna wrote it and it is not notable.
+    expect(fresh?.latestAt?.getTime()).toBe(ago(2).getTime());
+  });
+
+  test("says nothing about a window that closed after the conversation", async () => {
+    expect(await reasons(1)).toEqual([]);
+  });
+});
+
 describe("over HTTP", () => {
   test("marks the inbox read at the server's clock", async () => {
     const before = new Date();
@@ -247,14 +444,14 @@ describe("over HTTP", () => {
     expect(Date.parse(inboxSeenAt)).toBeGreaterThanOrEqual(before.getTime());
   });
 
-  test("rejects an out-of-range updatedSince instead of failing on it", async () => {
+  test("rejects an out-of-range since instead of failing on it", async () => {
     /*
      * `new Date(9e15)` is an Invalid Date, and an invalid Date reaching the
      * driver is a 500 on a query parameter — the one error a validated
      * boundary is supposed to make impossible. It is bounded rather than
      * clamped: a caller asking for something meaningless should hear so.
      */
-    const response = await app.request("/api/tasks?assignee=me&updatedSince=9000000000000000", {
+    const response = await app.request("/api/inbox?since=9000000000000000", {
       headers: { cookie: COOKIE_HEADER },
     });
 
@@ -262,19 +459,43 @@ describe("over HTTP", () => {
   });
 
   test("answers the window through the route, newest first", async () => {
-    // The parameter is wired end to end: parsed, coerced to a Date, and handed
-    // to the same query the tests above drive directly.
-    const since = ago(120).getTime();
-    const response = await app.request(
-      `/api/tasks?assignee=me&closed=1&updatedSince=${since}&limit=2`,
-      { headers: { cookie: COOKIE_HEADER } },
-    );
+    // Two rows of a window that holds three, so the truncation flag is a real
+    // answer rather than a constant.
+    const response = await app.request(`/api/inbox?since=${ago(120).getTime()}&limit=2`, {
+      headers: { cookie: COOKIE_HEADER },
+    });
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("X-Rask-Truncated")).toBe("1");
 
-    const rows = (await response.json()) as Array<{ id: string }>;
-    expect(rows.map((row) => row.id)).toEqual([ID("fresh"), ID("closed")]);
+    const page = (await response.json()) as {
+      tasks: Array<{ id: string }>;
+      reasons: Array<{ taskId: string; kind: string }>;
+      truncated: boolean;
+    };
+
+    expect(page.truncated).toBe(true);
+    // The window half, in the order the feed reads.
+    expect(page.tasks.slice(0, 2).map((row) => row.id)).toEqual([ID("fresh"), ID("closed")]);
+  });
+
+  test("carries the task a comment pulled in, whose own clock never moved", async () => {
+    /*
+     * `inb-notmine` is a fortnight stale and belongs to nobody in particular,
+     * so the window query cannot reach it and the browser has no way to render
+     * a reason for a task it was never sent. This is the second read the route
+     * does, and it is the whole reason the feed is one round trip.
+     */
+    const response = await app.request(`/api/inbox?since=${ago(120).getTime()}`, {
+      headers: { cookie: COOKIE_HEADER },
+    });
+
+    const page = (await response.json()) as {
+      tasks: Array<{ id: string }>;
+      reasons: Array<{ taskId: string; kind: string }>;
+    };
+
+    expect(page.reasons.find((r) => r.taskId === ID("notmine"))?.kind).toBe("mention");
+    expect(page.tasks.map((row) => row.id)).toContain(ID("notmine"));
   });
 });
 

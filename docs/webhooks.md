@@ -11,6 +11,20 @@ mattering. Duplicates collapse, order is irrelevant (the fetch returns what
 ClickUp holds now, not what the event described), and the upserts in
 `packages/schema/src/ingest.ts` are idempotent by design.
 
+`taskCommentPosted` and `taskCommentUpdated` cost a second request — the task,
+then `GET /task/{id}/comment` for its newest page — and they are the only two
+that do. It is the only way a conversation reaches the mirror without somebody
+opening the task in the browser, which is what the inbox's mention and comment
+signals are built on. Polling cannot stand in: `GET /list/{id}/task` carries no
+comments, so discovering one by polling would mean a comment request for every
+task that changed, most of them to learn that nobody said anything.
+
+The queue is keyed by task, so a comment event and a task event arriving
+together collapse into one row — and the event *name* collapses with them.
+`webhook_events.needs_comments` is ORed rather than overwritten for exactly
+that: losing the comment half of a collapsed pair means a mention that waits
+for whenever somebody next opens the task by hand.
+
 Events do carry a `history_items` diff with `before` and `after` — more than
 the docs' summary suggests — and Rask deliberately ignores it. The diff only
 covers the fields that event touched, so applying it to a task the mirror has
@@ -21,6 +35,11 @@ one code path, and correct for every event type. Real fixtures are in
 Creating one task produces three deliveries — `taskCreated`,
 `taskStatusUpdated`, `taskUpdated`, within 300ms — which the queue collapses
 into one row and one `GET /task/{id}`.
+
+**With no webhook there are no comment notifications at all**, and unlike
+everything else here polling does not quietly cover for it. That is a visible,
+recoverable state — the health loop registers and reactivates — rather than a
+silent one, but it is the one capability that depends on webhooks working.
 
 ```
 ClickUp --POST /webhooks/clickup--> API --INSERT--> webhook_events --> worker --GET /task/{id}--> mirror --SSE--> browser

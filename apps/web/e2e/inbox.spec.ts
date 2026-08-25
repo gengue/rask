@@ -30,12 +30,14 @@ test("counts what changed, then clears it for good", async ({ page }) => {
    * badge that undercounts is worse than no badge.
    */
   const session = await page.request.get("/api/me").then((response) => response.json());
-  const unread = await page.request
-    .get(
-      `/api/tasks?assignee=me&closed=1&limit=1000&updatedSince=${Date.parse(session.inboxSeenAt)}`,
-    )
+  const window = await page.request
+    .get(`/api/inbox?since=${Date.parse(session.inboxSeenAt)}&limit=1000`)
     .then((response) => response.json());
+  const unread = window.tasks;
   expect(unread.length).toBeGreaterThan(0);
+  // The fixture has to contain the thing the second test is about, or that test
+  // passes by finding nothing and asserting nothing.
+  expect(window.reasons.some((r: { kind: string }) => r.kind === "mention")).toBe(true);
 
   // Booted straight into a list, which fills that collection with the list
   // rather than with your tasks. Asserting this from My Tasks would pass either
@@ -77,4 +79,45 @@ test("counts what changed, then clears it for good", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect(list.getByRole("option").first()).toBeVisible();
   await expect(list.getByText("Unread.")).toHaveCount(0);
+});
+
+/**
+ * The half a task row cannot say.
+ *
+ * Tier A can report that a task changed. This is the row that reports what
+ * somebody actually wrote, which is the only kind of inbox entry you can act on
+ * without opening anything — and the only one that can carry a name.
+ */
+test("shows who said what, and opens the task they said it on", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto("/__dev-login");
+  await expect(page.getByRole("heading", { name: "My Tasks" })).toBeVisible();
+
+  await page.goto("/inbox");
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+
+  const list = page.getByRole("listbox", { name: "Tasks" });
+  await expect(list.getByRole("option").first()).toBeVisible();
+
+  // The glyph is the ranking made visible: three signals that need three
+  // different amounts of attention.
+  const mention = list.getByRole("option").filter({ has: page.getByLabel("Mentioned you") });
+  await expect(mention.first()).toBeVisible();
+
+  // A comment row is a sentence, so it has to carry an author and words.
+  const row = mention.first();
+  const taskId = await row.getAttribute("id");
+  expect(taskId).toBeTruthy();
+  await expect(row).toContainText(":");
+
+  /*
+   * And it still opens the task, which is the reason the feed is a feed of
+   * tasks wearing two row shapes rather than a second kind of thing with its
+   * own navigation.
+   */
+  await row.click();
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail).toBeVisible();
+  expect(page.url()).toContain(`task=${taskId?.replace("task-", "")}`);
 });

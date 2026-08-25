@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { asc, eq } from "drizzle-orm";
 import { ingestComments, ingestReplies } from "../src/ingest.ts";
-import { comments, tasks } from "../src/schema.ts";
+import { commentMentions, comments, tasks } from "../src/schema.ts";
 import { createTestDb } from "../src/test-db.ts";
 
 /**
@@ -32,6 +32,15 @@ afterEach(async () => {
   await db.delete(tasks).where(eq(tasks.id, TASK));
 });
 
+async function mentions(commentId: string): Promise<string[]> {
+  const rows = await db
+    .select({ userId: commentMentions.userId })
+    .from(commentMentions)
+    .where(eq(commentMentions.commentId, commentId))
+    .orderBy(asc(commentMentions.userId));
+  return rows.map((row) => row.userId);
+}
+
 async function stored() {
   return db
     .select({ id: comments.id, parent: comments.parentCommentId, replies: comments.replyCount })
@@ -39,6 +48,85 @@ async function stored() {
     .where(eq(comments.taskId, TASK))
     .orderBy(asc(comments.id));
 }
+
+/**
+ * Who a comment mentions, extracted at ingest.
+ *
+ * This is the index the inbox asks "did anyone say my name" against, and every
+ * failure here is silent: a mention that produces no row is a notification that
+ * never arrives, and a row that outlives the words that made it is a
+ * notification for something nobody said.
+ */
+describe("mentions", () => {
+  test("records the people a comment tagged", async () => {
+    await ingestComments(db, TASK, [
+      payload("c1", "@Ada @Linus have a look", {
+        comment: [
+          { type: "tag", user: { id: 7, username: "Ada" }, text: "@Ada" },
+          { text: " " },
+          { type: "tag", user: { id: 9, username: "Linus" }, text: "@Linus" },
+          { text: " have a look" },
+        ],
+      }),
+    ]);
+
+    expect(await mentions("c1")).toEqual(["7", "9"]);
+  });
+
+  test("drops a mention an edit removed", async () => {
+    // The stale half. A merge would leave the old row behind, and the person
+    // who was un-tagged would keep being told about a comment that no longer
+    // names them — with no way to make it stop.
+    await ingestComments(db, TASK, [
+      payload("c1", "@Ada look", {
+        comment: [{ type: "tag", user: { id: 7, username: "Ada" }, text: "@Ada" }],
+      }),
+    ]);
+    await ingestComments(db, TASK, [
+      payload("c1", "never mind", { comment: [{ text: "never mind" }] }),
+    ]);
+
+    expect(await mentions("c1")).toEqual([]);
+  });
+
+  test("records a person tagged twice once", async () => {
+    await ingestComments(db, TASK, [
+      payload("c1", "@Ada @Ada", {
+        comment: [
+          { type: "tag", user: { id: 7, username: "Ada" }, text: "@Ada" },
+          { type: "tag", user: { id: 7, username: "Ada" }, text: "@Ada" },
+        ],
+      }),
+    ]);
+
+    expect(await mentions("c1")).toEqual(["7"]);
+  });
+
+  test("records nothing for a tag ClickUp sent no user for", async () => {
+    /*
+     * About one tag in ten. The flattened "@Ada" is all we get, and guessing an
+     * id from a display name notifies whoever happens to share it — so the
+     * mention is simply not represented. See `commentMentions` for what covers
+     * the gap instead.
+     */
+    await ingestComments(db, TASK, [
+      payload("c1", "@Ada look", { comment: [{ type: "tag", text: "@Ada" }] }),
+    ]);
+
+    expect(await mentions("c1")).toEqual([]);
+  });
+
+  test("carries the assignee of a comment ClickUp handed to somebody", async () => {
+    // The one comment signal with no parsing behind it.
+    await ingestComments(db, TASK, [payload("c1", "yours", { assignee: { id: 7 } })]);
+
+    const [row] = await db
+      .select({ assigneeId: comments.assigneeId })
+      .from(comments)
+      .where(eq(comments.id, "c1"));
+    expect(row?.assigneeId).toBe("7");
+  });
+});
 
 describe("ingestComments", () => {
   test("keeps comments that were not in this page", async () => {

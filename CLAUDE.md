@@ -97,9 +97,14 @@ either direction — `readUpload` caps it on the stream, not on `Content-Length`
 
 **Ingestion is webhooks *and* polling, and polling never stops.** A webhook event
 only names a task, so every event costs one `GET /task/{id}` — which is what makes
-duplicates and out-of-order deliveries harmless. `docs/webhooks.md` explains why
-the `history_items` diff is deliberately ignored and why the endpoint answers
-400/403 but never 401/410 (ClickUp suspends a webhook on those two).
+duplicates and out-of-order deliveries harmless. The two comment events cost a
+second request for the task's newest page of comments, and are the only path by
+which a conversation reaches the mirror without somebody opening the task; the
+queue is keyed by task, so `webhook_events.needs_comments` is ORed rather than
+overwritten when a task event collapses onto a comment one. `docs/webhooks.md`
+explains why the `history_items` diff is deliberately ignored and why the
+endpoint answers 400/403 but never 401/410 (ClickUp suspends a webhook on those
+two).
 
 **The front end has one collection, not one per view.** Every task the session has
 loaded lives in `store.ts`; `live.ts` mirrors it into a keyed Solid store and views

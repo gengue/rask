@@ -67,6 +67,41 @@ export interface Task {
   customValues?: Record<string, string> | null;
 }
 
+/**
+ * Why a task is in the inbox, when the reason is something somebody said.
+ *
+ * `kind` is ranked: a mention outranks a comment assigned to you, which
+ * outranks anything else said on a task of yours. The server picks one comment
+ * per task by that ranking and then by recency, so this is the strongest reason
+ * to look rather than merely the latest.
+ */
+export interface InboxReason {
+  taskId: string;
+  commentId: string;
+  kind: "mention" | "assigned" | "comment";
+  authorId: string | null;
+  authorName: string | null;
+  authorAvatar: string | null;
+  /** Already flattened and trimmed by the server. One line of a feed. */
+  excerpt: string;
+  /** When the comment on the row was written. */
+  at: string | null;
+  /**
+   * When the newest notable comment on the task was written, ranked or not.
+   *
+   * What unread is measured from. `at` is the line being shown, and the two
+   * differ whenever a stronger reason is older than the latest one — a mention
+   * followed by somebody's "ok".
+   */
+  latestAt: string | null;
+}
+
+/** A page of tasks, plus what was said on them. `TaskPage` is the half that
+ *  goes into the shared collection. */
+export interface InboxPage extends TaskPage {
+  reasons: InboxReason[];
+}
+
 export interface Comment {
   id: string;
   parentCommentId: string | null;
@@ -342,11 +377,6 @@ export interface TaskQuery {
   closed?: boolean;
   limit?: number;
   /**
-   * Epoch milliseconds. Restricts the page to tasks ClickUp changed since then
-   * and orders it newest change first, which is what the inbox reads.
-   */
-  updatedSince?: number;
-  /**
    * The user's filter, already serialised by `lib/filters.ts`.
    *
    * Sent as a string rather than as clauses so this layer never has to know
@@ -432,6 +462,9 @@ export const api = {
 
   /** Marks the inbox read up to the server's clock, and reports that instant. */
   markInboxSeen: () => request<{ inboxSeenAt: string }>("/api/inbox/seen", { method: "POST" }),
+
+  /** The feed window: the tasks in it and, where there is one, what was said. */
+  inbox: (since: number) => request<InboxPage>(`/api/inbox?since=${since}&limit=500`),
   hierarchy: () => request<Space[]>("/api/hierarchy"),
   members: () => request<Assignee[]>("/api/members"),
 
@@ -445,7 +478,6 @@ export const api = {
     if (query.closed) params.set("closed", "1");
     if (query.limit) params.set("limit", String(query.limit));
     if (query.filter) params.set("filter", query.filter);
-    if (query.updatedSince) params.set("updatedSince", String(query.updatedSince));
 
     return requestPage(`/api/tasks?${params}`);
   },

@@ -38,6 +38,7 @@ import {
   listMembers,
   listTasks,
   listViewsFor,
+  notableComments,
   resolveRefs,
   searchTasks,
   statusesForList,
@@ -184,6 +185,52 @@ api.post("/inbox/seen", async (c) => {
   return c.json({ inboxSeenAt: seenAt });
 });
 
+/**
+ * The window the inbox draws, tasks and reasons together.
+ *
+ * Its own route rather than a parameter on `GET /api/tasks`, because it answers
+ * a different question and returns a different shape. A feed entry is a task
+ * *and why it is here*, and the why is a comment — a join no other view wants
+ * to pay for, on a route every list read goes through.
+ *
+ * One round trip on purpose. The tasks have to reach the browser's collection
+ * for the unread count and the live updates to work at all, and the reasons are
+ * useless without them, so splitting this in two would mean a feed that renders
+ * twice: once as bare rows, once with what people said.
+ */
+api.get("/inbox", async (c) => {
+  const query = inboxQuery.safeParse(c.req.query());
+  if (!query.success) return c.json({ error: z.prettifyError(query.error) }, 400);
+
+  const userId = c.get("user").id;
+  const since = new Date(query.data.since);
+  const limit = query.data.limit ?? 500;
+
+  const [reasons, changed] = await Promise.all([
+    notableComments(db, userId, since, limit),
+    listTasks(db, { assigneeId: userId, includeClosed: true, updatedSince: since, limit }),
+  ]);
+
+  const truncated = changed.length > limit;
+  if (truncated) changed.length = limit;
+
+  /*
+   * Tasks somebody commented on that are not already in the window.
+   *
+   * A mention reaches you on a task you have never touched and whose own mtime
+   * may not have moved, so the first query cannot find it. Fetched by id rather
+   * than by widening that query, because "these exact rows" is what the mirror
+   * is fastest at and the set is bounded by the reasons above it.
+   */
+  const have = new Set(changed.map((task) => task.id));
+  const missing = [...new Set(reasons.map((r) => r.taskId))].filter((id) => !have.has(id));
+  const extra = missing.length
+    ? await listTasks(db, { taskIds: missing, includeClosed: true, limit: missing.length })
+    : [];
+
+  return c.json({ tasks: [...changed, ...extra], reasons, truncated });
+});
+
 api.get("/hierarchy", async (c) => c.json(await getHierarchy(db)));
 
 api.get("/members", async (c) => c.json(await listMembers(db)));
@@ -250,6 +297,22 @@ api.get("/resolve", async (c) => {
   return c.json({ kind: "unknown" } as const);
 });
 
+/**
+ * `since` is epoch milliseconds, bounded by the largest instant a Date can
+ * hold. Past it `new Date(n)` is an Invalid Date, which reaches the driver and
+ * comes back as a 500 — and a malformed query parameter is the one thing a
+ * validated boundary owes a 400.
+ *
+ * The client sends the instant rather than the server reading `inbox_seen_at`
+ * for it, because the page and the unread badge ask for two different windows
+ * off the same route: the page shows a few days of history, the badge only what
+ * arrived since the last visit.
+ */
+const inboxQuery = z.object({
+  since: z.coerce.number().int().positive().max(8.64e15),
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+});
+
 const taskFilters = z.object({
   list: z.string().optional(),
   space: z.string().optional(),
@@ -266,19 +329,6 @@ const taskFilters = z.object({
    * `parseFilter` rejects a field it does not know rather than ignoring it.
    */
   filter: z.string().max(8000).optional(),
-  /**
-   * Epoch milliseconds. Only tasks ClickUp changed since then, newest first.
-   *
-   * The client sends its own instant rather than the server reading
-   * `inbox_seen_at` for it, because the inbox page and the unread badge ask for
-   * two different windows off the same route: the page shows a few days of
-   * history, the badge only what arrived since the last visit.
-   *
-   * Bounded by the largest instant a Date can hold. Past it `new Date(n)` is an
-   * Invalid Date, which reaches the driver and comes back as a 500 — and a
-   * malformed query parameter is the one thing a validated boundary owes a 400.
-   */
-  updatedSince: z.coerce.number().int().positive().max(8.64e15).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
 
@@ -308,7 +358,6 @@ api.get("/tasks", async (c) => {
     clauses,
     fieldIds: fieldIdsIn(clauses),
     includeClosed: f.closed === "1",
-    updatedSince: f.updatedSince ? new Date(f.updatedSince) : undefined,
     limit,
   });
 

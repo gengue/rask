@@ -1,11 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import type { Task } from "../src/lib/api.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import type { InboxReason, Task } from "../src/lib/api.ts";
 import {
   byRecency,
   cutoffFrom,
   INBOX_WINDOW_DAYS,
   inboxPredicate,
   isUnread,
+  setReasons,
 } from "../src/lib/inbox.ts";
 
 /**
@@ -99,6 +100,75 @@ describe("inboxPredicate", () => {
     });
 
     expect(inboxPredicate(undefined, since)(bens)).toBe(true);
+  });
+});
+
+describe("inboxPredicate, with something said", () => {
+  const since = now - 2 * DAY;
+
+  const reason = (over: Partial<InboxReason> = {}): InboxReason => ({
+    taskId: "a",
+    commentId: "c1",
+    kind: "mention",
+    authorId: BEN,
+    authorName: "ben",
+    authorAvatar: null,
+    excerpt: "have a look at this",
+    at: ago(1),
+    latestAt: ago(1),
+    ...over,
+  });
+
+  const bensTask = () =>
+    task({
+      id: "a",
+      // Stale, and not yours. Nothing but the comment can put it in the feed.
+      dateUpdated: ago(30),
+      assignees: [{ id: BEN, username: "ben", initials: "B", color: null, avatar: null }],
+    });
+
+  afterEach(() => setReasons(new Map()));
+
+  test("keeps a mention on somebody else's task", () => {
+    /*
+     * The case Tier B exists for. Somebody pulled you into a task that is not
+     * yours and whose own clock has not moved in a month — an assignee check or
+     * an mtime check would each drop it on its own.
+     */
+    setReasons(new Map([["a", reason()]]));
+
+    expect(inboxPredicate(ANNA, since)(bensTask())).toBe(true);
+  });
+
+  test("drops it once the window has moved past what was said", () => {
+    setReasons(new Map([["a", reason({ at: ago(10), latestAt: ago(10) })]]));
+
+    expect(inboxPredicate(ANNA, since)(bensTask())).toBe(false);
+  });
+
+  test("keeps it when the shown line is old but the conversation is not", () => {
+    /*
+     * The row shows the strongest reason, which can be a mention from last
+     * week; unread is about the latest thing said, which can be this morning.
+     * Reading unread off the shown line marks a moving thread as read and the
+     * badge counts one fewer than the window it is counting.
+     */
+    setReasons(new Map([["a", reason({ at: ago(10), latestAt: ago(1) })]]));
+
+    expect(inboxPredicate(ANNA, since)(bensTask())).toBe(true);
+  });
+
+  test("drops it when the task is archived, reason or not", () => {
+    // The page is a server read that excludes archived tasks, so counting one
+    // here is a badge that will not go down however many times you visit.
+    setReasons(new Map([["a", reason()]]));
+
+    expect(inboxPredicate(ANNA, since)(task({ ...bensTask(), archived: true }))).toBe(false);
+  });
+
+  test("still keeps your own changed task with nothing said on it", () => {
+    // The Tier A half has to survive the Tier B one being empty.
+    expect(inboxPredicate(ANNA, since)(task({ id: "b", dateUpdated: ago(1) }))).toBe(true);
   });
 });
 

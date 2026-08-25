@@ -11,7 +11,9 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { findMentions } from "@rask/clickup-client";
 import {
+  commentMentions,
   comments,
   createDb,
   customFieldDefs,
@@ -34,6 +36,9 @@ const databaseUrl = process.env.DATABASE_URL ?? "postgres://rask:rask@localhost:
 const db = createDb(databaseUrl);
 
 const TEAM_ID = "529";
+
+/** Whoever `__dev-login` signs you in as. The inbox is written from their side. */
+const ME = "1001";
 
 const PEOPLE = [
   {
@@ -356,11 +361,34 @@ async function seed() {
       if (random() > 0.75) {
         const howMany = 1 + Math.floor(random() * 3);
         for (let c = 0; c < howMany; c++) {
+          /*
+           * Somebody other than you, always.
+           *
+           * The inbox drops your own comments, so a seed that let you talk to
+           * yourself would produce a fixture where a third of the conversation
+           * is invisible and nobody could tell whether that was the filter
+           * working or the data being empty.
+           */
+          const author = PEOPLE.filter((person) => person.id !== ME)[
+            Math.floor(random() * (PEOPLE.length - 1))
+          ];
+          const body = pick(COMMENT_TEXTS);
+          // Roughly one comment in five is addressed to you, half by mention
+          // and half by assignment, so the feed has all three kinds in it.
+          const addressed = random();
+          const mentions = addressed > 0.9;
+          const assigned = !mentions && addressed > 0.8;
+
           commentRows.push({
             id: `${id}-c${c}`,
             taskId: id,
-            userId: pick(PEOPLE).id,
-            text: pick(COMMENT_TEXTS),
+            userId: author?.id ?? "1002",
+            text: mentions ? `@genesis ${body}` : body,
+            // The markdown is what `findMentions` reads, and it is also what
+            // ClickUp's own renderer would have produced. Storing only the flat
+            // text would seed a mention nothing can detect.
+            markdown: mentions ? `@[genesis](clickup://user/${ME}) ${body}` : body,
+            assigneeId: assigned ? ME : null,
             date: new Date(now - Math.floor(random() * 10) * 86_400_000),
           });
         }
@@ -377,6 +405,24 @@ async function seed() {
   }
   for (const chunk of chunks(commentRows, 500)) {
     await db.insert(comments).values(chunk).onConflictDoNothing();
+  }
+
+  /*
+   * The mention index, built the way ingest builds it.
+   *
+   * The seed writes rows straight into the tables rather than going through
+   * `ingestComments`, so this is the one place the two paths could disagree.
+   * Calling the same `findMentions` over the same markdown is what keeps a
+   * seeded workspace from being a workspace where mentions quietly do nothing.
+   */
+  const mentionRows = commentRows.flatMap((comment) =>
+    findMentions(comment.markdown ?? "").map((mention) => ({
+      commentId: comment.id,
+      userId: String(mention.id),
+    })),
+  );
+  for (const chunk of chunks(mentionRows, 500)) {
+    await db.insert(commentMentions).values(chunk).onConflictDoNothing();
   }
 
   // A session is only usable alongside a ClickUp token, so seed one. It is not

@@ -1,6 +1,7 @@
 import type { ClickUpClient } from "@rask/clickup-client";
 import {
   type Db,
+  ingestComments,
   ingestTasks,
   syncCursors,
   tasks,
@@ -133,6 +134,34 @@ export async function syncList(
 export async function syncTask(db: Db, client: ClickUpClient, taskId: string): Promise<void> {
   const task = await client.getTask(taskId);
   await ingestTasks(db, [task]);
+}
+
+/**
+ * How many pages of a task's conversation a comment event is worth.
+ *
+ * One. `GET /task/{id}/comment` returns the newest 25 first, and a comment
+ * event is about something somebody just said — the pages behind it are
+ * history the detail view fetches when anybody actually opens the task. Two
+ * would double the cost of every comment in the workspace to re-read what the
+ * mirror already has.
+ */
+const COMMENT_PAGES_PER_EVENT = 1;
+
+/**
+ * Re-reads the newest page of a task's comments.
+ *
+ * Only ever called for a comment event. Replies are deliberately not walked:
+ * `GET /comment/{id}/reply` is one request per thread, and the inbox reads
+ * top-level comments — a reply that mentions you arrives when the task is
+ * opened, which is where the threads are already fetched.
+ */
+export async function syncComments(db: Db, client: ClickUpClient, taskId: string): Promise<number> {
+  let requests = 0;
+  for await (const page of client.iterateComments(taskId, { maxPages: COMMENT_PAGES_PER_EVENT })) {
+    requests++;
+    await ingestComments(db, taskId, page);
+  }
+  return requests;
 }
 
 /** Lists we have synced at least once. Nothing else is worth polling. */

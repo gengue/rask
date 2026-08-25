@@ -620,6 +620,14 @@ export const comments = pgTable(
      * upstream.
      */
     segments: jsonb<unknown[] | null>("segments"),
+    /**
+     * Who the comment was assigned to, if anyone.
+     *
+     * ClickUp's own "this one is for you" — a first-class field rather than a
+     * mention buried in the body, which is what makes it the one comment signal
+     * with no parsing and no gap behind it.
+     */
+    assigneeId: text("assignee_id"),
     resolved: boolean("resolved").notNull().default(false),
     replyCount: integer("reply_count").notNull().default(0),
     date: ts("date"),
@@ -636,6 +644,40 @@ export const comments = pgTable(
     index("comments_task_idx").on(t.taskId, t.date),
     // The detail query splits a task's comments into threads by this column.
     index("comments_parent_idx").on(t.parentCommentId, t.date),
+    // "Comments waiting on me, newest first" — the inbox's second question.
+    index("comments_assignee_idx").on(t.assigneeId, t.date),
+  ],
+);
+
+/**
+ * Who a comment mentions.
+ *
+ * Extracted at ingest rather than matched at read time. The mention lives in
+ * `comments.segments` as a `tag` run, and `markdown` carries the same thing as
+ * `@[Name](clickup://user/123)` — but neither is something Postgres can answer
+ * "did this mention me" from without scanning every comment in the workspace.
+ * This is that question with an index on it.
+ *
+ * A row here means ClickUp told us who the tag pointed at. It omits the user on
+ * roughly one tag in ten (see `clickUpCommentSegment`), and those mentions are
+ * simply not represented — no guess is made from the flattened "@Name", because
+ * a display name matched out of free text notifies the wrong person. What
+ * covers most of that gap is that a mention usually arrives on a task you are
+ * already assigned to, and the inbox counts those anyway.
+ */
+export const commentMentions = pgTable(
+  "comment_mentions",
+  {
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.commentId, t.userId] }),
+    // Read by user: "everything that mentioned me". The other direction is
+    // covered by the primary key.
+    index("comment_mentions_user_idx").on(t.userId),
   ],
 );
 
@@ -785,6 +827,16 @@ export const webhookEvents = pgTable(
     /** Which registration delivered it. Kept for tracing a bad webhook, not read. */
     webhookId: text("webhook_id"),
     receivedAt: ts("received_at").notNull().defaultNow(),
+    /**
+     * Whether the task's comments have to be re-read as well, not just the task.
+     *
+     * A separate flag rather than another event name, because the row is keyed
+     * by task and a burst collapses into one: a `taskCommentPosted` landing in
+     * the same second as a `taskUpdated` would otherwise lose whichever arrived
+     * first, and losing the comment half means a mention that never appears.
+     * ORed on conflict, so the flag survives being overwritten by a task event.
+     */
+    needsComments: boolean("needs_comments").notNull().default(false),
     /** Rising on each failed read-back. Past the cap the row is dropped and polling repairs it. */
     attempts: integer("attempts").notNull().default(0),
     nextAttemptAt: ts("next_attempt_at").notNull().defaultNow(),

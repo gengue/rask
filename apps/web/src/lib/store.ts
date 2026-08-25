@@ -197,7 +197,7 @@ let loadTicket = 0;
  * the same everywhere and was written out twice, which is how two copies of it
  * start to differ.
  */
-async function loadPage(
+export async function loadPage(
   failed: string,
   fetchPage: () => Promise<TaskPage>,
 ): Promise<TaskPageResult | null> {

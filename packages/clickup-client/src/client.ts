@@ -819,7 +819,34 @@ export const WEBHOOK_TASK_EVENTS = [
   "taskTagUpdated",
   "taskMoved",
   "taskTimeEstimateUpdated",
+  /*
+   * The two comment events, which are the only way a conversation reaches the
+   * mirror without somebody opening the task.
+   *
+   * Polling cannot stand in for these. `GET /list/{id}/task` carries no
+   * comments, so discovering one by polling would mean a
+   * `GET /task/{id}/comment` for every task that changed — a second request per
+   * change, against a 100-a-minute budget, to find out that most of them had
+   * nothing to say. A comment event costs one request and only when there is
+   * something to read.
+   *
+   * The price is that with no webhook there are no comment notifications at
+   * all. That is a visible, recoverable state — the health loop registers and
+   * reactivates — rather than a silent one.
+   */
+  "taskCommentPosted",
+  "taskCommentUpdated",
 ] as const;
+
+/** Events that mean the task's conversation moved, not just the task. */
+export const WEBHOOK_COMMENT_EVENTS: readonly string[] = [
+  "taskCommentPosted",
+  "taskCommentUpdated",
+];
+
+export function isCommentEvent(event: string): boolean {
+  return WEBHOOK_COMMENT_EVENTS.includes(event);
+}
 
 // --- helpers --------------------------------------------------------------
 

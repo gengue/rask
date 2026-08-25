@@ -1,8 +1,10 @@
 import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
+import { reasonFor } from "../lib/inbox.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import { flatItems, viewIsFeed, viewListId, viewLoading } from "../lib/view.ts";
 import { sameRange, visibleRange } from "../lib/windowing.ts";
+import { InboxRow } from "./InboxRow.tsx";
 import { StatusIcon } from "./StatusIcon.tsx";
 import { TaskRow } from "./TaskRow.tsx";
 import { SlowLoad } from "./Unresolved.tsx";
@@ -202,19 +204,47 @@ export function TaskList(props: {
                       </div>
                     }
                   >
-                    {(current) => (
-                      <TaskRow
-                        task={current().task}
-                        showList={viewListId() === null}
-                        active={rowIndices()[ui.cursor] === index()}
-                        selected={props.openTaskId === current().task.id}
-                        onOpen={() => {
-                          setUi("cursor", rowIndices().indexOf(index()));
-                          props.onOpen(current().task);
-                        }}
-                        onStatusClick={(event) => props.onStatusClick(current().task, event)}
-                      />
-                    )}
+                    {(current) => {
+                      /*
+                       * Two row shapes, chosen per row rather than per view.
+                       *
+                       * A feed holds both: a task nobody said anything about is
+                       * still a task row, and swapping the whole list to the
+                       * comment shape would leave those rows with an empty
+                       * sentence where their status used to be.
+                       */
+                      const said = () => (viewIsFeed() ? reasonFor(current().task.id) : undefined);
+                      const open = () => {
+                        setUi("cursor", rowIndices().indexOf(index()));
+                        props.onOpen(current().task);
+                      };
+
+                      return (
+                        <Show
+                          when={said()}
+                          fallback={
+                            <TaskRow
+                              task={current().task}
+                              showList={viewListId() === null}
+                              active={rowIndices()[ui.cursor] === index()}
+                              selected={props.openTaskId === current().task.id}
+                              onOpen={open}
+                              onStatusClick={(event) => props.onStatusClick(current().task, event)}
+                            />
+                          }
+                        >
+                          {(reason) => (
+                            <InboxRow
+                              task={current().task}
+                              reason={reason()}
+                              active={rowIndices()[ui.cursor] === index()}
+                              selected={props.openTaskId === current().task.id}
+                              onOpen={open}
+                            />
+                          )}
+                        </Show>
+                      );
+                    }}
                   </Show>
                 </div>
               );

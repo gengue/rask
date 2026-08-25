@@ -1,5 +1,7 @@
+import { flattenMentions } from "@rask/clickup-client";
 import {
   checklistItems,
+  commentMentions,
   comments,
   customFieldDefs,
   type Db,
@@ -243,6 +245,139 @@ export async function listTasks(db: Db, filters: TaskFilters) {
           ]),
     )
     .limit((filters.limit ?? 500) + 1);
+}
+
+/**
+ * Why a task is in your inbox, when the reason is something somebody said.
+ *
+ * Three signals, strongest first, and they are three because they fail in
+ * different places rather than because more is better:
+ *
+ *  - `mention` is the one you were addressed by name in. It reads
+ *    `comment_mentions`, which ClickUp fills in about nine times in ten.
+ *  - `assigned` is ClickUp's own "this comment is for you". No parsing, no gap.
+ *  - `comment` is anything said on a task you are assigned to. The blunt one,
+ *    and the reason the mention gap mostly does not matter: a mention you were
+ *    never told about usually lands on a task that is already yours.
+ *
+ * Your own comments are excluded throughout. Being notified about what you just
+ * wrote is how a feed teaches somebody to stop reading it.
+ */
+export type CommentReasonKind = "mention" | "assigned" | "comment";
+
+export interface CommentReason {
+  taskId: string;
+  commentId: string;
+  kind: CommentReasonKind;
+  authorId: string | null;
+  authorName: string | null;
+  authorAvatar: string | null;
+  excerpt: string;
+  /** When the comment on the row was written. */
+  at: Date | null;
+  /**
+   * When the newest notable comment on this task was written, ranked or not.
+   *
+   * Separate from `at` because the row shows the *strongest* reason and unread
+   * is about the *latest* one. A mention from Tuesday followed by an "ok" this
+   * morning still shows Tuesday's line — and is still something that happened
+   * since you last looked. Reading unread off `at` marks that task read while
+   * the conversation is moving.
+   */
+  latestAt: Date | null;
+}
+
+/** How much of a comment the feed shows before you have to open the task. */
+const EXCERPT_CHARS = 160;
+
+/**
+ * The newest notable comment per task, strongest reason first.
+ *
+ * Ranked by kind before date on purpose. A mention followed by somebody else's
+ * "ok" is still a mention, and showing the "ok" would bury the only line in the
+ * thread written at you. Within one kind the newest wins, which is what makes
+ * the row read as the latest thing that happened.
+ */
+export async function notableComments(
+  db: Db,
+  userId: string,
+  since: Date,
+  limit = 500,
+): Promise<CommentReason[]> {
+  const mine = sql`exists (
+    select 1 from ${taskAssignees} ta
+    where ta.task_id = ${comments.taskId} and ta.user_id = ${userId}
+  )`;
+
+  const mentioned = sql`exists (
+    select 1 from ${commentMentions} cm
+    where cm.comment_id = ${comments.id} and cm.user_id = ${userId}
+  )`;
+
+  const kind = sql<CommentReasonKind>`case
+    when ${mentioned} then 'mention'
+    when ${comments.assigneeId} = ${userId} then 'assigned'
+    else 'comment'
+  end`;
+
+  // 1, 2, 3 rather than the words, so the ordering is the ranking and Postgres
+  // is not sorting strings that happen to be alphabetical by accident.
+  const rank = sql`case
+    when ${mentioned} then 1
+    when ${comments.assigneeId} = ${userId} then 2
+    else 3
+  end`;
+
+  const rows = await db
+    .selectDistinctOn([comments.taskId], {
+      taskId: comments.taskId,
+      commentId: comments.id,
+      kind,
+      authorId: comments.userId,
+      authorName: users.username,
+      authorAvatar: users.profilePicture,
+      body: sql<string | null>`coalesce(${comments.markdown}, ${comments.text})`,
+      at: comments.date,
+      // Computed before DISTINCT ON picks a row, so it is the maximum across
+      // everything notable on the task rather than across the one row kept.
+      latestAt: sql<Date | null>`max(${comments.date}) over (partition by ${comments.taskId})`,
+    })
+    .from(comments)
+    .leftJoin(users, eq(users.id, comments.userId))
+    .where(
+      and(
+        gt(comments.date, since),
+        // `is distinct from` rather than `<>`: a comment with no author is
+        // somebody, just not somebody ClickUp named, and `null <> $1` is null.
+        sql`${comments.userId} is distinct from ${userId}`,
+        or(mentioned, eq(comments.assigneeId, userId), mine),
+      ),
+    )
+    .orderBy(comments.taskId, rank, desc(comments.date))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    taskId: row.taskId,
+    commentId: row.commentId,
+    kind: row.kind,
+    authorId: row.authorId,
+    authorName: row.authorName,
+    authorAvatar: row.authorAvatar,
+    // Flattened, because the stored markdown spells a mention
+    // `@[Name](clickup://user/123)` and one line of a feed has no room to
+    // render it. Trimmed here rather than in the browser so the payload is a
+    // feed's worth of text and not a workspace's.
+    excerpt: excerpt(row.body),
+    at: row.at,
+    latestAt: row.latestAt,
+  }));
+}
+
+function excerpt(body: string | null): string {
+  const flat = flattenMentions(body ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return flat.length > EXCERPT_CHARS ? `${flat.slice(0, EXCERPT_CHARS - 1)}\u2026` : flat;
 }
 
 export async function getTaskDetail(db: Db, taskId: string) {

@@ -364,6 +364,7 @@ export function mapComment(comment: ClickUpComment, taskId: string, parentCommen
     markdown: renderCommentBody(comment.comment),
     // Kept whole for the write path; see the column comment.
     segments: comment.comment ?? null,
+    assigneeId: comment.assignee ? String(comment.assignee.id) : null,
     resolved: comment.resolved ?? false,
     replyCount: comment.reply_count,
     date: comment.date ?? null,

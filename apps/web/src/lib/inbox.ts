@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
-import { api, type Task } from "./api.ts";
+import { api, type InboxReason, type Task } from "./api.ts";
 import { me, setMe } from "./session.ts";
-import { load, type TaskPageResult } from "./store.ts";
+import { loadPage, type TaskPageResult } from "./store.ts";
 
 /**
  * What changed on your tasks while you were not looking.
@@ -13,12 +13,16 @@ import { load, type TaskPageResult } from "./store.ts";
  * something happened, `task_assignees` for whether it was yours, and one
  * timestamp per user for where you had read up to.
  *
- * That derivation is also its ceiling. The mirror stores state, not history, so
- * the inbox can say *that* a task changed and show what it looks like now, but
- * not what it changed from, or who changed it. Saying "Ana moved this to Done"
- * needs an event per change, which needs the webhook `history_items` that
- * `docs/webhooks.md` deliberately ignores. Nothing here should ever grow a
- * label it cannot back up.
+ * Comments are the exception, and the reason they are worth their own path:
+ * a comment *is* an event. It has an author, a body and a time, so a row backed
+ * by one can say who said what — which is the sentence the task half cannot
+ * form. `apps/api/src/queries.ts` has the three signals and their ranking.
+ *
+ * The rest is still the mirror's ceiling. For a task change the inbox can say
+ * *that* it changed and show what it looks like now, but not what it changed
+ * from, or who changed it. Saying "Ana moved this to Done" needs an event per
+ * change, which needs the webhook `history_items` that `docs/webhooks.md`
+ * deliberately ignores. Nothing here should ever grow a label it cannot back up.
  */
 
 /**
@@ -79,6 +83,20 @@ export function isUnread(task: Task, seenAt: number): boolean {
 }
 
 /**
+ * What was said, keyed by task. Empty until a window has been read.
+ *
+ * The server picks one comment per task, so this is a map rather than a list:
+ * the feed is still a feed of tasks, and the reason is what a row says about
+ * itself.
+ */
+export const [reasons, setReasons] = createSignal<ReadonlyMap<string, InboxReason>>(new Map());
+
+/** What was said on this task, if anything was. */
+export function reasonFor(taskId: string): InboxReason | undefined {
+  return reasons().get(taskId);
+}
+
+/**
  * Yours, and changed since `since`. The page and the badge share this.
  *
  * Built on `isUnread` rather than repeating it, because the badge counts what
@@ -98,10 +116,28 @@ export function isUnread(task: Task, seenAt: number): boolean {
  * for somebody else's.
  */
 export function inboxPredicate(userId: string | undefined, since: number): (task: Task) => boolean {
-  return (task) =>
-    isUnread(task, since) &&
-    !task.archived &&
-    (!userId || task.assignees.some((assignee) => assignee.id === userId));
+  const said = reasons();
+  return (task) => {
+    if (task.archived) return false;
+
+    /*
+     * A comment puts a task in the feed on its own, whoever the task belongs
+     * to. That is the whole point of the mention signal: somebody pulled you
+     * into a task that is not yours, and an assignee check would drop exactly
+     * that row.
+     */
+    const reason = said.get(task.id);
+    // `latestAt`, not `at`: the row shows the strongest reason and this asks
+    // whether anything at all was said since you looked. A mention from Tuesday
+    // under this morning's "ok" is both.
+    const latest = reason?.latestAt ?? reason?.at;
+    if (latest && Date.parse(latest) > since) return true;
+
+    return (
+      isUnread(task, since) &&
+      (!userId || task.assignees.some((assignee) => assignee.id === userId))
+    );
+  };
 }
 
 /**
@@ -119,7 +155,7 @@ export function byRecency(a: Task, b: Task): number {
 }
 
 /**
- * Pulls the window into the shared collection.
+ * Pulls the window into the shared collection, and what was said with it.
  *
  * Closed tasks included: somebody finishing your task is the change you most
  * want to hear about, and it is the one an open-tasks-only read drops.
@@ -130,10 +166,20 @@ export function byRecency(a: Task, b: Task): number {
  * looks authoritative and is not.
  */
 export async function loadInbox(since = inboxCutoff()): Promise<TaskPageResult | null> {
-  const page = await load({ assignee: "me", closed: true, updatedSince: since });
-  // Null means a newer load superseded this one, which says nothing about how
-  // much there was. Leave the flag to whichever load lands last.
-  if (page) setInboxTruncated(page.truncated);
+  let latest: InboxReason[] = [];
+
+  const page = await loadPage("Could not load the inbox", async () => {
+    const answer = await api.inbox(since);
+    latest = answer.reasons;
+    return answer;
+  });
+
+  // Null means a newer load superseded this one, and its reasons are the stale
+  // half of the same answer. Leave both to whichever load lands last.
+  if (page) {
+    setReasons(new Map(latest.map((reason) => [reason.taskId, reason])));
+    setInboxTruncated(page.truncated);
+  }
   return page;
 }
 

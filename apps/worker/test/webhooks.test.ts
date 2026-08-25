@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ClickUpClient, RateLimiter } from "@rask/clickup-client";
-import { createTestDb, enqueueWebhookEvent, tasks, webhookEvents } from "@rask/schema";
+import {
+  commentMentions,
+  comments,
+  createTestDb,
+  enqueueWebhookEvent,
+  tasks,
+  webhookEvents,
+} from "@rask/schema";
 import { eq, inArray } from "drizzle-orm";
 import type { TokenPool } from "../src/tokens.ts";
 import { drainWebhookEvents, MAX_WEBHOOK_ATTEMPTS } from "../src/webhooks.ts";
@@ -39,14 +46,27 @@ interface Fetched {
  * code to fail with. Anything not listed 500s, which is how "ClickUp is having
  * a bad minute" is spelled here.
  */
-function makePool(answers: Record<string, { status?: number; body?: unknown }>) {
+function makePool(
+  answers: Record<string, { status?: number; body?: unknown }>,
+  /** `GET /task/{id}/comment`, per task. Absent means an empty conversation. */
+  conversations: Record<string, unknown[]> = {},
+) {
   const fetched: Fetched[] = [];
 
   const fetchImpl = (async (input: string | URL | Request) => {
     const url = String(input);
     fetched.push({ url });
-    const id = url.split("/v2/task/")[1]?.split("?")[0] ?? "";
-    const answer = answers[id] ?? { status: 500 };
+    const path = url.split("/v2/task/")[1]?.split("?")[0] ?? "";
+
+    // The comment endpoint hangs off the same prefix, so it has to be split off
+    // before the id is read or every comment fetch looks like a task called
+    // "hookA/comment" and 500s.
+    if (path.endsWith("/comment")) {
+      const id = path.slice(0, -"/comment".length);
+      return Response.json({ comments: conversations[id] ?? [] });
+    }
+
+    const answer = answers[path] ?? { status: 500 };
     return new Response(JSON.stringify(answer.body ?? { err: "boom", ECODE: "X" }), {
       status: answer.status ?? 200,
       headers: { "content-type": "application/json" },
@@ -128,6 +148,36 @@ describe("enqueueing", () => {
     expect((await queued("hookA"))?.webhookId).toBe("wh-1");
   });
 
+  test("marks a comment event as needing the conversation read back", async () => {
+    await enqueueWebhookEvent(db, { taskId: "hookA", event: "taskCommentPosted" });
+
+    expect((await queued("hookA"))?.needsComments).toBe(true);
+  });
+
+  test("does not lose that mark to a task event landing behind it", async () => {
+    /*
+     * The reason the flag exists at all. The queue is keyed by task, so a
+     * `taskUpdated` arriving in the same second overwrites the event name — and
+     * if it overwrote this too, the drain would re-read the task, skip the
+     * conversation, and the mention would wait for whenever somebody next
+     * opened the task by hand.
+     */
+    await enqueueWebhookEvent(db, { taskId: "hookA", event: "taskCommentPosted" });
+    await enqueueWebhookEvent(db, { taskId: "hookA", event: "taskUpdated" });
+
+    const row = await queued("hookA");
+    expect(row?.event).toBe("taskUpdated");
+    expect(row?.needsComments).toBe(true);
+  });
+
+  test("does not set it for a plain task event", async () => {
+    // The other half: every task edit in the workspace paying for a comment
+    // fetch is the cost this flag exists to avoid.
+    await enqueueWebhookEvent(db, { taskId: "hookA", event: "taskUpdated" });
+
+    expect((await queued("hookA"))?.needsComments).toBe(false);
+  });
+
   test("does not reset a row that is already backing off", async () => {
     // A task producing events every few seconds would otherwise never reach the
     // give-up point where polling is allowed to take over.
@@ -143,6 +193,58 @@ describe("enqueueing", () => {
     const after = await queued("hookA");
     expect(after?.attempts).toBe(1);
     expect(after?.nextAttemptAt).toEqual(backedOff?.nextAttemptAt as Date);
+  });
+});
+
+describe("the conversation", () => {
+  test("is read back and mirrored when a comment event said so", async () => {
+    await enqueueWebhookEvent(db, { taskId: "hookA", event: "taskCommentPosted" });
+
+    const { pool, fetched } = makePool(
+      { hookA: { body: task("hookA") } },
+      {
+        hookA: [
+          {
+            id: "cm1",
+            comment_text: "@Ada does this still repro",
+            comment: [
+              { type: "tag", user: { id: 7, username: "Ada" }, text: "@Ada" },
+              { text: " does this still repro" },
+            ],
+            user: { id: 9, username: "ben" },
+            date: "1700000000000",
+            reply_count: 0,
+          },
+        ],
+      },
+    );
+
+    const result = await drainWebhookEvents(db, pool);
+
+    expect(result.done).toBe(1);
+    // Two requests: the task, then its newest page of comments.
+    expect(fetched.map((f) => f.url.includes("/comment"))).toEqual([false, true]);
+
+    const [row] = await db.select().from(comments).where(eq(comments.id, "cm1")).limit(1);
+    expect(row?.taskId).toBe("hookA");
+
+    // And the mention that came with it, which is the point of fetching at all.
+    const tagged = await db
+      .select({ userId: commentMentions.userId })
+      .from(commentMentions)
+      .where(eq(commentMentions.commentId, "cm1"));
+    expect(tagged.map((t) => t.userId)).toEqual(["7"]);
+  });
+
+  test("is left alone for a task event", async () => {
+    // One request, not two. Every edit in the workspace paying to discover that
+    // nobody said anything is the budget this protects.
+    await enqueueWebhookEvent(db, { taskId: "hookA", event: "taskUpdated" });
+
+    const { pool, fetched } = makePool({ hookA: { body: task("hookA") } });
+    await drainWebhookEvents(db, pool);
+
+    expect(fetched).toHaveLength(1);
   });
 });
 
