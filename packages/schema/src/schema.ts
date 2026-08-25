@@ -306,6 +306,14 @@ export const tasks = pgTable(
     /** [{ name, fg, bg }]. Kept whole so the UI can render colors without a join. */
     tags: jsonb<TaskTag[]>("tags").notNull().default(sql`'[]'::jsonb`),
     timeEstimate: bigint("time_estimate", { mode: "number" }),
+    /**
+     * Milliseconds tracked against this task, by everyone.
+     *
+     * The only piece of time tracking the mirror holds. It costs nothing —
+     * every task payload already carries it — while the running timer and the
+     * individual entries are read from ClickUp live. See `apps/api/src/time.ts`.
+     */
+    timeSpent: bigint("time_spent", { mode: "number" }),
     points: real("points"),
     url: text("url"),
 

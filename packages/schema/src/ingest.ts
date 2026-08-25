@@ -257,6 +257,7 @@ export async function ingestTasks(
               "archived",
               "tags",
               "timeEstimate",
+              "timeSpent",
               "points",
               "url",
               "deletedAt",
