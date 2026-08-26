@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Task } from "../src/lib/api.ts";
 import {
+  assignedToMe,
   type Clause,
   clauseRanges,
   isClosedType,
@@ -9,6 +10,7 @@ import {
   removeClause,
   resolveRanges,
   setClause,
+  toggleAssignedToMe,
   toWire,
 } from "../src/lib/filters.ts";
 
@@ -251,6 +253,35 @@ describe("building", () => {
     expect(negate("IS SET")).toBe("IS NOT SET");
     expect(negate("IS NOT SET")).toBe("IS SET");
     expect(negate("EQ")).toBe("EQ");
+  });
+});
+
+describe("the assigned-to-me quick filter", () => {
+  test("toggles on and back off", () => {
+    const on = toggleAssignedToMe([], "u1");
+    expect(on).toEqual([clause("assignee", "ANY", ["u1"])]);
+    expect(assignedToMe(on, "u1")).toBe(true);
+    expect(toggleAssignedToMe(on, "u1")).toEqual([]);
+  });
+
+  test("leaves every other clause alone", () => {
+    const filter = toggleAssignedToMe([clause("status", "ANY", ["Open"])], "u1");
+    expect(filter.map((c) => c.field).sort()).toEqual(["assignee", "status"]);
+    expect(toggleAssignedToMe(filter, "u1").map((c) => c.field)).toEqual(["status"]);
+  });
+
+  test("replaces a wider assignee clause rather than joining it", () => {
+    const filter = toggleAssignedToMe([clause("assignee", "ANY", ["u1", "u2"])], "u1");
+    expect(filter).toEqual([clause("assignee", "ANY", ["u1"])]);
+  });
+
+  // Lit means "only mine". Reading on over anything else is the button lying.
+  test("is off for anything but exactly me", () => {
+    expect(assignedToMe([], "u1")).toBe(false);
+    expect(assignedToMe([clause("assignee", "ANY", ["u1", "u2"])], "u1")).toBe(false);
+    expect(assignedToMe([clause("assignee", "ANY", ["u2"])], "u1")).toBe(false);
+    expect(assignedToMe([clause("assignee", "NOT ANY", ["u1"])], "u1")).toBe(false);
+    expect(assignedToMe([clause("assignee", "IS NOT SET")], "u1")).toBe(false);
   });
 });
 

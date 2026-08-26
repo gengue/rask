@@ -69,6 +69,51 @@ test("filters the list by two statuses at once", async ({ page }) => {
   await expect(page.getByRole("button", { name: /^Remove Status/ })).toHaveCount(0);
 });
 
+/**
+ * The quick filter, which is one clause with two ways to say it.
+ *
+ * Worth an end-to-end test rather than another unit one because the bug it
+ * guards is not in the clause: on My Tasks the toggle is hidden, and the chip
+ * hid itself too, which left `assignee ANY [me]` applied with nothing on screen
+ * naming it and nothing but Escape to clear it. Only a rendered header shows
+ * that.
+ */
+test("the quick filter narrows a list to me, and stays visible where its button is not", async ({
+  page,
+}) => {
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1");
+
+  const list = page.getByRole("listbox", { name: "Tasks" });
+  await expect(list.getByRole("option").first()).toBeVisible();
+
+  const count = page.getByTitle("Tasks matching this filter");
+  const before = Number(await count.textContent());
+  expect(before).toBeGreaterThan(0);
+
+  const toggle = page.getByLabel("Only my tasks");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+  // Fewer rows, and the ones left are mine. The count is the whole filtered
+  // set, not the window drawn, so it is the honest number to compare.
+  await expect.poll(async () => Number(await count.textContent())).toBeLessThan(before);
+  await expect(list.getByRole("option").first().getByTitle("genesis")).toBeVisible();
+
+  // While the button is on screen it owns the clause, so no chip repeats it.
+  await expect(page.getByRole("button", { name: /^Remove Assignee/ })).toHaveCount(0);
+
+  // My Tasks asks the server for assignee=me, so it draws no button — and the
+  // clause the filter is still carrying has to be named by something clearable.
+  await page.getByRole("link", { name: "My Tasks" }).click();
+  await expect(page.getByLabel("Only my tasks")).toHaveCount(0);
+  const chip = page.getByRole("button", { name: /^Remove Assignee/ });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(chip).toHaveCount(0);
+});
+
 test("creates a task from the quick add dialog", async ({ page }) => {
   await page.goto("/__dev-login");
   await page.goto("/list/L1");

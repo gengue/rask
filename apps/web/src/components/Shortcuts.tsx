@@ -27,6 +27,7 @@ const GROUPS: Array<{ title: string; items: Array<[keys: string[], label: string
       [["p"], "Set priority"],
       [["/"], "Search this view"],
       [["F"], "Add a filter"],
+      [["a"], "Only my tasks"],
       [["f"], "Expand the open task"],
       [["t"], "Start or stop the timer"],
       // Archive, delete and the two copy actions live only in this menu, so a

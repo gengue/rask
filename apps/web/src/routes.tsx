@@ -54,6 +54,7 @@ import {
   setSearchScope,
   setStatusRequest,
   setViewIsFeed,
+  setViewIsMine,
   setViewListId,
   setViewLoading,
   setViewMembership,
@@ -175,6 +176,8 @@ function MyTasksView(): JSX.Element {
     setViewTitle("My Tasks");
     setViewListId(null);
     setSearchScope("server");
+    // Already assignee=me below, so the quick filter has nothing left to narrow.
+    setViewIsMine(true);
     clearListViews();
     // Reading `serverFilter()` here is what makes a filter change refetch: the
     // clauses are applied over the whole set, not over the page already loaded.
@@ -192,6 +195,8 @@ function MyTasksView(): JSX.Element {
   );
 
   createEffect(() => setViewTasks(rows()));
+
+  onCleanup(() => setViewIsMine(false));
 
   return <ListBody listId={null} activeViewId={null} />;
 }

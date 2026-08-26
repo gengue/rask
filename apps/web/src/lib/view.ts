@@ -1,18 +1,20 @@
 import { createEffect, createRoot, createSignal, onCleanup } from "solid-js";
 import { api, type FilterField, type StatusDef, type Tag, type Task } from "./api.ts";
 import {
+  assignedToMe,
   type Clause,
   isCustomField,
   namedStatuses,
   needsClosed,
   selectRows,
   statusVisible,
+  toggleAssignedToMe,
   toWire,
 } from "./filters.ts";
 import { globalMemo } from "./global-memo.ts";
 import { type FlatItem, groupTasks, reuseItems } from "./grouping.ts";
-import { members, spaces } from "./session.ts";
-import { ui } from "./ui.ts";
+import { me, members, spaces } from "./session.ts";
+import { setUi, ui } from "./ui.ts";
 
 /**
  * What the main panel is currently showing.
@@ -113,6 +115,34 @@ export const filterFieldIds = globalMemo(() =>
     .sort()
     .join(","),
 );
+
+/**
+ * Whether the view is already narrowed to the signed-in user.
+ *
+ * Only My Tasks sets it, and it asks the server for `assignee=me` rather than
+ * carrying a clause — so the quick filter there would be a button reading "off"
+ * about a view that is already on. Set by the route that does the narrowing and
+ * cleared on its unmount, like `viewIsFeed`.
+ */
+export const [viewIsMine, setViewIsMine] = createSignal(false);
+
+/** Whether the "assigned to me" quick filter is on. */
+export const mineOnly = globalMemo(() => {
+  const userId = me()?.id;
+  return userId ? assignedToMe(ui.filters, userId) : false;
+});
+
+/**
+ * The quick filter, from the chip and from `a`.
+ *
+ * Here rather than in either caller so the two cannot drift: the header button
+ * and the keystroke are one control with two ways in, the way `toggleTimer` is.
+ * A no-op before `/api/me` lands, which is the only moment there is no "me".
+ */
+export function toggleMine(): void {
+  const userId = me()?.id;
+  if (userId) setUi("filters", toggleAssignedToMe(ui.filters, userId));
+}
 
 /** Whether the query has to ask for closed rows. See `needsClosed`. */
 export const includeClosed = globalMemo(() => needsClosed(ui.filters, ui.showClosed));

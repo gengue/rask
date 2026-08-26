@@ -52,12 +52,15 @@ import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
 import {
   boardLayout,
   cursorTask,
+  mineOnly,
   rowTasks,
   searchScope,
   setFilterRequest,
   setStatusRequest,
   statusRequest,
+  toggleMine,
   viewIsFeed,
+  viewIsMine,
   viewListId,
   viewTitle,
   viewTruncated,
@@ -463,6 +466,14 @@ export function AppShell(): JSX.Element {
         event.preventDefault();
         setFilterRequest((count) => count + 1);
         break;
+      case "a":
+        // The one filter worth a key of its own: on a 500-row list "and what of
+        // this is mine" is the question people ask before any other.
+        if (!viewIsMine()) {
+          event.preventDefault();
+          toggleMine();
+        }
+        break;
       case "?":
         event.preventDefault();
         setUi("shortcuts", true);
@@ -572,6 +583,18 @@ export function AppShell(): JSX.Element {
       hint: "F",
       run: () => setFilterRequest((count) => count + 1),
     },
+    // Nothing left to narrow on My Tasks; see `viewIsMine`.
+    ...(viewIsMine()
+      ? []
+      : [
+          {
+            id: "view:mine",
+            label: mineOnly() ? "Show everyone's tasks" : "Show only my tasks",
+            section: "View",
+            hint: "a",
+            run: toggleMine,
+          },
+        ]),
     {
       id: "view:clear-filters",
       label: "Clear all filters",

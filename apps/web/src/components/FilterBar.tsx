@@ -17,14 +17,19 @@ import {
   removeClause,
   setClause,
 } from "../lib/filters.ts";
+import { me } from "../lib/session.ts";
 import { setUi, ui } from "../lib/ui.ts";
 import {
   filterFields,
   filterOptions,
   filterRequest,
   loadFilterFields,
+  mineOnly,
+  toggleMine,
+  viewIsMine,
   viewListId,
 } from "../lib/view.ts";
+import { Avatar } from "./Avatar.tsx";
 import { FilterMenu } from "./FilterMenu.tsx";
 
 /**
@@ -150,10 +155,65 @@ export function FilterBar(): JSX.Element {
     }),
   );
 
+  /**
+   * Whose face the quick filter wears, or null when there is no quick filter.
+   *
+   * Hidden on My Tasks, where the server already answered `assignee=me`, and
+   * until the session lands: `Avatar` draws a dashed "Unassigned" disc for a
+   * null user, and that is not what an unloaded "me" means.
+   */
+  const quickFilter = () => (viewIsMine() ? null : me());
+
+  /*
+   * The assignee chip while the toggle owns that clause would be the same
+   * filter twice, in two controls that can be cleared independently. So the
+   * chip stands down — but only where the toggle is actually on screen.
+   *
+   * Read off `quickFilter()` rather than restating its condition, because the
+   * two spellings drifted once already: on My Tasks the toggle was hidden and
+   * the chip suppressed anyway, which left `assignee ANY [me]` live in the
+   * filter with nothing on screen naming it and nothing but Escape to clear it.
+   */
+  const chips = () =>
+    mineOnly() && quickFilter()
+      ? ui.filters.filter((clause) => clause.field !== "assignee")
+      : ui.filters;
+
   return (
     <>
       <div class="flex min-w-0 items-center gap-1">
-        <For each={ui.filters}>
+        {/*
+          Your own face as the toggle. A filter by assignee is spelled with an
+          avatar everywhere else in the app, and "Me" was the one place it was
+          spelled with a word.
+
+          Not the keyed `<Show>{(user) => …}` form, for the reason spelled out
+          over the popover below — reading the accessor directly costs nothing
+          and cannot go stale.
+        */}
+        <Show when={quickFilter()}>
+          <button
+            type="button"
+            aria-pressed={mineOnly()}
+            aria-label="Only my tasks"
+            title="a"
+            onClick={toggleMine}
+            class="flex h-[22px] shrink-0 items-center rounded-[5px] px-1 transition-colors"
+            classList={{
+              "bg-accent-soft": mineOnly(),
+              /* Greyed rather than faded. The initials on that disc are 7px of
+                 white on a workspace colour, and half an opacity takes them
+                 from ClickUp's own contrast to unreadable; `grayscale` keeps
+                 luminance, so they stay exactly as legible as every other
+                 avatar in the app. */
+              "grayscale hover:bg-hover hover:grayscale-0": !mineOnly(),
+            }}
+          >
+            <Avatar user={quickFilter()} size={16} />
+          </button>
+        </Show>
+
+        <For each={chips()}>
           {(clause) => (
             <Chip
               label={describeClause(clause, lookup)}

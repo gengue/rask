@@ -348,6 +348,33 @@ export function removeClause(clauses: readonly Clause[], field: string): Clause[
   return clauses.filter((clause) => clause.field !== field);
 }
 
+/**
+ * Whether the filter is exactly "assigned to me", which is what the quick
+ * filter claims when it is lit.
+ *
+ * Exactly, and not "me among others": a toggle that reads on over
+ * `assignee ANY [me, Ana]` is a button lying about the four hundred rows of
+ * Ana's work on screen.
+ */
+export function assignedToMe(clauses: readonly Clause[], userId: string): boolean {
+  const clause = findClause(clauses, "assignee");
+  return clause?.op === "ANY" && clause.values.length === 1 && clause.values[0] === userId;
+}
+
+/**
+ * The quick filter, as a clause: on, off, and nothing in between.
+ *
+ * Turning it on replaces whatever the assignee clause held rather than adding
+ * to it, because "Me" that leaves somebody else's tasks in view is not the
+ * button anybody pressed. Losing that clause is the point, and it is one press
+ * of the same key to get back to the builder.
+ */
+export function toggleAssignedToMe(clauses: readonly Clause[], userId: string): Clause[] {
+  return assignedToMe(clauses, userId)
+    ? removeClause(clauses, "assignee")
+    : setClause(clauses, { field: "assignee", op: "ANY", values: [userId] });
+}
+
 /** Flips a multi-value clause between "any of these" and "none of these". */
 export function negate(op: FilterOp): FilterOp {
   if (op === "ANY") return "NOT ANY";
