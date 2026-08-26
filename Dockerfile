@@ -8,6 +8,10 @@ COPY package.json bun.lock ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
+# Not shipped in this image — the site deploys on its own — but it is in the
+# root workspaces glob, so the frozen install refuses a lockfile that names a
+# workspace it cannot see.
+COPY apps/site/package.json apps/site/
 COPY packages/clickup-client/package.json packages/clickup-client/
 COPY packages/schema/package.json packages/schema/
 RUN bun install --frozen-lockfile
