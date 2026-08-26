@@ -106,6 +106,18 @@ function upstream(error: unknown): { status: 422 | 502; error: string } {
 const startInput = z.object({ taskId: z.string().min(1) });
 
 /**
+ * A manual entry is an interval that already happened, so unlike the running
+ * timer nothing here depends on ClickUp's clock — the caller names the moment.
+ * It still writes straight through rather than into the outbox, for the outbox's
+ * other reason: a retry that lands twice records somebody's afternoon twice.
+ */
+const manualEntryInput = z.object({
+  start: z.number().int().positive(),
+  durationMs: z.number().int().positive(),
+  description: z.string().max(2000).optional(),
+});
+
+/**
  * `start` and `end` are one field, not two.
  *
  * "When providing `start`, you must also provide `end`" is the endpoint's own
@@ -318,6 +330,35 @@ export function timeRoutes(deps: TimeDeps) {
       return c.json({
         entries: entries.map(toDto).sort((a, b) => (b.start ?? 0) - (a.start ?? 0)),
       });
+    } catch (error) {
+      const { status, error: message } = upstream(error);
+      return c.json({ error: message }, status);
+    }
+  });
+
+  /**
+   * Logs time by hand, the way ClickUp's own "add manual time" does.
+   *
+   * Checked against the mirror for the same reason the delete's `taskId` is:
+   * the id names which task the server then re-reads from ClickUp and writes
+   * into the mirror everybody shares, so an unchecked one must not get to pick.
+   */
+  app.post("/tasks/:id/time-entries", async (c) => {
+    const user = who(c);
+    const taskId = c.req.param("id");
+    if (isPlaceholder(taskId)) return c.json({ error: NOT_YET }, 409);
+    if (!(await mirrored(taskId))) return c.json({ error: "not found" }, 404);
+
+    const body = manualEntryInput.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+    const client = await clientFor(user.id);
+    if (!client) return c.json({ error: "no ClickUp token" }, 409);
+
+    try {
+      const created = await client.createTimeEntry(user.teamId, { taskId, ...body.data });
+      await repair(user.id, [taskId]);
+      return c.json({ entry: toDto(created) });
     } catch (error) {
       const { status, error: message } = upstream(error);
       return c.json({ error: message }, status);

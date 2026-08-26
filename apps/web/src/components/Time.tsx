@@ -1,6 +1,14 @@
-import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
-import { ApiError, api, type TimeEntry } from "../lib/api.ts";
-import { formatClock, formatDuration, formatRelative, parseDuration } from "../lib/format.ts";
+import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js";
+import { ApiError, api, type NewTimeEntry, type TimeEntry } from "../lib/api.ts";
+import {
+  formatClock,
+  formatDuration,
+  formatRelative,
+  fromDateInput,
+  parseDuration,
+  toDateInput,
+} from "../lib/format.ts";
+import { reconcileStorage } from "../lib/reconcile-storage.ts";
 import { elapsed, isTracking, running, stopTimer, toggleTimer } from "../lib/timer.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -9,9 +17,9 @@ import { Avatar } from "./Avatar.tsx";
  * Time tracked on a task.
  *
  * The only panel in the app whose contents are not in the mirror. Entries are
- * read from ClickUp when the task is opened, the way `spaces/:id/tags` is read
- * when the tag menu opens — one request beats another table to keep in step for
- * something nobody filters or sorts by.
+ * read from ClickUp when the section is expanded, the way `spaces/:id/tags` is
+ * read when the tag menu opens — one request beats another table to keep in
+ * step for something nobody filters or sorts by.
  *
  * Everyone's entries are here, not just yours. Editing and deleting are offered
  * on all of them, because Rask cannot tell who is an admin: the workspace
@@ -20,10 +28,41 @@ import { Avatar } from "./Avatar.tsx";
  * admins who do have it. ClickUp decides, and says so through a toast.
  */
 export function TimeEntries(props: { taskId: string }): JSX.Element {
+  /*
+   * Collapsed until asked for, and not fetched until then either.
+   *
+   * The log sits between the description and the conversation, and a task
+   * tracked for a month holds enough rows to push the comments below the fold
+   * of a panel someone opened to read them. Collapsing is also what makes the
+   * section cheap: the fetch costs a real ClickUp request out of the viewer's
+   * own 100/min, and it used to be spent on every task opened. The total is
+   * still up in the property rail either way.
+   */
+  const [open, setOpen] = createSignal(false);
+  const [logging, setLogging] = createSignal(false);
+
   const [entries, { refetch, mutate }] = createResource(
-    () => props.taskId,
+    () => (open() ? props.taskId : null),
     (id) => api.timeEntries(id).then((r) => r.entries),
+    /*
+     * Reconciled, not replaced. A refetch answers with all-new row objects,
+     * and `<For>` keys by reference, so every refresh — including the one that
+     * follows stopping a timer — tore down and rebuilt every visible row. The
+     * same fix, for the same blink, as the task detail's resource.
+     */
+    { storage: reconcileStorage },
   );
+
+  // Another task is another log: fold it back, and drop the rows. Folding
+  // alone only postpones the leak — the panel is one instance across task
+  // switches, so without the clear, expanding on task B replays task A's
+  // entries for the whole ClickUp round trip while B's fetch runs.
+  createEffect(() => {
+    props.taskId;
+    setOpen(false);
+    setLogging(false);
+    mutate(undefined);
+  });
 
   /*
    * Read through `state`, never by calling the accessor unguarded.
@@ -49,7 +88,8 @@ export function TimeEntries(props: { taskId: string }): JSX.Element {
   let wasTracking = false;
   createEffect(() => {
     const tracking = isTracking(props.taskId);
-    if (wasTracking && !tracking) void refetch();
+    // Only while the list is showing: folded, the next expand fetches fresh.
+    if (open() && wasTracking && !tracking) void refetch();
     wasTracking = tracking;
   });
 
@@ -94,34 +134,194 @@ export function TimeEntries(props: { taskId: string }): JSX.Element {
     }
   };
 
+  /** Writes an interval that already happened, then lets the refetch confirm it. */
+  const log = async (input: NewTimeEntry) => {
+    try {
+      const { entry } = await api.createTimeEntry(props.taskId, input);
+      // Into place rather than on top: the list reads newest-first, and an
+      // entry logged for last Tuesday belongs with last Tuesday's.
+      mutate((current) =>
+        [entry, ...(current ?? [])].sort((a, b) => (b.start ?? 0) - (a.start ?? 0)),
+      );
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Could not log that time",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+    }
+    // Either way: on success it settles the race with the expand's own fetch,
+    // which may still be in flight and would answer without the new entry; on
+    // failure it clears whatever state the section was stuck in.
+    void refetch();
+  };
+
   return (
     <section class="border-line/70 border-t px-5 py-4">
       {/* "Time entries", not "Time": the total and the start button are up in
           the property rail, and two sections of one panel answering to the same
           word is how you end up reading both to find out which is which. The
           count follows `Attachments`. */}
-      <h3 class="flex items-baseline gap-1.5 pb-3 font-medium text-xs text-ink-4 uppercase tracking-[0.04em]">
-        Time entries
-        <Show when={rows().length > 0}>
-          <span class="tabular-nums lowercase">{rows().length}</span>
-        </Show>
+      <h3 class="flex items-baseline pb-3 font-medium text-xs text-ink-4">
+        <button
+          type="button"
+          onClick={() => setOpen(!open())}
+          aria-expanded={open()}
+          class="flex items-baseline gap-1.5 uppercase tracking-[0.04em] hover:text-ink-2"
+        >
+          <span aria-hidden="true" class="inline-block w-2 text-[9px]">
+            {open() ? "▾" : "▸"}
+          </span>
+          Time entries
+          <Show when={open() && rows().length > 0}>
+            <span class="tabular-nums lowercase">{rows().length}</span>
+          </Show>
+        </button>
+        {/* The same slot `Attachments` gives "Add file". */}
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true);
+            setLogging(true);
+          }}
+          class="ml-auto font-normal text-ink-4 text-xs hover:text-ink-2"
+        >
+          Log time
+        </button>
       </h3>
 
-      <Show
-        when={rows().length > 0 || entries.loading}
-        fallback={
-          <p class="text-ink-4 text-xs">
-            {failed() ? "Could not read time from ClickUp." : "No time tracked yet."}
-          </p>
-        }
-      >
-        <ul class="space-y-1">
-          <For each={rows()}>
-            {(entry) => <Row entry={entry} onSave={save} onDelete={remove} />}
-          </For>
-        </ul>
+      <Show when={open()}>
+        {/* Inside the fold, so collapsing the section also puts the form away
+            rather than leaving it floating under a closed header. */}
+        <Show when={logging()}>
+          <LogForm
+            onCancel={() => setLogging(false)}
+            onSubmit={(input) => {
+              setLogging(false);
+              void log(input);
+            }}
+          />
+        </Show>
+
+        <Show
+          when={rows().length > 0 || entries.loading}
+          fallback={
+            <p class="text-ink-4 text-xs">
+              {failed() ? "Could not read time from ClickUp." : "No time tracked yet."}
+            </p>
+          }
+        >
+          <ul class="space-y-1">
+            <For each={rows()}>
+              {(entry) => <Row entry={entry} onSave={save} onDelete={remove} />}
+            </For>
+          </ul>
+        </Show>
       </Show>
     </section>
+  );
+}
+
+/**
+ * When a manual entry begins, given the day picked and how long it ran.
+ *
+ * Anchored to its *end* on the current day — "log 2h" means the two hours just
+ * worked, not two hours starting now — while a past day pins the entry to noon,
+ * since nobody remembers the minute and noon keeps it on the date they picked
+ * in every timezone ClickUp might render it in. Exported for its test: this is
+ * the arithmetic that writes somebody's timesheet.
+ */
+export function entryStart(day: string, durationMs: number, now: number): number | null {
+  if (day === toDateInput(now)) return now - durationMs;
+  return fromDateInput(day);
+}
+
+/** Length, day, note. The day defaults to today; `entryStart` places the interval. */
+function LogForm(props: {
+  onCancel: () => void;
+  onSubmit: (input: NewTimeEntry) => void;
+}): JSX.Element {
+  // `toDateInput`, not `toISOString().slice(0, 10)`: that slices the UTC day,
+  // which after a timezone's midnight is yesterday's date in the picker.
+  const today = toDateInput(Date.now());
+  const [length, setLength] = createSignal("");
+  const [day, setDay] = createSignal(today);
+  const [note, setNote] = createSignal("");
+  // `autofocus` only fires while the document parses; this form mounts on a
+  // click, so the focus is placed by hand the way the command palette's is.
+  let lengthInput!: HTMLInputElement;
+  onMount(() => lengthInput.focus());
+
+  const submit = (event: Event) => {
+    event.preventDefault();
+    const durationMs = parseDuration(length());
+    if (durationMs === null || durationMs <= 0) {
+      pushToast({
+        tone: "error",
+        title: "That is not a length I can read",
+        detail: "Try 1h 30m, 1:30, or 90.",
+      });
+      return;
+    }
+
+    const start = entryStart(day() || today, durationMs, Date.now());
+    if (start === null) return;
+
+    props.onSubmit({
+      start,
+      durationMs,
+      description: note().trim() || undefined,
+    });
+  };
+
+  return (
+    <form class="flex items-center gap-2 pb-2" onSubmit={submit}>
+      <input
+        ref={lengthInput}
+        value={length()}
+        onInput={(event) => setLength(event.currentTarget.value)}
+        placeholder="1h 30m"
+        aria-label="Length"
+        class="w-16 shrink-0 rounded-[4px] bg-chip px-1.5 py-0.5 text-right text-ink text-xs tabular-nums outline-none focus:ring-1 focus:ring-accent"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            props.onCancel();
+          }
+        }}
+      />
+      <input
+        type="date"
+        value={day()}
+        max={today}
+        onInput={(event) => setDay(event.currentTarget.value)}
+        aria-label="Day"
+        class="shrink-0 rounded-[4px] bg-chip px-1.5 py-0.5 text-ink text-xs outline-none focus:ring-1 focus:ring-accent"
+      />
+      <input
+        value={note()}
+        onInput={(event) => setNote(event.currentTarget.value)}
+        placeholder="Note…"
+        aria-label="Note"
+        class="min-w-0 flex-1 rounded-[4px] bg-chip px-1.5 py-0.5 text-ink text-xs outline-none focus:ring-1 focus:ring-accent"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            props.onCancel();
+          }
+        }}
+      />
+      <button type="submit" class="shrink-0 px-1 py-0.5 font-medium text-accent text-xs">
+        Save
+      </button>
+      <button
+        type="button"
+        onClick={props.onCancel}
+        class="shrink-0 px-1 py-0.5 text-ink-4 text-xs hover:text-ink-2"
+      >
+        Cancel
+      </button>
+    </form>
   );
 }
 
@@ -394,6 +594,11 @@ export function TimeControl(props: {
         }
       >
         <span class="text-base text-high tabular-nums">{formatClock(elapsed())}</span>
+        {/* The counter replacing the total used to read as the total vanishing
+            — a start "blinked" hours away. Both, so nothing disappears. */}
+        <Show when={props.timeSpent}>
+          <span class="text-ink-4 text-xs">+ {formatDuration(props.timeSpent)}</span>
+        </Show>
       </Show>
 
       <span class="ml-auto shrink-0 text-ink-4 text-xs">{tracking() ? "Stop" : "Start  t"}</span>

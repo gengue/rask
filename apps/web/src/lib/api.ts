@@ -494,6 +494,13 @@ export interface TimeEntry {
   billable: boolean;
 }
 
+/** A manual entry on its way in: the interval the person says already happened. */
+export interface NewTimeEntry {
+  start: number;
+  durationMs: number;
+  description?: string;
+}
+
 export const api = {
   me: () => request<Me>("/api/me"),
 
@@ -696,6 +703,12 @@ export const api = {
 
   timeEntries: (taskId: string) =>
     request<{ entries: TimeEntry[] }>(`/api/tasks/${taskId}/time-entries`),
+
+  createTimeEntry: (taskId: string, entry: NewTimeEntry) =>
+    request<{ entry: TimeEntry }>(`/api/tasks/${taskId}/time-entries`, {
+      method: "POST",
+      body: JSON.stringify(entry),
+    }),
 
   patchTimeEntry: (
     entryId: string,

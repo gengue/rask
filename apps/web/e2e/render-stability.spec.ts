@@ -102,6 +102,10 @@ test("an unchanged server row leaves the rendered page alone", async ({ page }) 
 
   const detail = page.getByRole("complementary", { name: "Task detail" });
   await expect(detail).toBeVisible();
+  // Expanded by hand — it starts folded — so the merge below also proves it
+  // does not knock over an open section. The error is the fixture stack's
+  // settled state: CLICKUP_API_BASE points at a closed port.
+  await detail.getByRole("button", { name: /^Time entries/ }).click();
   await expect(detail.getByText("Could not read time from ClickUp.")).toBeVisible();
   await expect(
     page.getByRole("listbox", { name: "Tasks" }).getByRole("option").first(),
@@ -434,19 +438,23 @@ test("the 30 second task refresh leaves unchanged rich content alone", async ({ 
   const taskUrl = "/api/tasks/t2726";
   const timeEntriesUrl = `${taskUrl}/time-entries`;
   const initial = page.waitForResponse((response) => new URL(response.url()).pathname === taskUrl);
-  const timeEntries = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === timeEntriesUrl,
-  );
   await page.goto("/list/L1?task=t2726");
   await (await initial).finished();
-  const timeEntryResponse = await timeEntries;
-  const timeEntryCount = timeEntryResponse.ok()
-    ? ((await timeEntryResponse.json()) as { entries: unknown[] }).entries.length
-    : null;
 
   const detail = page.getByRole("complementary", { name: "Task detail" });
   await expect(detail).toBeVisible();
   await expect(detail.locator(".prose-rask").first()).toBeVisible();
+
+  // The section starts folded and unfetched; expanding it is what asks, and an
+  // expanded section is the harder case for the refresh below to leave alone.
+  const timeEntries = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === timeEntriesUrl,
+  );
+  await detail.getByRole("button", { name: /^Time entries/ }).click();
+  const timeEntryResponse = await timeEntries;
+  const timeEntryCount = timeEntryResponse.ok()
+    ? ((await timeEntryResponse.json()) as { entries: unknown[] }).entries.length
+    : null;
   const timeSection = detail.getByRole("heading", { name: /^Time entries/ }).locator("..");
   if (timeEntryCount === null) {
     await expect(timeSection).toContainText("Could not read time");
