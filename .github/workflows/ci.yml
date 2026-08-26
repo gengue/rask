@@ -56,7 +56,7 @@ jobs:
 
       - name: Typecheck
         run: |
-          for pkg in packages/clickup-client packages/schema apps/worker apps/api apps/web; do
+          for pkg in packages/clickup-client packages/schema apps/worker apps/api apps/web apps/site; do
             echo "::group::$pkg"
             node_modules/.bin/tsc --noEmit -p "$pkg/tsconfig.json"
             echo "::endgroup::"
@@ -104,6 +104,17 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The landing page is its own image and its own Coolify application, so
+      # it breaks on its own too. Context is still the root: bun workspaces
+      # resolve from the root lockfile.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/site/Dockerfile
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max

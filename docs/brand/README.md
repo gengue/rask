@@ -20,7 +20,13 @@ here have to be changed together.
 
 `apps/web/public/` holds the deployed copies of `favicon.svg` and the Apple
 touch icon. The touch icon ships opaque on `#0F0F0F` because iOS composites a
-transparent one over black.
+transparent one over black. `apps/site/public/` holds the same two plus
+`og.png`, the 1200x630 card link previews show.
+
+That card is the mark alone, on the app background. The title and description
+ride in the page's meta tags, so baking them into the image would be a second
+copy to keep in step — and text rasterised on one machine picks up that
+machine's fonts, which on Linux are not the ones the page uses.
 
 ## Regenerating the PNGs
 

@@ -2,6 +2,8 @@
 
 A fast, keyboard-first web client for ClickUp. Unofficial.
 
+[getrask.com](https://getrask.com)
+
 Rask is a minimal alternative UI for ClickUp built for people who live in the task
 list all day and find the official client slow. It mirrors ClickUp into our own
 Postgres, serves reads from there, and pushes writes back through an outbox. The
@@ -31,6 +33,7 @@ optimistically, queued in an outbox, and reverted if ClickUp rejects them.
 | [docs/security.md](docs/security.md) | Who can sign in, how tokens and sessions are held, how the webhook endpoint authenticates — and what the model does not cover. |
 | [docs/webhooks.md](docs/webhooks.md) | Why ingestion is webhooks *and* polling, and why polling never stops. |
 | [docs/themes.md](docs/themes.md) | Light, dark, and the contrast budget. |
+| [apps/site](apps/site) | The landing page at getrask.com. Its own image and its own Coolify application; see [deployment](docs/deployment.md#the-landing-page). |
 
 ## Conventions
 

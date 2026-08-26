@@ -82,6 +82,34 @@ Point the app at `docker-compose.prod.yml` and set the same variables in its
 UI. Coolify terminates TLS for you, so `WEB_ORIGIN` and `CLICKUP_REDIRECT_URI`
 are the https domain it gives you.
 
+## The landing page
+
+`apps/site` is the page at the apex domain, and it is a **second Coolify
+application**, not a service in the compose file above. Same repository:
+
+| | |
+|---|---|
+| Build pack | Dockerfile |
+| Dockerfile location | `apps/site/Dockerfile` |
+| Base directory | `/` |
+| Domain | the apex, e.g. `getrask.com` |
+| Environment | none |
+
+The base directory is the repository root and not `apps/site`, because bun
+workspaces resolve from the root lockfile and an install rooted at `apps/site`
+finds nothing.
+
+Separate because it shares nothing with the client — no database, no secrets,
+no migration step. Coupling it to a stack whose deploy waits on `migrate` would
+mean a copy edit on the landing page waits on Postgres. It also means the page
+stays up while the client is being redeployed, which is the one moment somebody
+might go looking for it.
+
+The client itself goes on a subdomain (`app.` + the apex), and that subdomain is
+what `WEB_ORIGIN` and `CLICKUP_REDIRECT_URI` have to name — the OAuth app at
+ClickUp's end matches the redirect character for character, so pointing either
+at the apex is a callback that fails with nothing useful in the log.
+
 ## Upgrading
 
 ```bash

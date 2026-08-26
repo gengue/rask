@@ -19,7 +19,7 @@ step, and the API and worker use Bun's native Postgres client.
 bun install
 bun run db:up          # Postgres on :5432 (Docker)
 bun run db:migrate
-bun run dev            # API :3000, Vite :5173, worker. Use :5173 — it proxies /api and /auth
+bun run dev            # API :3000, Vite :5173, worker, landing :5174. Use :5173 — it proxies /api and /auth
 ```
 
 ```bash
@@ -62,6 +62,7 @@ writes from there reach ClickUp.
 | | |
 |---|---|
 | [apps/web](apps/web) | SolidJS, Vite, TanStack Router + DB, Tailwind v4, CodeMirror. |
+| [apps/site](apps/site) | The landing page at the apex domain. Vite + Tailwind, no framework, one static page. Shares `apps/web/src/theme.css` and nothing else. |
 | [apps/api](apps/api) | Hono on Bun. Reads the mirror, writes the mirror + outbox, fans out SSE. Serves the built SPA in production. |
 | [apps/worker](apps/worker) | Six self-rescheduling loops: outbox drain, webhook read-back, cold list, poll, webhook health, nightly reconcile. |
 | [packages/schema](packages/schema) | Drizzle tables, idempotent ingest, token encryption. The mirror. |
@@ -164,9 +165,9 @@ don't reintroduce `useLiveQuery`.
   that can break, as `apps/web/test/live-mirror.test.ts` does.
 - **Run `bun run --cwd apps/web contrast` before changing a colour token.** The same
   audit runs as a test. The tokens live in `apps/web/src/theme.css`, not in
-  `styles.css`. A colour added to one theme block and not the other is a token
-  that silently inherits in the other theme, which is what the token-parity test
-  in `apps/web/test/contrast.test.ts` is for.
+  `styles.css`, because `apps/site` paints from the same file — a colour added to
+  one theme block and not the other is wrong on two sites at once, which is what
+  the token-parity test in `apps/web/test/contrast.test.ts` is for.
 - **One `SESSION_COOKIE_NAME` per checkout.** Cookies ignore the port, so two Rask
   instances on localhost overwrite each other's session.
 

@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+
+    <title>Rask — a keyboard-first web client for ClickUp</title>
+    <meta
+      name="description"
+      content="Rask mirrors your ClickUp workspace into Postgres and serves every read from there. Open source, self-hosted, driven from the home row."
+    />
+    <link rel="canonical" href="https://getrask.com/" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://getrask.com/" />
+    <meta property="og:title" content="Rask — a keyboard-first web client for ClickUp" />
+    <meta
+      property="og:description"
+      content="Every read answers from a local Postgres mirror. The browser never calls ClickUp."
+    />
+    <meta property="og:image" content="https://getrask.com/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script>
+      /*
+       * Theme, before anything else paints.
+       *
+       * Inline and in the head for the same reason as in the client: a theme
+       * read after first paint is a white flash on a dark screen. Simpler than
+       * the client's, which has a stored three-way choice to honour — this page
+       * has nothing to remember, so the system preference is the whole rule.
+       */
+      (() => {
+        if (!window.matchMedia("(prefers-color-scheme: dark)").matches) {
+          document.documentElement.classList.add("light");
+          document.documentElement.style.colorScheme = "light";
+        }
+      })();
+    </script>
+  </head>
+
+  <body>
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:border focus:border-line-strong focus:bg-elevated focus:px-3 focus:py-2 focus:text-sm"
+      >Skip to content</a
+    >
+
+    <div class="mx-auto w-full max-w-[980px] px-5 sm:px-8">
+      <header class="flex items-center justify-between py-5">
+        <span class="flex items-center gap-2.5">
+          <!-- The mark, from docs/brand/rask-mark.svg. Inlined rather than
+               fetched: it is smaller than its own request, and currentColor is
+               what lets it follow the theme. -->
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 100 100"
+            fill="none"
+            class="text-ink"
+            aria-hidden="true"
+          >
+            <g transform="translate(15,0) skewX(-12)">
+              <rect x="17" y="26" width="7" height="48" rx="3.5" fill="currentColor" />
+              <g
+                stroke="currentColor"
+                stroke-width="16"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M 36 24 L 36 76" />
+                <path d="M 36 24 H 54 A 16 16 0 0 1 54 56 H 36" />
+                <path d="M 49 56 L 72 76" />
+              </g>
+            </g>
+          </svg>
+          <span class="font-medium text-ink tracking-tight">Rask</span>
+        </span>
+
+        <nav class="flex items-center gap-5 text-sm">
+          <a href="https://github.com/gengue/rask" class="text-ink-2 hover:text-ink">GitHub</a>
+          <a href="https://app.getrask.com" class="text-ink-2 hover:text-ink">Sign in</a>
+        </nav>
+      </header>
+
+      <main id="main">
+        <!--
+          The hero is the product, not a picture of it.
+
+          Every other option was a screenshot or a claim. A visitor who presses
+          `j` here has already used the thing the page is selling, which no
+          screenshot achieves and no adjective survives.
+        -->
+        <section class="pt-12 pb-14 sm:pt-20 sm:pb-20">
+          <h1
+            class="max-w-[16ch] font-semibold text-[clamp(2.5rem,8vw,4.25rem)] text-ink leading-[0.98] tracking-[-0.042em]"
+          >
+            ClickUp at keyboard speed
+          </h1>
+
+          <p class="mt-6 max-w-[52ch] text-ink-prose text-md leading-relaxed">
+            Rask mirrors your workspace into Postgres and answers every read from there. The browser
+            never calls ClickUp, so opening a list is a local query rather than a round trip you
+            wait out.
+          </p>
+
+          <div class="mt-8 flex flex-wrap items-center gap-3">
+            <a
+              href="https://github.com/gengue/rask"
+              class="flex h-10 items-center rounded-md bg-accent px-5 font-medium text-on-accent text-sm transition-opacity hover:opacity-90"
+              >View on GitHub</a
+            >
+            <a
+              href="#self-host"
+              class="flex h-10 items-center rounded-md border border-line-strong px-5 font-medium text-ink text-sm hover:bg-hover"
+              >Run your own</a
+            >
+          </div>
+
+          <div class="mt-12 overflow-hidden rounded-panel border border-line bg-panel">
+            <div class="flex items-center gap-2 border-line border-b px-4 py-2.5">
+              <span class="wake" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="font-medium text-ink text-sm">Engineering</span>
+              <span class="font-mono text-ink-4 text-xs">5</span>
+            </div>
+            <ul data-demo class="divide-y divide-line">
+              <!-- Rows are written by src/main.ts. Empty here because a static
+                   copy would be a second version of the same list to keep. -->
+            </ul>
+          </div>
+
+          <p data-demo-hint class="mt-3.5 text-ink-4 text-sm">
+            Press <span class="key">j</span> <span class="key">k</span> to move,
+            <span class="key">↵</span> to open. The same keys the client uses.
+          </p>
+        </section>
+
+        <!--
+          Speed is the claim, so it is made with the measurements rather than
+          with an adjective. Every number is from docs/architecture.md, taken
+          against a real 243-list workspace.
+        -->
+        <section class="border-line border-t py-14 sm:py-16">
+          <h2 class="font-semibold text-ink text-lg tracking-tight">Why it is fast</h2>
+          <p class="mt-3 max-w-[58ch] text-ink-prose leading-relaxed">
+            Not a faster network call — no network call. A worker keeps a Postgres mirror of the
+            workspace and the API reads that. What follows is measured against a real workspace of
+            243 lists and 200 members, not estimated.
+          </p>
+
+          <dl class="mt-8 grid gap-px overflow-hidden rounded-panel border border-line bg-line sm:grid-cols-3">
+            <div class="bg-panel p-5">
+              <dt class="text-ink-3 text-sm">Incremental poll, 8 lists</dt>
+              <dd class="mt-1.5 font-mono text-ink text-xl tabular-nums">7.5s</dd>
+              <dd class="mt-1 text-ink-4 text-sm">8 requests. A quiet list costs exactly one.</dd>
+            </div>
+            <div class="bg-panel p-5">
+              <dt class="text-ink-3 text-sm">Space, folder and list tree</dt>
+              <dd class="mt-1.5 font-mono text-ink text-xl tabular-nums">1.4s</dd>
+              <dd class="mt-1 text-ink-4 text-sm">13 requests, on every worker boot.</dd>
+            </div>
+            <div class="bg-panel p-5">
+              <dt class="text-ink-3 text-sm">First load, 17,049 tasks</dt>
+              <dd class="mt-1.5 font-mono text-ink text-xl tabular-nums">4.7min</dd>
+              <dd class="mt-1 text-ink-4 text-sm">196 requests, bound by ClickUp's own latency.</dd>
+            </div>
+          </dl>
+
+          <!--
+            The first-load number stays on the page rather than being buried.
+            Filling a large workspace is an overnight job, and that is the one
+            surprise a self-hoster will actually hit — better read here than
+            discovered with the container already running.
+          -->
+          <p class="mt-5 max-w-[58ch] text-ink-3 text-sm leading-relaxed">
+            The first fill of a large workspace is hours, not minutes. Lists fill in as they are
+            reached and the app is usable throughout, but it is an overnight job and worth knowing
+            before you start one.
+          </p>
+        </section>
+
+        <section class="border-line border-t py-14 sm:py-16">
+          <h2 class="font-semibold text-ink text-lg tracking-tight">Your hands stay put</h2>
+          <p class="mt-3 max-w-[58ch] text-ink-prose leading-relaxed">
+            Every binding below is live in the client. <span class="key">?</span> lists them again
+            from anywhere, because twelve shortcuts of which two are discoverable is a strange thing
+            for a keyboard-first client to ship.
+          </p>
+
+          <div class="mt-8 grid gap-x-10 gap-y-8 sm:grid-cols-2">
+            <div>
+              <h3 class="flex items-center gap-2 pb-3 font-medium text-ink text-sm">
+                <span class="wake" aria-hidden="true"><i></i><i></i></span> Move
+              </h3>
+              <dl class="space-y-2 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Next, previous task</dt>
+                  <dd class="shrink-0"><span class="key">j</span> <span class="key">k</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Top, bottom</dt>
+                  <dd class="shrink-0">
+                    <span class="key">g</span> <span class="key">g</span> ·
+                    <span class="key">G</span>
+                  </dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Open task</dt>
+                  <dd class="shrink-0"><span class="key">↵</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Close, or clear filters</dt>
+                  <dd class="shrink-0"><span class="key">esc</span></dd>
+                </div>
+              </dl>
+            </div>
+
+            <div>
+              <h3 class="flex items-center gap-2 pb-3 font-medium text-ink text-sm">
+                <span class="wake" aria-hidden="true"><i></i><i></i></span> Act
+              </h3>
+              <dl class="space-y-2 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">New task</dt>
+                  <dd class="shrink-0"><span class="key">c</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Change status, set priority</dt>
+                  <dd class="shrink-0"><span class="key">s</span> <span class="key">p</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Start or stop the timer</dt>
+                  <dd class="shrink-0"><span class="key">t</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Search this view, add a filter</dt>
+                  <dd class="shrink-0"><span class="key">/</span> <span class="key">F</span></dd>
+                </div>
+              </dl>
+            </div>
+
+            <div>
+              <h3 class="flex items-center gap-2 pb-3 font-medium text-ink text-sm">
+                <span class="wake" aria-hidden="true"><i></i><i></i></span> Board
+              </h3>
+              <dl class="space-y-2 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">List or board</dt>
+                  <dd class="shrink-0"><span class="key">b</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Previous, next column</dt>
+                  <dd class="shrink-0"><span class="key">h</span> <span class="key">l</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Move card left, right</dt>
+                  <dd class="shrink-0"><span class="key">H</span> <span class="key">L</span></dd>
+                </div>
+              </dl>
+            </div>
+
+            <div>
+              <h3 class="flex items-center gap-2 pb-3 font-medium text-ink text-sm">
+                <span class="wake" aria-hidden="true"><i></i><i></i></span> Anywhere
+              </h3>
+              <dl class="space-y-2 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Command palette</dt>
+                  <dd class="shrink-0">
+                    <span class="key">⌘</span> <span class="key">K</span> ·
+                    <span class="key">:</span>
+                  </dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">Task actions</dt>
+                  <dd class="shrink-0"><span class="key">m</span></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-ink-2">This list of shortcuts</dt>
+                  <dd class="shrink-0"><span class="key">?</span></dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </section>
+
+        <section class="border-line border-t py-14 sm:py-16">
+          <h2 class="font-semibold text-ink text-lg tracking-tight">How it works</h2>
+          <p class="mt-3 max-w-[58ch] text-ink-prose leading-relaxed">
+            One worker keeps the mirror current from webhooks and polling. The API reads the mirror
+            and pushes changes to open tabs over SSE. Writes apply locally first and ship from a
+            queue, so an edit lands in the interface immediately and reaches ClickUp a second or two
+            later.
+          </p>
+
+          <figure class="mt-8">
+            <div class="overflow-x-auto">
+              <svg
+                viewBox="0 0 720 176"
+                class="w-full min-w-[560px] max-w-[680px]"
+                role="img"
+                aria-label="The browser talks only to the API, over SSE. The API reads and writes Postgres and receives ClickUp's webhooks. The worker writes the same Postgres and calls ClickUp over REST."
+              >
+                <g
+                  fill="none"
+                  stroke="var(--color-line-strong)"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
+                >
+                  <path d="M148 36 H254" />
+                  <path d="M374 36 H560" />
+                  <path d="M314 56 V112" />
+                  <path d="M374 132 H430" />
+                  <path d="M550 132 H626 V56" />
+                </g>
+
+                <g font-family="var(--font-mono)" font-size="11" fill="var(--color-ink-4)">
+                  <text x="201" y="28" text-anchor="middle">SSE</text>
+                  <text x="467" y="28" text-anchor="middle">webhooks</text>
+                  <text x="618" y="122" text-anchor="end">REST</text>
+                </g>
+
+                <g stroke="var(--color-line)" fill="var(--color-panel)">
+                  <rect x="16" y="16" width="132" height="40" rx="8" />
+                  <rect x="254" y="16" width="120" height="40" rx="8" />
+                  <rect x="560" y="16" width="132" height="40" rx="8" />
+                  <rect x="254" y="112" width="120" height="40" rx="8" />
+                  <rect x="430" y="112" width="120" height="40" rx="8" />
+                </g>
+
+                <g
+                  font-family="var(--font-sans)"
+                  font-size="12"
+                  fill="var(--color-ink)"
+                  text-anchor="middle"
+                >
+                  <text x="82" y="41">Browser</text>
+                  <text x="314" y="41">API</text>
+                  <text x="626" y="41">ClickUp</text>
+                  <text x="314" y="137">Postgres</text>
+                  <text x="490" y="137">Worker</text>
+                </g>
+              </svg>
+            </div>
+            <figcaption class="mt-3 text-ink-4 text-sm">
+              The browser has no ClickUp credentials and no route to it. Every arrow leaving your
+              server is one your server made.
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="self-host" class="scroll-mt-8 border-line border-t py-14 sm:py-16">
+          <h2 class="font-semibold text-ink text-lg tracking-tight">Run your own</h2>
+          <p class="mt-3 max-w-[58ch] text-ink-prose leading-relaxed">
+            Any box with Docker, and a Postgres you point it at. Rask is MIT licensed and there is
+            no hosted plan to buy — the deployment is yours, and so is the mirror it builds.
+          </p>
+
+          <pre
+            class="mt-6 overflow-x-auto rounded-panel border border-line bg-panel p-5 font-mono text-ink-2 text-sm leading-relaxed"
+          ><code>git clone git@github.com:gengue/rask.git &amp;&amp; cd rask
+cp .env.example .env       <span class="text-ink-4"># fill it in</span>
+docker compose -f docker-compose.prod.yml up -d --build</code></pre>
+
+          <!--
+            The security link is not a courtesy. Reads answer from the mirror,
+            so a session is enough to see every task in it and the sign-in gate
+            is the entire access control. Somebody putting this on a public box
+            needs that before the box is public, not after.
+          -->
+          <p class="mt-5 max-w-[58ch] text-ink-3 text-sm leading-relaxed">
+            Read
+            <a
+              href="https://github.com/gengue/rask/blob/main/docs/security.md"
+              class="text-accent hover:underline"
+              >who can sign in</a
+            >
+            first. Reads come from the mirror, so a session is enough to see every task in it and
+            the sign-in gate is the whole of the access control.
+            <a
+              href="https://github.com/gengue/rask/blob/main/docs/deployment.md"
+              class="text-accent hover:underline"
+              >Deployment</a
+            >
+            covers the rest.
+          </p>
+        </section>
+      </main>
+
+      <footer class="border-line border-t py-10">
+        <div class="flex flex-wrap items-center justify-between gap-4 text-sm">
+          <span class="text-ink-3">MIT licensed</span>
+          <nav class="flex gap-5">
+            <a href="https://github.com/gengue/rask" class="text-ink-2 hover:text-ink">GitHub</a>
+            <a
+              href="https://github.com/gengue/rask/blob/main/docs/architecture.md"
+              class="text-ink-2 hover:text-ink"
+              >Architecture</a
+            >
+            <a href="https://app.getrask.com" class="text-ink-2 hover:text-ink">Sign in</a>
+          </nav>
+        </div>
+        <p class="mt-6 max-w-[62ch] text-ink-4 text-xs leading-relaxed">
+          Rask is an independent project, not affiliated with, endorsed by, or sponsored by ClickUp.
+          ClickUp is a trademark of Mango Technologies, Inc.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -21,6 +21,15 @@
         "zod": "^4.4.3",
       },
     },
+    "apps/site": {
+      "name": "@rask/site",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@tailwindcss/vite": "^4.3.3",
+        "tailwindcss": "^4.3.3",
+        "vite": "^8.2.2",
+      },
+    },
     "apps/web": {
       "name": "@rask/web",
       "version": "0.0.0",
@@ -243,6 +252,8 @@
     "@rask/clickup-client": ["@rask/clickup-client@workspace:packages/clickup-client"],
 
     "@rask/schema": ["@rask/schema@workspace:packages/schema"],
+
+    "@rask/site": ["@rask/site@workspace:apps/site"],
 
     "@rask/web": ["@rask/web@workspace:apps/web"],
 

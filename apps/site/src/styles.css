@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/*
+ * The palette, shared with the client rather than copied.
+ *
+ * A relative path across two apps is not pretty. The alternatives were an
+ * `exports` entry in apps/web's package.json for one CSS file, or a
+ * packages/theme holding one CSS file — both more machinery than the thing
+ * they carry. `apps/web/scripts/contrast.ts` audits that file, so the colours
+ * on this page are the audited ones and stay that way.
+ */
+@import "../../web/src/theme.css";
+
+/*
+ * The one thing not shared: the type scale.
+ *
+ * The client sets 13px base because it is a dense desktop app you scan. This
+ * is a page you read once, at arm's length, and 13px prose on it reads as an
+ * app someone forgot to style. Same names, one rung up each.
+ */
+@theme {
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-md: 17px;
+  --text-lg: 21px;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background: var(--color-app);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.55;
+    letter-spacing: -0.011em;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Antialiasing that suits near-white on near-black thins the strokes the
+     other way round. Same call as the client makes. */
+  html.light body {
+    -webkit-font-smoothing: auto;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  /*
+   * The keycap is the page's structural device.
+   *
+   * Sections are not a sequence, so numbering them (01 / 02 / 03) would claim
+   * an order the content does not have. These are the real bindings, read off
+   * apps/web/src/components/Shortcuts.tsx, so the device is also the content.
+   */
+  .key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.65em;
+    height: 1.65em;
+    padding: 0 0.4em;
+    border: 1px solid var(--color-line-strong);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--color-elevated);
+    color: var(--color-ink-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1;
+  }
+
+  /*
+   * The wake bars off the mark, reused as the section marker.
+   *
+   * The mark is an R sheared 12 degrees with bars trailing the stem; the lean
+   * is the whole idea. Every sheared thing on this page uses the same 12, so
+   * the angle reads as one decision rather than several approximations.
+   */
+  .wake {
+    display: inline-flex;
+    gap: 3px;
+    transform: skewX(-12deg);
+  }
+
+  .wake i {
+    display: block;
+    width: 2px;
+    height: 0.85em;
+    border-radius: 1px;
+    background: var(--color-accent);
+  }
+
+  .wake i:nth-child(2) {
+    opacity: 0.55;
+  }
+
+  .wake i:nth-child(3) {
+    opacity: 0.25;
+  }
+}
