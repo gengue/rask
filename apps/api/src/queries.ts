@@ -802,12 +802,13 @@ export async function saveViewMembership(
   db: Db,
   row: { viewId: string; userId: string; taskIds: string[]; truncated: boolean },
 ): Promise<void> {
+  const syncedAt = new Date();
   await db
     .insert(viewMemberships)
-    .values({ ...row, syncedAt: new Date() })
+    .values({ ...row, syncedAt })
     .onConflictDoUpdate({
       target: [viewMemberships.viewId, viewMemberships.userId],
-      set: { taskIds: row.taskIds, truncated: row.truncated, syncedAt: new Date() },
+      set: { taskIds: row.taskIds, truncated: row.truncated, syncedAt },
     });
 }
 

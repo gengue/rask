@@ -490,7 +490,8 @@ api.get("/views/:id", async (c) => {
  * poll keeps current.
  */
 api.get("/views/:id/tasks", async (c) => {
-  const view = await viewFor(c.get("user").id, c.req.param("id"));
+  const userId = c.get("user").id;
+  const view = await viewFor(userId, c.req.param("id"));
   if (!view) return c.json({ error: "not found" }, 404);
 
   /*
@@ -508,8 +509,6 @@ api.get("/views/:id/tasks", async (c) => {
   } catch {
     return c.json({ error: "bad filter" }, 400);
   }
-
-  const userId = c.get("user").id;
 
   /*
    * The last walk's answer, painted first; the fresh one arrives over SSE.
