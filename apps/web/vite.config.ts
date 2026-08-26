@@ -58,7 +58,8 @@ export default defineConfig({
     host: "127.0.0.1",
     // Reachable from other machines on the tailnet (MagicDNS names end in
     // .ts.net); Vite rejects any Host header it was not told about.
-    allowedHosts: [".ts.net"],
+    // VITE_EXTRA_HOSTS adds more (comma-separated), e.g. a dev tunnel's domain.
+    allowedHosts: [".ts.net", ...(process.env.VITE_EXTRA_HOSTS?.split(",") ?? [])],
     // Same-origin in dev, exactly like production behind Coolify. Keeps the
     // session cookie SameSite=Lax instead of forcing SameSite=None.
     proxy: {
