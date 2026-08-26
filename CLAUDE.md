@@ -145,6 +145,12 @@ don't reintroduce `useLiveQuery`.
   read as Unassigned for as long as the panel existed. Write
   `${tasks}.${sql.identifier("id")}`; `apps/api/test/subtasks.test.ts` is what
   catches it.
+- **Every `ClickUpClient` in `apps/api` takes `config.CLICKUP_API_BASE`.** The e2e
+  suite points it at a closed port so the fixture stack never leaves the machine.
+  A client built without it still fails — the fixture holds no real token — but it
+  fails after a round-trip to ClickUp, which is how a five-second assertion in
+  `render-stability.spec.ts` started timing out on loaded runners and CI went red
+  at random for a week. `apps/api/test/clickup-base.test.ts` sweeps for it.
 - **Never invent a ClickUp endpoint.** The v2 spec is vendored at
   `packages/clickup-client/openapi/clickup-v2.json`. Not in there means it does not
   exist.
