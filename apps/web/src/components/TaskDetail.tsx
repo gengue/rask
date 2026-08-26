@@ -134,6 +134,33 @@ export function TaskDetail(props: {
     { initialValue: [] },
   );
   const [editingDescription, setEditingDescription] = createSignal(false);
+  /*
+   * ClickUp caps the rendered description at 200px; we give it 300px and the
+   * same expand affordance. Collapsed is the default so a long body never
+   * shoves the comments below the fold on open. `onMount` measures once the
+   * markdown is in the DOM; `overflowing` decides whether the toggle is
+   * rendered at all — a two-line description with an Expand button is noise.
+   */
+  const [descriptionExpanded, setDescriptionExpanded] = createSignal(false);
+  const [descriptionOverflows, setDescriptionOverflows] = createSignal(false);
+  let descriptionBox: HTMLDivElement | undefined;
+  const COLLAPSED_DESCRIPTION_HEIGHT = 300;
+  const measureDescription = () => {
+    // Compared against the collapsed cap, not clientHeight: once expanded the
+    // box grows to fit and clientHeight === scrollHeight, which would read as
+    // "fits" and un-render the only button that can collapse it again.
+    if (descriptionBox) {
+      setDescriptionOverflows(descriptionBox.scrollHeight > COLLAPSED_DESCRIPTION_HEIGHT);
+    }
+  };
+  onMount(() => {
+    measureDescription();
+    // The same description in a different task is a different height; re-measure.
+    createEffect(() => {
+      void task()?.description;
+      queueMicrotask(measureDescription);
+    });
+  });
 
   /** Optimistic edit of the open task. The collection rolls it back on failure. */
   const patch = (apply: (draft: Task) => void) => tasks.update(props.taskId, apply);
@@ -576,26 +603,48 @@ export function TaskDetail(props: {
               <Show
                 when={editingDescription()}
                 fallback={
-                  <button
-                    type="button"
-                    // Named, or the button announces the whole body as its
-                    // name — several hundred words for one "edit this".
-                    aria-label="Edit description"
-                    onClick={() => setEditingDescription(true)}
-                    class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
-                  >
-                    <Show
-                      when={task().description}
-                      fallback={<span class="text-base text-ink-4">Add a description…</span>}
+                  <div>
+                    <button
+                      type="button"
+                      // Named, or the button announces the whole body as its
+                      // name — several hundred words for one "edit this".
+                      aria-label="Edit description"
+                      onClick={() => setEditingDescription(true)}
+                      class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
                     >
-                      {/* Sanitized in renderMarkdown. ClickUp descriptions are
-                          other people's input and never reach the DOM raw. */}
-                      <div
-                        class="prose-rask selectable text-base"
-                        innerHTML={renderMarkdown(task().description)}
-                      />
+                      <Show
+                        when={task().description}
+                        fallback={<span class="text-base text-ink-4">Add a description…</span>}
+                      >
+                        {/* Sanitized in renderMarkdown. ClickUp descriptions are
+                            other people's input and never reach the DOM raw. */}
+                        <div
+                          ref={descriptionBox}
+                          class="prose-rask selectable text-base"
+                          classList={{
+                            "max-h-[300px] overflow-hidden transition-[max-height] duration-200":
+                              !descriptionExpanded(),
+                          }}
+                          style={{
+                            "mask-image":
+                              !descriptionExpanded() && descriptionOverflows()
+                                ? "linear-gradient(to bottom, black 82%, transparent)"
+                                : undefined,
+                          }}
+                          innerHTML={renderMarkdown(task().description)}
+                        />
+                      </Show>
+                    </button>
+                    <Show when={descriptionOverflows()}>
+                      <button
+                        type="button"
+                        onClick={() => setDescriptionExpanded(!descriptionExpanded())}
+                        class="mx-auto mt-1 block rounded-[5px] px-2 py-1 text-xs text-ink-3 hover:bg-hover hover:text-ink"
+                      >
+                        {descriptionExpanded() ? "Collapse" : "Expand"}
+                      </button>
                     </Show>
-                  </button>
+                  </div>
                 }
               >
                 <MarkdownEditor
