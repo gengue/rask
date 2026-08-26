@@ -275,6 +275,32 @@ export const listViews = pgTable(
   (t) => [index("list_views_list_idx").on(t.listId, t.orderindex)],
 );
 
+/**
+ * Which tasks a view held, the last time this person's token walked it.
+ *
+ * A view's rows are ClickUp's answer to filters only ClickUp can evaluate, and
+ * the walk costs seconds. Remembering the answer is what lets the route paint
+ * from the mirror first and repair behind the response — the same bargain task
+ * detail makes. Membership only, never data: the ids point into `tasks`, and
+ * the poll keeps those rows current whether or not anyone reopens the view.
+ *
+ * Keyed by user as well as view because ClickUp evaluates the filters with the
+ * calling token — "assignee is Me" keeps different rows for different people,
+ * and a shared row would paint one person's view as another's.
+ */
+export const viewMemberships = pgTable(
+  "view_memberships",
+  {
+    viewId: text("view_id").notNull(),
+    userId: text("user_id").notNull(),
+    taskIds: jsonb<string[]>("task_ids").notNull(),
+    /** Whether the walk stopped at the cap. Replayed as `X-Rask-Truncated`. */
+    truncated: boolean("truncated").notNull().default(false),
+    syncedAt: ts("synced_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.viewId, t.userId] })],
+);
+
 // --- Tasks ----------------------------------------------------------------
 
 export const tasks = pgTable(

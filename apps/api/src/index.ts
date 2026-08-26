@@ -32,6 +32,7 @@ import { loadConfig } from "./config.ts";
 import { fieldIdsIn, parseFilter } from "./filters.ts";
 import {
   findListView,
+  findViewMembership,
   getHierarchy,
   getTaskDetail,
   type ListViewRow,
@@ -41,6 +42,7 @@ import {
   listViewsFor,
   notableComments,
   resolveRefs,
+  saveViewMembership,
   searchTasks,
   statusesForList,
 } from "./queries.ts";
@@ -507,7 +509,43 @@ api.get("/views/:id/tasks", async (c) => {
     return c.json({ error: "bad filter" }, 400);
   }
 
-  const client = await clientFor(c.get("user").id);
+  const userId = c.get("user").id;
+
+  /*
+   * The last walk's answer, painted first; the fresh one arrives over SSE.
+   *
+   * This is task detail's bargain applied to the one read that used to block on
+   * ClickUp: answer from what is remembered, repair behind the response. The
+   * membership is the only thing remembered — the rows still come from the
+   * mirror below, which the poll keeps current — and the filter stays out of
+   * the key because membership never depends on it; `fieldIds` applies at the
+   * mirror read on both paths.
+   *
+   * The age gate is for a membership nobody has walked in a day: stale rows
+   * self-correct in seconds, but a week-old set painted while ClickUp is down
+   * would stand indefinitely, claiming to be the view. Today's 502 was at least
+   * honest, so past the gate the walk blocks again.
+   */
+  const remembered = await findViewMembership(db, view.id, userId);
+  if (remembered && Date.now() - remembered.syncedAt.getTime() < VIEW_MEMBERSHIP_MAX_AGE_MS) {
+    // Still the claim, even on a hit: the cursor row can be gone while the
+    // membership survived — a rebuilt sync table — and a list somebody opens
+    // daily would otherwise never be polled again.
+    if (view.listId) await registerList(userId, view.listId, true);
+
+    void revalidateView(userId, view);
+
+    const rows = await listTasks(db, {
+      taskIds: remembered.taskIds,
+      fieldIds,
+      includeClosed: true,
+      limit: VIEW_TASK_LIMIT,
+    });
+    c.header("X-Rask-Truncated", remembered.truncated ? "1" : "0");
+    return c.json(rows);
+  }
+
+  const client = await clientFor(userId);
   if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
   let page: { tasks: ClickUpTask[]; truncated: boolean };
@@ -541,9 +579,19 @@ api.get("/views/:id/tasks", async (c) => {
    * registering the first task's would poll one arbitrary list and call the
    * other forty covered.
    */
-  if (view.listId) await registerList(c.get("user").id, view.listId, true);
+  if (view.listId) await registerList(userId, view.listId, true);
 
   await ingestUnseen(page.tasks, view.listId);
+
+  // After `ingestUnseen`, never before: a membership committed ahead of the
+  // rows it names would, on a crash between the two, leave every later hit
+  // rendering holes for ids the mirror has never seen.
+  await saveViewMembership(db, {
+    viewId: view.id,
+    userId,
+    taskIds: page.tasks.map((task) => task.id),
+    truncated: page.truncated,
+  });
 
   // `includeClosed`, always: ClickUp already applied the view's `show_closed`,
   // and filtering again here would drop rows the view deliberately keeps.
@@ -1112,14 +1160,85 @@ async function fillList(userId: string, listId: string, includeClosed: boolean):
   }
 }
 
-/** Walks a view's pages up to the cap, and says whether it stopped early. */
+/**
+ * How old a remembered membership can be and still be worth painting first.
+ *
+ * Generous on purpose: within the window a stale set self-corrects seconds
+ * later over SSE, so the only cost of age is a brief flash of last week's
+ * rows. The ceiling exists for the failure mode — ClickUp unreachable, no
+ * revalidation landing — where a very old set would otherwise stand forever
+ * while claiming to be the view.
+ */
+const VIEW_MEMBERSHIP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Re-walks a view behind a response already answered, and pushes what changed.
+ *
+ * The same shape as `refreshTask`: the route paints from what is remembered,
+ * this repairs it, and the `view` SSE event carries the fresh membership to
+ * the tabs of the person who asked. Ids only — the rows travel on the `tasks`
+ * feed, which `ingestUnseen` wakes for anything the mirror had not seen.
+ *
+ * Single-flighted per view and user: three tabs opening one view queue three
+ * revalidations behind one rate limiter, and the second and third would walk
+ * ClickUp to learn what the first just wrote down.
+ *
+ * Failure is logged, never surfaced. The remembered membership stands, which
+ * is exactly what it is for.
+ */
+const viewRevalidations = new Map<string, Promise<void>>();
+
+function revalidateView(userId: string, view: ListViewRow): Promise<void> {
+  const key = `${view.id}|${userId}`;
+  const running = viewRevalidations.get(key);
+  if (running) return running;
+
+  const walk = (async () => {
+    try {
+      const client = await clientFor(userId);
+      if (!client) return;
+      const page = await walkViewTasks(client, view.id);
+      await ingestUnseen(page.tasks, view.listId);
+      const ids = page.tasks.map((task) => task.id);
+      await saveViewMembership(db, {
+        viewId: view.id,
+        userId,
+        taskIds: ids,
+        truncated: page.truncated,
+      });
+      pushTo(userId, "view", { viewId: view.id, ids, truncated: page.truncated });
+    } catch (error) {
+      console.error("[view]", view.id, error instanceof Error ? error.message : error);
+    } finally {
+      viewRevalidations.delete(key);
+    }
+  })();
+
+  viewRevalidations.set(key, walk);
+  return walk;
+}
+
+/**
+ * Walks a view's pages up to the cap, and says whether it stopped early.
+ *
+ * Deduplicated, because pages are read from a live view: a task that moves
+ * while the walk is in flight can sit on two pages at once, and a batch that
+ * names one id twice makes `ingestTasks`'s multi-row upsert refuse the whole
+ * insert ("cannot affect row a second time") — which would silently drop
+ * every task the walk found, not just the doubled one.
+ */
 async function walkViewTasks(
   client: ClickUpClient,
   viewId: string,
 ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
   const collected: ClickUpTask[] = [];
+  const seen = new Set<string>();
   for await (const batch of client.iterateViewTasks(viewId)) {
-    collected.push(...batch);
+    for (const task of batch) {
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      collected.push(task);
+    }
     if (collected.length > VIEW_TASK_LIMIT) {
       return { tasks: collected.slice(0, VIEW_TASK_LIMIT), truncated: true };
     }

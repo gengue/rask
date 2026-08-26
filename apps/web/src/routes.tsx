@@ -45,6 +45,7 @@ import {
 } from "./lib/inbox.ts";
 import { useLiveTasks } from "./lib/live.ts";
 import { listName, me } from "./lib/session.ts";
+import { viewRefresh } from "./lib/sse.ts";
 import { load, loadViewTasks, type TaskPageResult } from "./lib/store.ts";
 import {
   boardLayout,
@@ -387,6 +388,21 @@ function viewRows(view: () => View | null | undefined): () => View | null {
       setIds(page.ids);
       setViewTruncated(page.truncated);
     });
+  });
+
+  /*
+   * The server's repair, landing after its answer. A view route paints from
+   * the last walk; the fresh one arrives here over SSE, addressed by view id
+   * so a push that outlives a navigation is ignored rather than applied to
+   * whatever view happens to be mounted. No skeleton: the rows on screen are
+   * already the view, this only moves the edges.
+   */
+  createEffect(() => {
+    const refresh = viewRefresh();
+    const current = view();
+    if (!refresh || !current || refresh.viewId !== current.id) return;
+    setIds(refresh.ids);
+    setViewTruncated(refresh.truncated);
   });
 
   const rows = useLiveTasks(
