@@ -81,11 +81,16 @@ jobs:
         run: bunx playwright test
         working-directory: apps/web
 
-      - uses: actions/upload-artifact@v4
+      # `test-results`, not `playwright-report`: the CI reporter is `github`,
+      # which annotates the run and writes no HTML, so this step uploaded
+      # nothing for as long as it existed ("No files were found with the
+      # provided path"). The traces `retain-on-failure` keeps land here, and a
+      # trace is the only thing that makes a red run readable after the fact.
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-report
-          path: apps/web/playwright-report
+          name: playwright-traces
+          path: apps/web/test-results
           retention-days: 7
 
   docker:
