@@ -125,8 +125,8 @@
    * carry. The rounding is deliberate in both directions: 13.5 and 12.5 both
    * fall to their nearest whole size rather than all going up.
    *
-   * `text-base` is 1rem to match ClickUp's task body, which is the reading
-   * surface this app replaces; the rest of the ladder is px so rows, headers
+   * `text-base` is 1rem and `text-lg` (the task title) is 1.75rem, both
+   * matching ClickUp's sizes; the rest of the ladder is px so rows, headers
    * and chips keep exact heights.
    *
    * The line-heights are set to `inherit` so each step behaves exactly like
@@ -143,7 +143,7 @@
   --text-base--line-height: inherit;
   --text-md: 15px;
   --text-md--line-height: inherit;
-  --text-lg: 19px;
+  --text-lg: 1.75rem;
   --text-lg--line-height: inherit;
 
   --radius-panel: 10px;
