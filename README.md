@@ -7,7 +7,8 @@ list all day and find the official client slow. It mirrors ClickUp into our own
 Postgres, serves reads from there, and pushes writes back through an outbox. The
 browser never talks to ClickUp directly.
 
-MIT licensed. Not affiliated with ClickUp.
+MIT licensed. Rask is an independent project, not affiliated with, endorsed by, or
+sponsored by ClickUp. ClickUp is a trademark of Mango Technologies, Inc.
 
 ```
 Browser (SPA) <-- SSE --> API <-- REST + webhooks --> ClickUp
