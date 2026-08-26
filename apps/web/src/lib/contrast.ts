@@ -1,5 +1,5 @@
 /**
- * WCAG contrast for the theme tokens, read out of `styles.css`.
+ * WCAG contrast for the theme tokens, read out of `theme.css`.
  *
  * The runner is `apps/web/scripts/contrast.ts`; this half is pure so it can be
  * imported from a test and from browser code without dragging Bun in.

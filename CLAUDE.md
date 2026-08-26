@@ -163,7 +163,10 @@ don't reintroduce `useLiveQuery`.
   function anyway; reach for a reactive test only when the reactivity is the thing
   that can break, as `apps/web/test/live-mirror.test.ts` does.
 - **Run `bun run --cwd apps/web contrast` before changing a colour token.** The same
-  audit runs as a test.
+  audit runs as a test. The tokens live in `apps/web/src/theme.css`, not in
+  `styles.css`. A colour added to one theme block and not the other is a token
+  that silently inherits in the other theme, which is what the token-parity test
+  in `apps/web/test/contrast.test.ts` is for.
 - **One `SESSION_COOKIE_NAME` per checkout.** Cookies ignore the port, so two Rask
   instances on localhost overwrite each other's session.
 

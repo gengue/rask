@@ -14,6 +14,10 @@ glyphs — measured rather than eyeballed:
 bun run --cwd apps/web contrast
 ```
 
-It parses the tokens out of `styles.css`, prints all 66 foreground/surface
+It parses the tokens out of `apps/web/src/theme.css`, prints all 66 foreground/surface
 pairs, and exits non-zero on anything below AA. Run it before changing a colour
 token; `apps/web/test/contrast.test.ts` runs the same audit so CI does too.
+
+The palette sits in its own file rather than in `styles.css` because the
+landing page in `apps/site` paints with the same names. A second copy would
+drift, and the annotated ratios would drift with it.

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AA_LARGE, AA_TEXT, audit, contrastRatio, parseThemes } from "../src/lib/contrast.ts";
 
-const css = await Bun.file(new URL("../src/styles.css", import.meta.url)).text();
+const css = await Bun.file(new URL("../src/theme.css", import.meta.url)).text();
 const themes = parseThemes(css);
 
 /**
@@ -50,6 +50,22 @@ describe("the stylesheet", () => {
 
   test("dark and light are actually different", () => {
     expect(themes.dark.app).not.toBe(themes.light.app);
+  });
+
+  /*
+   * The failure the split into theme.css introduced.
+   *
+   * A token added to `@theme` and not to `html.light` paints correctly in dark
+   * and falls back to nothing in light — no error, no missing variable, just an
+   * element that inherits whatever its parent had. The audit above cannot see
+   * it, because it only rates the pairs both themes define. Now that a second
+   * app paints from this file, one theme quietly missing a colour is a bug in
+   * two places at once.
+   */
+  test("both themes define the same set of tokens", () => {
+    const dark = Object.keys(themes.dark).sort();
+    const light = Object.keys(themes.light).sort();
+    expect(light).toEqual(dark);
   });
 
   test("every token pair clears WCAG AA, in both themes", () => {

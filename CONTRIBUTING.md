@@ -130,7 +130,7 @@ Before changing a colour token:
 bun run --cwd apps/web contrast
 ```
 
-It reads the tokens out of `styles.css` and prints every foreground/surface
+It reads the tokens out of `apps/web/src/theme.css` and prints every foreground/surface
 ratio in both themes, exiting non-zero if any is below WCAG AA. The same audit
 runs as a test, so CI catches it too.
 

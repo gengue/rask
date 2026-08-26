@@ -9,7 +9,7 @@
  */
 import { audit, parseThemes } from "../src/lib/contrast.ts";
 
-const css = await Bun.file(new URL("../src/styles.css", import.meta.url)).text();
+const css = await Bun.file(new URL("../src/theme.css", import.meta.url)).text();
 const findings = audit(parseThemes(css));
 const failures = findings.filter((f) => f.ratio < f.min);
 
