@@ -20,4 +20,15 @@ export const E2E_ENV: Record<string, string> = {
   WEB_PORT: E2E.webPort,
   API_ORIGIN: `http://localhost:${E2E.apiPort}`,
   SESSION_COOKIE_NAME: E2E.cookieName,
+  /*
+   * A port nothing listens on, so the API never leaves the box.
+   *
+   * The fixture workspace stores no real OAuth token, so every call the API
+   * makes to ClickUp already answered 401 — it just answered slowly, over a
+   * runner's internet connection, and the wait landed inside assertions. The
+   * detail panel's "Could not read time from ClickUp." is the one a test reads
+   * directly, and on a loaded runner it arrived after the five-second wait had
+   * given up. A refused connection is the same failure without the round-trip.
+   */
+  CLICKUP_API_BASE: "http://127.0.0.1:1",
 };

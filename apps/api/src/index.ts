@@ -88,7 +88,11 @@ async function clientFor(userId: string): Promise<ClickUpClient | null> {
   if (cached) return cached;
   const token = await loadToken(db, userId, config.encryptionKey);
   if (!token) return null;
-  const client = new ClickUpClient({ token: token.token, limiter: new RateLimiter() });
+  const client = new ClickUpClient({
+    token: token.token,
+    limiter: new RateLimiter(),
+    baseUrl: config.CLICKUP_API_BASE,
+  });
   clients.set(userId, client);
   return client;
 }

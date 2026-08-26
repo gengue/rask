@@ -85,9 +85,14 @@ export function authRoutes(db: Db, config: Config) {
       clientId: config.CLICKUP_CLIENT_ID,
       clientSecret: config.CLICKUP_CLIENT_SECRET,
       code,
+      baseUrl: config.CLICKUP_API_BASE,
     });
 
-    const client = new ClickUpClient({ token, auth: "oauth" });
+    const client = new ClickUpClient({
+      token,
+      auth: "oauth",
+      baseUrl: config.CLICKUP_API_BASE,
+    });
     const [me, teams] = await Promise.all([
       client.getAuthorizedUser(),
       client.getAuthorizedTeams(),

@@ -1,3 +1,4 @@
+import { CLICKUP_API_BASE } from "@rask/clickup-client";
 import { loadKey } from "@rask/schema";
 import { z } from "zod";
 
@@ -8,6 +9,18 @@ const schema = z.object({
   CLICKUP_CLIENT_ID: z.string().min(1),
   CLICKUP_CLIENT_SECRET: z.string().min(1),
   CLICKUP_REDIRECT_URI: z.string().url(),
+  /**
+   * Where the ClickUp API lives.
+   *
+   * Only ever moved off the default by the end-to-end suite, which points it
+   * at a closed port. That stack seeds a fixture workspace and holds no real
+   * OAuth token, so every outbound call can only ever come back 401 — but it
+   * comes back 401 *over the internet*, and a CI runner's round-trip to
+   * api.clickup.com is what made "Could not read time from ClickUp." take
+   * longer than a test's five-second wait and turned the suite red at random.
+   * A refused connection is the same answer in eight milliseconds.
+   */
+  CLICKUP_API_BASE: z.string().url().default(CLICKUP_API_BASE),
   API_PORT: z.coerce.number().int().positive().default(3000),
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
   /**
