@@ -63,6 +63,7 @@ async function churnFromOneEdit(page: Page): Promise<Churn> {
     while (!(main.textContent ?? "").includes(marker) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
+    const renamed = (main.textContent ?? "").includes(marker);
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     for (const mutation of observer.takeRecords()) {
@@ -76,7 +77,7 @@ async function churnFromOneEdit(page: Page): Promise<Churn> {
       added,
       rows: main.querySelectorAll('[role="option"]').length,
       // Without this a broken pipeline that never re-renders would pass on 0.
-      renamed: (main.textContent ?? "").includes(marker),
+      renamed,
     };
   });
 }
@@ -154,6 +155,55 @@ test("an unchanged server row leaves the rendered page alone", async ({ page }) 
 
   console.log(`[render-stability] unchanged row: ${JSON.stringify(churn)}`);
   expect(churn).toEqual({ removed: 0, added: 0 });
+});
+
+test("opening the tag picker keeps the task detail mounted while tags load", async ({ page }) => {
+  let release!: () => void;
+  let held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/spaces/*/tags", async (route) => {
+    await held;
+    await route.fulfill({ json: [{ name: "billing", fg: null, bg: null }] });
+  });
+
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1?task=t2726");
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  const description = detail.locator(".prose-rask").first();
+  await expect(description).toBeVisible();
+  const descriptionNode = await description.elementHandle();
+  if (!descriptionNode) throw new Error("no rendered description on screen");
+  const tags = detail.getByText("Tags", { exact: true }).locator("..");
+
+  await tags.getByRole("button").click();
+  try {
+    await expect(page.locator("[data-menu]")).toBeVisible({ timeout: 1000 });
+    const sameDescription = await page.evaluate(
+      (node) => document.querySelector('aside[aria-label="Task detail"] .prose-rask') === node,
+      descriptionNode,
+    );
+    expect(sameDescription).toBe(true);
+  } finally {
+    release();
+  }
+  await expect(page.locator("[data-menu]").getByRole("option", { name: /billing/ })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await tags.getByRole("button").click();
+  try {
+    await expect(page.locator("[data-menu]")).toBeVisible({ timeout: 1000 });
+    await expect(page.locator("[data-menu]").getByRole("option", { name: /billing/ })).toHaveCount(
+      0,
+    );
+  } finally {
+    release();
+  }
+  await expect(page.locator("[data-menu]").getByRole("option", { name: /billing/ })).toBeVisible();
 });
 
 test("editing a task field leaves the description DOM alone", async ({ page }) => {

@@ -128,9 +128,10 @@ export function TaskDetail(props: {
    * Not from the mirror: the picker needs tags nobody has used yet, and the
    * mirror only knows the ones already on a task.
    */
-  const [spaceTags] = createResource(
+  const [spaceTags, { mutate: clearSpaceTags }] = createResource(
     () => (tagMenu() ? (task()?.spaceId ?? null) : null),
     (spaceId) => api.spaceTags(spaceId).catch(() => []),
+    { initialValue: [] },
   );
   const [editingDescription, setEditingDescription] = createSignal(false);
 
@@ -517,6 +518,7 @@ export function TaskDetail(props: {
                   type="button"
                   onClick={(event) => {
                     const rect = event.currentTarget.getBoundingClientRect();
+                    clearSpaceTags([]);
                     setTagMenu({ x: rect.left, y: rect.bottom + 6 });
                   }}
                   class="-mx-1.5 flex h-6 w-full items-center gap-1 rounded-[5px] px-1.5 text-left hover:bg-hover"
@@ -717,7 +719,7 @@ export function TaskDetail(props: {
             anchor={anchor()}
             width={240}
             placeholder="Add or remove a tag…"
-            items={(spaceTags() ?? []).map((tag) => ({
+            items={(spaceTags.latest ?? []).map((tag) => ({
               id: tag.name,
               label: tag.name,
               // Toggles, so say which ones are already on.
