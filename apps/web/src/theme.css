@@ -126,8 +126,10 @@
    * fall to their nearest whole size rather than all going up.
    *
    * `text-base` is 1rem and `text-lg` (the task title) is 1.75rem, both
-   * matching ClickUp's sizes; the rest of the ladder is px so rows, headers
-   * and chips keep exact heights.
+   * matching ClickUp's sizes; `text-md` (0.9rem) sits below base on purpose —
+   * it is nav chrome and property-rail values, which read better a step
+   * smaller than the body they frame. The rest of the ladder is px so rows,
+   * headers and chips keep exact heights.
    *
    * The line-heights are set to `inherit` so each step behaves exactly like
    * the fixed-size class it replaces. Tailwind ships a line-height with each
@@ -141,7 +143,7 @@
   --text-sm--line-height: inherit;
   --text-base: 1rem;
   --text-base--line-height: inherit;
-  --text-md: 15px;
+  --text-md: 0.9rem;
   --text-md--line-height: inherit;
   --text-lg: 1.75rem;
   --text-lg--line-height: inherit;

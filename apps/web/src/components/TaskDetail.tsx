@@ -484,7 +484,7 @@ export function TaskDetail(props: {
                   class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-hover"
                 >
                   <StatusIcon type={task().statusType} color={task().statusColor} />
-                  <span class="text-base text-ink capitalize">{task().status ?? "None"}</span>
+                  <span class="text-md text-ink capitalize">{task().status ?? "None"}</span>
                 </button>
               </Property>
 
@@ -498,7 +498,7 @@ export function TaskDetail(props: {
                   class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
                 >
                   <PriorityIcon priority={task().priority} />
-                  <span class="text-base text-ink-2">
+                  <span class="text-md text-ink-2">
                     {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
                   </span>
                 </button>
@@ -515,13 +515,13 @@ export function TaskDetail(props: {
                 >
                   <Show
                     when={task().assignees.length > 0}
-                    fallback={<span class="text-base text-ink-4">Unassigned</span>}
+                    fallback={<span class="text-md text-ink-4">Unassigned</span>}
                   >
                     <For each={task().assignees}>
                       {(user) => (
                         <span class="flex items-center gap-1.5">
                           <Avatar user={user} size={17} />
-                          <span class="text-base text-ink-2">{user.username}</span>
+                          <span class="text-md text-ink-2">{user.username}</span>
                         </span>
                       )}
                     </For>
@@ -580,7 +580,7 @@ export function TaskDetail(props: {
               </Property>
 
               <Property label="List">
-                <span class="flex h-6 items-center truncate text-base text-ink-2">
+                <span class="flex h-6 items-center truncate text-md text-ink-2">
                   {task().listName ?? "—"}
                 </span>
               </Property>
@@ -876,7 +876,7 @@ function DueField(props: {
       onChange={(next) => props.onChange(next == null ? null : new Date(next).toISOString())}
     >
       <span
-        class="text-base"
+        class="text-md"
         classList={{
           "text-urgent": label()?.tone === "overdue",
           "text-ink-2": label() != null && label()?.tone !== "overdue",
@@ -1575,7 +1575,7 @@ function FieldValue(props: {
   /** The value, or an invitation to set one. The same line under all three editors. */
   const label = () => (
     <span
-      class="truncate text-base"
+      class="truncate text-md"
       classList={{
         "text-ink-2": props.field.display !== "—",
         "text-ink-4": props.field.display === "—",
@@ -1589,10 +1589,7 @@ function FieldValue(props: {
     <Show
       when={pickable() || type() === "checkbox" || type() === "date" || typable()}
       fallback={
-        <span
-          class="flex h-6 items-center truncate text-base text-ink-2"
-          title={props.field.display}
-        >
+        <span class="flex h-6 items-center truncate text-md text-ink-2" title={props.field.display}>
           {props.field.display}
         </span>
       }

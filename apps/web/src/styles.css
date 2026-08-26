@@ -174,7 +174,10 @@
   font-size: var(--text-lg);
 }
 .prose-rask h2 {
-  font-size: var(--text-md);
+  /* Explicit rather than var(--text-md): md sits below base in the app's UI
+     ladder (nav chrome at 0.9rem under 1rem body), which here would render an
+     h2 smaller than the h3 below it. */
+  font-size: 1.125rem;
 }
 .prose-rask h3 {
   font-size: var(--text-base);
