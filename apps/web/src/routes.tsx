@@ -364,7 +364,15 @@ function viewRows(view: () => View | null | undefined): () => View | null {
 
   createEffect(() => {
     const current = view();
-    if (current === undefined) return;
+    if (current === undefined) {
+      // The definition is still in flight, and the rows cannot be asked for
+      // until it lands. Skeleton, not "Nothing here": this gap sat unnoticed
+      // for as long as the rows themselves took seconds — the walk's skeleton
+      // swallowed it — and became the whole wait once a remembered view
+      // started answering in milliseconds.
+      setViewLoading(true);
+      return;
+    }
 
     if (!current || !isRenderable(current.type)) {
       loadedKey = null;
