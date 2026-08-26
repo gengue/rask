@@ -559,6 +559,28 @@ export class ClickUpClient {
     }).then((r) => r.data);
   }
 
+  /**
+   * Records an interval that already happened, as ClickUp's own "manual" entry.
+   *
+   * `start` plus `duration` rather than `start` plus `end`: the endpoint takes
+   * either, but `duration` is what the caller actually knows ("I worked 90
+   * minutes") and deriving an `end` from it here would be a second place to get
+   * the arithmetic wrong.
+   */
+  createTimeEntry(
+    teamId: string,
+    input: { taskId: string; start: number; durationMs: number; description?: string },
+  ): Promise<ClickUpTimeEntry> {
+    return this.request(timeEntryResponse, "POST", `/v2/team/${teamId}/time_entries`, {
+      body: {
+        tid: input.taskId,
+        start: input.start,
+        duration: input.durationMs,
+        description: input.description,
+      },
+    }).then((r) => r.data);
+  }
+
   /** Stops whatever is running for the token's owner. Errors when nothing is. */
   stopTimeEntry(teamId: string): Promise<ClickUpTimeEntry> {
     return this.request(timeEntryResponse, "POST", `/v2/team/${teamId}/time_entries/stop`).then(

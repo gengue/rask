@@ -33,7 +33,6 @@ import {
   peopleIn,
   typedFieldWrite,
 } from "../lib/custom-fields.ts";
-import { detailStorage } from "../lib/detail-storage.ts";
 import {
   formatDue,
   formatRelative,
@@ -45,6 +44,7 @@ import { useLiveTask } from "../lib/live.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
 import { useExpanded } from "../lib/nav.tsx";
+import { reconcileStorage } from "../lib/reconcile-storage.ts";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
 import { tasks } from "../lib/store.ts";
@@ -90,7 +90,7 @@ export function TaskDetail(props: {
   const [detail, { mutate, refetch }] = createResource<TaskDetailData, string>(
     () => props.taskId,
     (id) => api.task(id),
-    { storage: detailStorage },
+    { storage: reconcileStorage },
   );
 
   /**

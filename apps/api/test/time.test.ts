@@ -392,6 +392,74 @@ describe("GET /tasks/:id/time-entries", () => {
   });
 });
 
+describe("POST /tasks/:id/time-entries", () => {
+  test("sends the interval as tid + start + duration and re-reads the task", async () => {
+    const { client, calls } = stub([{ body: { data: entry({ description: "yesterday" }) } }]);
+    const { app, refreshed } = mount(client);
+
+    const response = await app.request(`/tasks/${TASK}/time-entries`, {
+      method: "POST",
+      body: JSON.stringify({ start: 1_756_080_000_000, durationMs: 3_600_000 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.body).toMatchObject({
+      tid: TASK,
+      start: 1_756_080_000_000,
+      duration: 3_600_000,
+    });
+    expect(refreshed).toEqual([{ taskId: TASK, comments: false }]);
+  });
+
+  test("refuses a zero or negative length before it costs a request", async () => {
+    // ClickUp encodes "running" as a negative duration, so a manual entry that
+    // stored one would come back looking live.
+    const { client, calls } = stub([]);
+    const { app } = mount(client);
+
+    const response = await app.request(`/tasks/${TASK}/time-entries`, {
+      method: "POST",
+      body: JSON.stringify({ start: 1_756_080_000_000, durationMs: 0 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("refuses a task the outbox has not shipped yet", async () => {
+    const { client, calls } = stub([]);
+    const { app } = mount(client);
+
+    const response = await app.request("/tasks/tmp_abc123/time-entries", {
+      method: "POST",
+      body: JSON.stringify({ start: 1_756_080_000_000, durationMs: 3_600_000 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(409);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a task the mirror never held is a 404, before the body is even read", async () => {
+    // The path id names which task the server then writes into the shared
+    // mirror, so it is checked against the mirror, not taken on trust.
+    const { client, calls } = stub([]);
+    const { app } = mount(client);
+
+    const response = await app.request("/tasks/nope-not-here/time-entries", {
+      method: "POST",
+      body: JSON.stringify({ start: 1_756_080_000_000, durationMs: 3_600_000 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe("PATCH /time-entries/:id", () => {
   test("re-reads the task whose total just moved", async () => {
     const { client } = stub([{ body: { data: entry({ description: "drafting" }) } }]);
