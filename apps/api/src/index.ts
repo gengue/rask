@@ -971,16 +971,36 @@ const VIEW_TASK_LIMIT = 500;
  * request instead of a 404.
  *
  * Not written back: `list_views.list_id` is the table's key and these have no
- * List to key them by. They cost one request per open, which is what a view
- * already costs several of.
+ * List to key them by. So the miss is remembered here instead, briefly: opening
+ * a container view resolves it twice in a row — `GET /views/:id` for the
+ * definition, then `/views/:id/tasks` for the rows, which only fires once the
+ * first has answered — and without the memo both misses go to ClickUp,
+ * serially, ahead of the five-page walk the tasks route is about to pay for.
+ *
+ * Keyed by view and not by user: a definition is a name, a type and a grouping,
+ * the same for everyone ClickUp lets in. Failures are not remembered — a `null`
+ * memoized during a ClickUp wobble would hold "not found" for a minute.
  */
+const REMOTE_VIEW_TTL_MS = 60_000;
+const remoteViews = new Map<string, { row: ListViewRow; at: number }>();
+
 async function viewFor(userId: string, viewId: string): Promise<ListViewRow | null> {
   const mirrored = await findListView(db, viewId);
   if (mirrored) return mirrored;
 
+  const cached = remoteViews.get(viewId);
+  if (cached) {
+    if (Date.now() - cached.at < REMOTE_VIEW_TTL_MS) return cached.row;
+    remoteViews.delete(viewId);
+  }
+
   const client = await clientFor(userId);
   const view = await client?.getView(viewId).catch(() => null);
-  return view ? remoteView(view) : null;
+  if (!view) return null;
+
+  const row = remoteView(view);
+  remoteViews.set(viewId, { row, at: Date.now() });
+  return row;
 }
 
 /**
