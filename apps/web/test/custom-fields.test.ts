@@ -137,4 +137,30 @@ describe("formatFieldValue", () => {
   test("a type we cannot render says so rather than printing JSON", () => {
     expect(formatFieldValue("location", null, { lat: 1, lng: 2 })).toBe("—");
   });
+
+  /*
+   * Formula fields key their rendering on the expression, not the type: the
+   * two built-in time variables are decimal-hours durations, every other
+   * formula is a plain number. Formatting them all as durations would turn
+   * "Working days after creation date = -950" into "-950h".
+   */
+  test("a time-tracked formula reads as a duration", () => {
+    const config = { formula: "TASK_TIME_TRACKED_HOURS" };
+    expect(formatFieldValue("formula", config, "6.483333333333333")).toBe("6h 29m");
+    expect(formatFieldValue("formula", config, "2")).toBe("2h");
+    expect(formatFieldValue("formula", config, "0")).toBe("—"); // zero hides like any empty field
+    expect(formatFieldValue("formula", config, "0.25")).toBe("15m");
+  });
+
+  test("a time-estimate formula reads as a duration too", () => {
+    expect(formatFieldValue("formula", { formula: "TASK_TIME_ESTIMATED_HOURS" }, "1.5")).toBe(
+      "1h 30m",
+    );
+  });
+
+  test("any other formula stays a plain number", () => {
+    expect(
+      formatFieldValue("formula", { formula: "NETWORKDAYS(TASK_CREATED, TODAY())" }, "-950"),
+    ).toBe("-950");
+  });
 });
