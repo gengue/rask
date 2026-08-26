@@ -74,9 +74,12 @@ writes from there reach ClickUp.
 returns the mirrored detail immediately and kicks off a background ClickUp
 refresh; the fresher version arrives over SSE ([apps/api/src/index.ts:345](apps/api/src/index.ts:345)).
 `ChangeFeed` polls `tasks.synced_at` once a second and pushes changed rows to
-every stream ([apps/api/src/changes.ts](apps/api/src/changes.ts)). The one read that blocks on ClickUp is
+every stream ([apps/api/src/changes.ts](apps/api/src/changes.ts)). The one read that can block on ClickUp is
 `GET /api/views/:id/tasks` — a ClickUp view's filters are ClickUp's to evaluate,
 so the response is used as *membership* and the rows still come from the mirror.
+It blocks only on the first open per user (and past a 24h staleness gate):
+after that the walk's answer is remembered in `view_memberships`, the route
+answers from it, and the fresh set follows over the `view` SSE event.
 
 **Loading a list is what makes it worth polling.** Both task routes insert a
 `sync_cursors` row for the list; the worker only ever polls lists that have one.

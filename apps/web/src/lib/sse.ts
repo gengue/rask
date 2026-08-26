@@ -26,6 +26,24 @@ const [pushedDetail, setPushedDetail] = createSignal<TaskDetail | null>(null);
 export { pushedDetail };
 
 /**
+ * The fresh membership of a view the server just re-walked.
+ *
+ * A view route answers from the last walk and the server repairs it behind the
+ * response; this is how the repair arrives. Addressed by view id rather than
+ * consumed by a callback, because the push can outlive a navigation — whatever
+ * view is mounted when it lands decides whether it is about them.
+ */
+export interface ViewRefresh {
+  viewId: string;
+  ids: ReadonlySet<string>;
+  truncated: boolean;
+}
+
+const [viewRefresh, setViewRefresh] = createSignal<ViewRefresh | null>(null);
+
+export { viewRefresh };
+
+/**
  * Server-sent events from the API.
  *
  * `tasks` carries whatever the mirror changed workspace-wide; `task` is a
@@ -62,6 +80,19 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
     merge([row]);
     setPushedDetail(detail);
     handlers.onDetail?.(detail);
+  });
+
+  source.addEventListener("view", (event) => {
+    const payload = JSON.parse((event as MessageEvent<string>).data) as {
+      viewId: string;
+      ids: string[];
+      truncated: boolean;
+    };
+    setViewRefresh({
+      viewId: payload.viewId,
+      ids: new Set(payload.ids),
+      truncated: payload.truncated,
+    });
   });
 
   /*

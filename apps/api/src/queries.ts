@@ -16,6 +16,7 @@ import {
   taskCustomValues,
   tasks,
   users,
+  viewMemberships,
 } from "@rask/schema";
 import { and, asc, desc, eq, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { type Clause, filterConditions, textCondition } from "./filters.ts";
@@ -771,6 +772,44 @@ export async function findListView(db: Db, viewId: string): Promise<ListViewRow 
     .where(eq(listViews.id, viewId))
     .limit(1);
   return row ?? null;
+}
+
+export interface ViewMembership {
+  taskIds: string[];
+  truncated: boolean;
+  syncedAt: Date;
+}
+
+/** The last walk's answer for this view under this person's token, if any. */
+export async function findViewMembership(
+  db: Db,
+  viewId: string,
+  userId: string,
+): Promise<ViewMembership | null> {
+  const [row] = await db
+    .select({
+      taskIds: viewMemberships.taskIds,
+      truncated: viewMemberships.truncated,
+      syncedAt: viewMemberships.syncedAt,
+    })
+    .from(viewMemberships)
+    .where(and(eq(viewMemberships.viewId, viewId), eq(viewMemberships.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function saveViewMembership(
+  db: Db,
+  row: { viewId: string; userId: string; taskIds: string[]; truncated: boolean },
+): Promise<void> {
+  const syncedAt = new Date();
+  await db
+    .insert(viewMemberships)
+    .values({ ...row, syncedAt })
+    .onConflictDoUpdate({
+      target: [viewMemberships.viewId, viewMemberships.userId],
+      set: { taskIds: row.taskIds, truncated: row.truncated, syncedAt },
+    });
 }
 
 /** A list's own status set if it overrides, otherwise its Space's. */

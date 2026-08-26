@@ -8,6 +8,7 @@ import {
   TEST_DATABASE_URL,
   tasks,
   users,
+  viewMemberships,
 } from "@rask/schema";
 import { eq, like } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -82,6 +83,7 @@ async function wipe() {
   await db.delete(tasks).where(like(tasks.id, `${PREFIX}%`));
   await db.delete(syncCursors).where(eq(syncCursors.scopeId, LIST));
   await db.delete(listViews).where(eq(listViews.listId, LIST));
+  await db.delete(viewMemberships).where(eq(viewMemberships.viewId, VIEW));
   await db.delete(sessions).where(eq(sessions.userId, USER));
   await db.delete(users).where(eq(users.id, USER));
 }
@@ -90,6 +92,10 @@ async function wipe() {
 async function forget() {
   await db.delete(tasks).where(like(tasks.id, `${PREFIX}%`));
   await db.delete(syncCursors).where(eq(syncCursors.scopeId, LIST));
+  // "Nobody has opened" now includes the view route's remembered membership:
+  // with a row left from an earlier run the view answers from it and never
+  // walks, and the assertion below is exactly that the first arrival walks.
+  await db.delete(viewMemberships).where(eq(viewMemberships.viewId, VIEW));
   reached = [];
 }
 

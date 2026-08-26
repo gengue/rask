@@ -542,9 +542,11 @@ export const api = {
   /**
    * The tasks one view shows.
    *
-   * The server asks ClickUp, because the view's filters are ClickUp's to
-   * evaluate. That makes this the one read in the app that is not answered from
-   * the mirror alone, and the one that fails when ClickUp is unreachable.
+   * The view's filters are ClickUp's to evaluate, so the first open of a view
+   * waits for ClickUp — the one read in the app that does. Every open after
+   * that answers from the membership the server remembered and the fresh set
+   * follows over the `view` SSE event, so this only fails against ClickUp when
+   * the server has nothing remembered to answer with.
    */
   viewTasks: (viewId: string, filter = "") =>
     requestPage(

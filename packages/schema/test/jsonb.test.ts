@@ -9,6 +9,7 @@ import {
   spaces,
   taskCustomValues,
   tasks,
+  viewMemberships,
 } from "../src/schema.ts";
 import { createTestDb } from "../src/test-db.ts";
 
@@ -152,6 +153,28 @@ describe("jsonb columns", () => {
       .where(sql`task_id = ${TASK} and field_id = ${FIELD}`);
 
     expect(row?.value).toEqual(value);
+  });
+
+  /**
+   * A double-encoded membership reads back fine through Drizzle — a JSON
+   * string of ids parses to the same array — while the row itself is wrong in
+   * Postgres, which is the invisible half this file exists for.
+   */
+  test("stores a view membership's ids as an array, not a string", async () => {
+    await db
+      .delete(viewMemberships)
+      .where(sql`view_id = ${"jsonb-test-view"} and user_id = ${"jsonb-test-user"}`);
+    await db.insert(viewMemberships).values({
+      viewId: "jsonb-test-view",
+      userId: "jsonb-test-user",
+      taskIds: [TASK, "jsonb-test-task-2"],
+    });
+
+    expect(await storedType("view_memberships", "task_ids", `view_id = 'jsonb-test-view'`)).toBe(
+      "array",
+    );
+
+    await db.delete(viewMemberships).where(sql`view_id = ${"jsonb-test-view"}`);
   });
 
   test("stores the outbox payload as an object the worker can read with raw SQL", async () => {
