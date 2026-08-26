@@ -280,7 +280,12 @@ const DETAIL_ONLY: Record<Exclude<keyof TaskDetail, keyof Task>, true> = {
  * the comment posted a second ago and the panel silently goes back in time.
  */
 export function withLiveTask(detail: TaskDetail, live: Task): TaskDetail {
-  return { ...detail, ...taskHalf(live) };
+  return new Proxy(detail, {
+    get(target, key, receiver) {
+      if (typeof key !== "string" || key in DETAIL_ONLY) return Reflect.get(target, key, receiver);
+      return Reflect.get(live, key);
+    },
+  });
 }
 
 /**

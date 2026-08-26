@@ -156,6 +156,128 @@ test("an unchanged server row leaves the rendered page alone", async ({ page }) 
   expect(churn).toEqual({ removed: 0, added: 0 });
 });
 
+test("editing a task field leaves the description DOM alone", async ({ page }) => {
+  await page.route("**/api/spaces/*/tags", (route) =>
+    route.fulfill({ json: [{ name: "billing", fg: null, bg: null }] }),
+  );
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1?task=t2726");
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail.locator(".prose-rask").first()).toBeVisible();
+  const tags = detail.getByText("Tags", { exact: true }).locator("..");
+  await expect(tags.getByText("billing", { exact: true })).toBeVisible();
+
+  await page.evaluate(() => {
+    const description = document.querySelector<HTMLElement>(
+      'aside[aria-label="Task detail"] .prose-rask',
+    );
+    if (!description) throw new Error("no rendered description on screen");
+
+    let removed = 0;
+    let added = 0;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        removed += mutation.removedNodes.length;
+        added += mutation.addedNodes.length;
+      }
+    });
+    const parent = description.parentElement;
+    if (!parent) throw new Error("rendered description has no parent");
+    observer.observe(parent, { childList: true, subtree: true });
+
+    Object.assign(globalThis, {
+      readTagChurn: () => {
+        for (const mutation of observer.takeRecords()) {
+          removed += mutation.removedNodes.length;
+          added += mutation.addedNodes.length;
+        }
+        observer.disconnect();
+        return {
+          removed,
+          added,
+          sameDescription:
+            description.isConnected &&
+            document.querySelector('aside[aria-label="Task detail"] .prose-rask') === description,
+        };
+      },
+    });
+  });
+
+  await tags.getByRole("button").click();
+  await page
+    .locator("[data-menu]")
+    .getByRole("option", { name: /billing/ })
+    .click();
+  await expect(tags.getByText("billing", { exact: true })).toHaveCount(0);
+
+  const churn = await page.evaluate(() => {
+    const read = Reflect.get(globalThis, "readTagChurn") as () => Pick<
+      Churn,
+      "removed" | "added"
+    > & { sameDescription: boolean };
+    return read();
+  });
+
+  expect(churn).toEqual({ removed: 0, added: 0, sameDescription: true });
+});
+
+test("optimistic checklist edits work with reconciled task detail", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1?task=t2726");
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await detail.getByRole("button", { name: "+ Add checklist", exact: true }).click();
+  await detail.getByPlaceholder("Checklist name…").fill("Render stability checklist");
+  await detail.getByRole("button", { name: "Add", exact: true }).click();
+
+  await expect(detail.getByText("Render stability checklist", { exact: true })).toBeVisible();
+});
+
+test("switching tasks does not render the previous detail while the next one loads", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/tasks/*", async (route) => {
+    const match = new URL(route.request().url()).pathname.match(/^\/api\/tasks\/([^/]+)$/);
+    if (!match) return route.continue();
+    const id = match[1];
+    if (id === "t2726") return route.continue();
+    await held;
+    await route.continue();
+  });
+
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1?task=t2726");
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail.locator(".prose-rask").first()).toBeVisible();
+  const previousTitle = await detail.getByRole("heading", { level: 1 }).textContent();
+  const nextRow = page
+    .getByRole("listbox", { name: "Tasks" })
+    .locator('[role="option"]:not(#task-t2726)')
+    .first();
+  const targetId = (await nextRow.getAttribute("id"))?.replace("task-", "");
+  if (!targetId) throw new Error("no second task row on screen");
+  const loaded = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === `/api/tasks/${targetId}`,
+  );
+
+  await nextRow.click();
+  try {
+    await expect(page).toHaveURL(new RegExp(`[?&]task=${targetId}(?:&|$)`));
+    await expect(detail.locator(".prose-rask")).toHaveCount(0);
+  } finally {
+    release();
+  }
+  await (await loaded).finished();
+  await expect(detail.getByRole("heading", { level: 1 })).not.toHaveText(previousTitle ?? "");
+});
+
 /**
  * The feed is chronological, and that used to mean it re-sorted live.
  *
@@ -241,7 +363,16 @@ test("editing one task leaves the other board cards' DOM alone", async ({ page }
   expect(churn.removed).toBeLessThanOrEqual(REMOVAL_BUDGET);
 });
 
-test("the 30 second task refresh leaves the open detail alone", async ({ page }) => {
+test("the 30 second task refresh leaves unchanged rich content alone", async ({ page }) => {
+  let detailReads = 0;
+  await page.route("**/api/tasks/t2726", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    detailReads++;
+    if (detailReads > 1) body.timeSpent = 7_380_000;
+    await route.fulfill({ response, json: body });
+  });
+
   await page.clock.install();
 
   const timerLoaded = page.waitForResponse(
@@ -276,8 +407,10 @@ test("the 30 second task refresh leaves the open detail alone", async ({ page })
   }
 
   await page.evaluate(() => {
-    const detail = document.querySelector<HTMLElement>('aside[aria-label="Task detail"]');
-    if (!detail) throw new Error("no task detail on screen");
+    const description = document.querySelector<HTMLElement>(
+      'aside[aria-label="Task detail"] .prose-rask',
+    );
+    if (!description) throw new Error("no rendered description on screen");
 
     let removed = 0;
     let added = 0;
@@ -287,7 +420,9 @@ test("the 30 second task refresh leaves the open detail alone", async ({ page })
         added += mutation.addedNodes.length;
       }
     });
-    observer.observe(detail, { childList: true, subtree: true });
+    const parent = description.parentElement;
+    if (!parent) throw new Error("rendered description has no parent");
+    observer.observe(parent, { childList: true, subtree: true });
 
     Object.assign(globalThis, {
       readPollChurn: () => {
@@ -296,7 +431,13 @@ test("the 30 second task refresh leaves the open detail alone", async ({ page })
           added += mutation.addedNodes.length;
         }
         observer.disconnect();
-        return { removed, added };
+        return {
+          removed,
+          added,
+          sameDescription:
+            description.isConnected &&
+            document.querySelector('aside[aria-label="Task detail"] .prose-rask') === description,
+        };
       },
     });
   });
@@ -304,6 +445,7 @@ test("the 30 second task refresh leaves the open detail alone", async ({ page })
   const polled = page.waitForResponse((response) => new URL(response.url()).pathname === taskUrl);
   await page.clock.fastForward(30_000);
   await (await polled).finished();
+  await expect(detail.getByText("2h 3m", { exact: true })).toBeVisible();
 
   const churn = await page.evaluate(() => {
     const read = Reflect.get(globalThis, "readPollChurn") as () => Pick<Churn, "removed" | "added">;
@@ -311,6 +453,5 @@ test("the 30 second task refresh leaves the open detail alone", async ({ page })
   });
   console.log(`[render-stability] 30s poll: ${JSON.stringify(churn)}`);
 
-  expect(churn.removed).toBe(0);
-  expect(churn.added).toBe(0);
+  expect(churn).toEqual({ removed: 0, added: 0, sameDescription: true });
 });

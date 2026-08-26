@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createComputed, createRoot } from "solid-js";
+import { createStore } from "solid-js/store";
 import type { CommentThread, Task, TaskDetail } from "../src/lib/api.ts";
 import { taskHalf, withLiveTask } from "../src/lib/api.ts";
 
@@ -107,5 +109,23 @@ describe("withLiveTask", () => {
     );
     expect(merged.comments.map((c) => c.id)).toEqual(["old", "new"]);
     expect(merged.description).toBe("new");
+  });
+
+  test("reading detail-only data does not subscribe to unrelated live fields", () => {
+    createRoot((dispose) => {
+      const [live, setLive] = createStore(task());
+      const fetched = detail({ description: "Keeps its DOM" });
+      let reads = 0;
+
+      createComputed(() => {
+        withLiveTask(fetched, live).description;
+        reads++;
+      });
+
+      expect(reads).toBe(1);
+      setLive("tags", [{ name: "billing" }]);
+      expect(reads).toBe(1);
+      dispose();
+    });
   });
 });

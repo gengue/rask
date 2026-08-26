@@ -11,6 +11,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { unwrap } from "solid-js/store";
 import {
   type Assignee,
   api,
@@ -32,6 +33,7 @@ import {
   peopleIn,
   typedFieldWrite,
 } from "../lib/custom-fields.ts";
+import { detailStorage } from "../lib/detail-storage.ts";
 import {
   formatDue,
   formatRelative,
@@ -45,7 +47,6 @@ import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-
 import { useExpanded } from "../lib/nav.tsx";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
-import { stableDetail } from "../lib/stable-detail.ts";
 import { tasks } from "../lib/store.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Attachments } from "./Attachments.tsx";
@@ -86,12 +87,10 @@ export function TaskDetail(props: {
 }): JSX.Element {
   const [expanded, setExpanded] = useExpanded();
 
-  /* Why an identical answer must come back as the same object: see the module. */
-  const stable = stableDetail();
-
-  const [detail, { mutate, refetch }] = createResource(
+  const [detail, { mutate, refetch }] = createResource<TaskDetailData, string>(
     () => props.taskId,
-    async (id) => stable(await api.task(id)),
+    (id) => api.task(id),
+    { storage: detailStorage },
   );
 
   /**
@@ -112,8 +111,9 @@ export function TaskDetail(props: {
   const live = useLiveTask(() => props.taskId);
 
   const task = () => {
-    const fetched = detail();
-    if (!fetched) return null;
+    // `latest` does not hold the previous panel in Suspense while a new task loads.
+    const fetched = detail.latest;
+    if (!fetched || fetched.id !== props.taskId) return null;
     const row = live();
     return row ? withLiveTask(fetched, row) : fetched;
   };
@@ -137,6 +137,11 @@ export function TaskDetail(props: {
   /** Optimistic edit of the open task. The collection rolls it back on failure. */
   const patch = (apply: (draft: Task) => void) => tasks.update(props.taskId, apply);
 
+  // Async answers for task A must not replace task B after the panel switches.
+  const acceptDetail = (next: TaskDetailData) => {
+    if (next.id === props.taskId) mutate(next);
+  };
+
   /*
    * Files dropped on the panel, or picked from the attachments section.
    *
@@ -151,7 +156,7 @@ export function TaskDetail(props: {
     // started against A can answer while B is on screen. Same guard, and for
     // the same reason, as the SSE push below.
     onUploaded: (result, _file, taskId) => {
-      if (taskId === props.taskId) mutate(stable(result.detail));
+      if (taskId === props.taskId) acceptDetail(result.detail);
     },
   });
 
@@ -175,7 +180,7 @@ export function TaskDetail(props: {
     taskId: () => props.taskId,
     onUploaded: (result, file, taskId) => {
       if (taskId !== props.taskId) return;
-      mutate(stable(result.detail));
+      acceptDetail(result.detail);
       if (editingDescription()) {
         insertIntoDescription?.(attachmentMarkdown(file, result.attachment));
       }
@@ -194,9 +199,12 @@ export function TaskDetail(props: {
   const optimistic = (
     apply: (current: TaskDetailData) => TaskDetailData,
   ): TaskDetailData | null => {
-    const before = detail();
-    if (!before) return null;
-    mutate(apply(before));
+    const current = detail();
+    if (!current || current.id !== props.taskId) return null;
+    const before = structuredClone(unwrap(current));
+    const next = apply(current);
+    if (next.id !== props.taskId) return null;
+    mutate(next);
     return before;
   };
 
@@ -216,7 +224,7 @@ export function TaskDetail(props: {
   createEffect(() => {
     const row = live();
     const fetched = detail();
-    if (!row || !fetched) return;
+    if (!row || !fetched || fetched.id !== props.taskId) return;
     if (row.dateUpdated === fetched.dateUpdated) return;
     if (row.dateUpdated === lastSeenUpdate) return;
     lastSeenUpdate = row.dateUpdated;
@@ -244,7 +252,7 @@ export function TaskDetail(props: {
   // result back over SSE. This is where that push lands.
   createEffect(() => {
     const pushed = pushedDetail();
-    if (pushed?.id === props.taskId) mutate(stable(pushed));
+    if (pushed) acceptDetail(pushed);
   });
 
   /**
@@ -632,7 +640,7 @@ export function TaskDetail(props: {
               <Checklists
                 taskId={props.taskId}
                 checklists={task().checklists}
-                onDetail={(next) => mutate(next)}
+                onDetail={acceptDetail}
                 onOptimistic={optimistic}
               />
 
@@ -640,11 +648,7 @@ export function TaskDetail(props: {
 
               <TimeEntries taskId={props.taskId} />
 
-              <Comments
-                taskId={props.taskId}
-                threads={task().comments}
-                onDetail={(next) => mutate(next)}
-              />
+              <Comments taskId={props.taskId} threads={task().comments} onDetail={acceptDetail} />
             </div>
           </div>
         )}
