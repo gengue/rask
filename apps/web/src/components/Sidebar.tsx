@@ -375,7 +375,7 @@ function IconButton(props: {
   );
 }
 
-function Chevron(props: { open: boolean; muted: boolean }): JSX.Element {
+export function Chevron(props: { open: boolean; muted?: boolean }): JSX.Element {
   return (
     <svg
       width="12"

@@ -48,9 +48,10 @@ import { clickUpTaskUrl, raskTaskUrl, type TaskAction, taskMenuItems } from "./l
 import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
 import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
-import { clearFilters, closeOverlays, setUi, ui } from "./lib/ui.ts";
+import { clearFilters, closeOverlays, expandGroups, setUi, toggleGroup, ui } from "./lib/ui.ts";
 import {
   boardLayout,
+  cursorGroup,
   cursorTask,
   mineOnly,
   rowTasks,
@@ -481,6 +482,22 @@ export function AppShell(): JSX.Element {
       case "b":
         event.preventDefault();
         setUi("layout", ui.layout === "board" ? "list" : "board");
+        break;
+      case "z": {
+        // Folds the group under the cursor, which then lands on the first row
+        // past the fold. Only the list folds; the board draws every column.
+        const group = boardLayout() ? null : cursorGroup();
+        if (group) {
+          event.preventDefault();
+          toggleGroup(group.groupId);
+          setUi("cursor", Math.min(group.firstRow, Math.max(0, rowTasks().length - 1)));
+        }
+        break;
+      }
+      case "Z":
+        // The way back: `z` cannot stand inside a folded group to unfold it.
+        event.preventDefault();
+        expandGroups();
         break;
       case "H":
       case "L":

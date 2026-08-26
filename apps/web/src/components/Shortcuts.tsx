@@ -16,6 +16,8 @@ const GROUPS: Array<{ title: string; items: Array<[keys: string[], label: string
       [["g", "g"], "Jump to top"],
       [["G"], "Jump to bottom"],
       [["↵"], "Open task"],
+      [["z"], "Fold this group"],
+      [["Z"], "Unfold every group"],
       [["esc"], "Close, or clear filters"],
     ],
   },

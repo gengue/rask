@@ -1,10 +1,11 @@
 import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
 import type { Task } from "../lib/api.ts";
 import { reasonFor } from "../lib/inbox.ts";
-import { setUi, ui } from "../lib/ui.ts";
+import { setUi, toggleGroup, ui } from "../lib/ui.ts";
 import { flatItems, viewIsFeed, viewListId, viewLoading } from "../lib/view.ts";
 import { sameRange, visibleRange } from "../lib/windowing.ts";
 import { InboxRow } from "./InboxRow.tsx";
+import { Chevron } from "./Sidebar.tsx";
 import { StatusIcon } from "./StatusIcon.tsx";
 import { TaskRow } from "./TaskRow.tsx";
 import { SlowLoad } from "./Unresolved.tsx";
@@ -187,7 +188,18 @@ export function TaskList(props: {
                   <Show
                     when={row()}
                     fallback={
-                      <div class="flex h-[34px] items-center gap-2 border-line/45 border-b bg-wash px-5">
+                      <button
+                        type="button"
+                        aria-expanded={!header()?.collapsed}
+                        onClick={() => {
+                          const value = header();
+                          if (value) toggleGroup(value.groupId);
+                        }}
+                        class="flex h-[34px] w-full items-center gap-2 border-line/45 border-b bg-wash px-5 text-left"
+                      >
+                        <span class="-ml-1 text-ink-3">
+                          <Chevron open={!header()?.collapsed} />
+                        </span>
                         <Show when={ui.groupBy === "status"}>
                           <StatusIcon
                             type={header()?.statusType ?? null}
@@ -201,7 +213,7 @@ export function TaskList(props: {
                         <span class="rounded bg-chip px-1.5 text-xs text-ink-3 tabular-nums">
                           {header()?.count}
                         </span>
-                      </div>
+                      </button>
                     }
                   >
                     {(current) => {

@@ -5,10 +5,13 @@ import type { GroupBy } from "./ui.ts";
 export interface GroupHeader {
   kind: "header";
   id: string;
+  /** The group key without the `header:` prefix — what collapse state is keyed by. */
+  groupId: string;
   label: string;
   count: number;
   color: string | null;
   statusType: string | null;
+  collapsed: boolean;
 }
 
 export interface GroupRow {
@@ -26,7 +29,17 @@ export type FlatItem = GroupHeader | GroupRow;
  * j/k walks the same list the eye does and scrolling never has to reason about
  * nested structures.
  */
-export function groupTasks(tasks: Task[], groupBy: GroupBy): FlatItem[] {
+export function groupTasks(
+  tasks: Task[],
+  groupBy: GroupBy,
+  /**
+   * Group keys whose rows stay hidden. A collapsed group still emits its
+   * header — with the full count, so the fold says what it is hiding — and the
+   * rows simply leave the flat list, which is what makes j/k, the windowing
+   * and the cursor all skip them without knowing folds exist.
+   */
+  collapsed: ReadonlySet<string> = NONE_COLLAPSED,
+): FlatItem[] {
   if (groupBy === "none") {
     return tasks.map((task) => ({ kind: "row", id: task.id, task }));
   }
@@ -52,14 +65,20 @@ export function groupTasks(tasks: Task[], groupBy: GroupBy): FlatItem[] {
     {
       kind: "header",
       id: `header:${id}`,
+      groupId: id,
       label: group.label,
       count: group.tasks.length,
       color: group.color,
       statusType: group.type,
+      collapsed: collapsed.has(id),
     },
-    ...group.tasks.map((task): FlatItem => ({ kind: "row", id: task.id, task })),
+    ...(collapsed.has(id)
+      ? []
+      : group.tasks.map((task): FlatItem => ({ kind: "row", id: task.id, task }))),
   ]);
 }
+
+const NONE_COLLAPSED: ReadonlySet<string> = new Set();
 
 /**
  * Reuses the previous run's wrappers wherever a position is unchanged.
@@ -92,7 +111,8 @@ function sameItem(a: FlatItem, b: FlatItem): boolean {
       a.label === b.label &&
       a.count === b.count &&
       a.color === b.color &&
-      a.statusType === b.statusType
+      a.statusType === b.statusType &&
+      a.collapsed === b.collapsed
     );
   }
   return false;

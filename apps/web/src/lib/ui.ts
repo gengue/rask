@@ -24,6 +24,16 @@ export const [ui, setUi] = createStore({
    */
   layout: "list" as Layout,
   showClosed: false,
+  /**
+   * Folded groups, as `<groupBy>:<groupId>` keys.
+   *
+   * Prefixed per grouping so "none" folded under priority does not also fold
+   * "No due date", and so switching groupings away and back keeps the folds.
+   * Per-tab ephemera like the rest of this store, and shared across views —
+   * folding "in progress" folds it on every list, which is also what makes the
+   * fold survive navigating.
+   */
+  collapsed: [] as string[],
   search: "",
   palette: false,
   quickAdd: false,
@@ -67,4 +77,29 @@ export function closeOverlays(): void {
 
 export function clearFilters(): void {
   setUi("filters", []);
+}
+
+/** Folds or unfolds one group of the current grouping. */
+export function toggleGroup(groupId: string): void {
+  const key = `${ui.groupBy}:${groupId}`;
+  setUi(
+    "collapsed",
+    ui.collapsed.includes(key)
+      ? ui.collapsed.filter((entry) => entry !== key)
+      : [...ui.collapsed, key],
+  );
+}
+
+/**
+ * Unfolds every group of the current grouping.
+ *
+ * This is the keyboard's way back: the cursor can only ever sit in an unfolded
+ * group, so `z` can fold one but has nowhere to stand to unfold it again.
+ */
+export function expandGroups(): void {
+  const prefix = `${ui.groupBy}:`;
+  setUi(
+    "collapsed",
+    ui.collapsed.filter((entry) => !entry.startsWith(prefix)),
+  );
 }

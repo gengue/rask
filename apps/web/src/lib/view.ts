@@ -232,6 +232,16 @@ const localClauses = globalMemo(() =>
     : activeClauses().filter((clause) => clause.field !== "search"),
 );
 
+/** `ui.collapsed` narrowed to the current grouping, as the raw group keys. */
+const collapsedGroups = globalMemo(() => {
+  const prefix = `${ui.groupBy}:`;
+  return new Set(
+    ui.collapsed
+      .filter((entry) => entry.startsWith(prefix))
+      .map((entry) => entry.slice(prefix.length)),
+  );
+});
+
 /**
  * Search, filter clauses and grouping, shared by the list, the board and the
  * keyboard. Wrapped in `reuseItems` so an unchanged position keeps its wrapper
@@ -251,9 +261,33 @@ export const flatItems = globalMemo((prev: FlatItem[] = []) =>
         now: new Date(),
       }),
       viewIsFeed() ? "none" : ui.groupBy,
+      // A fold is a list idea. On the board the same group is a column, and a
+      // column emptied by a fold reads as an empty status, not a folded one.
+      boardLayout() ? undefined : collapsedGroups(),
     ),
   ),
 );
+
+/**
+ * The group the cursor row sits in, plus where that group's rows start —
+ * which is exactly where the cursor should land when the group folds shut.
+ * Null with no grouping on, where there is nothing to fold.
+ */
+export function cursorGroup(): { groupId: string; firstRow: number } | null {
+  let groupId: string | null = null;
+  let firstRow = 0;
+  let row = 0;
+  for (const item of flatItems()) {
+    if (item.kind === "header") {
+      groupId = item.groupId;
+      firstRow = row;
+    } else {
+      if (row === ui.cursor) return groupId === null ? null : { groupId, firstRow };
+      row++;
+    }
+  }
+  return null;
+}
 
 // --- what a filter can be built out of --------------------------------------
 

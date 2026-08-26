@@ -61,10 +61,12 @@ describe("reuseItems", () => {
     const header = (count: number): FlatItem => ({
       kind: "header",
       id: "header:todo",
+      groupId: "todo",
       label: "todo",
       count,
       color: null,
       statusType: null,
+      collapsed: false,
     });
     const prev: FlatItem[] = [header(1), { kind: "row", id: "T1", task: t1 }];
     const next: FlatItem[] = [header(2), { kind: "row", id: "T1", task: t1 }];
@@ -81,5 +83,27 @@ describe("reuseItems", () => {
     const out = reuseItems(prev, next);
     expect(out).toEqual(next);
     expect(out[0]).toBe(next[0]);
+  });
+});
+
+describe("collapsed groups", () => {
+  const rows = [task("T1"), task("T2"), task("T3", { status: "done" })];
+
+  test("a folded group keeps its header — full count — and loses its rows", () => {
+    const items = groupTasks(rows, "status", new Set(["todo"]));
+    expect(items.map((item) => item.id)).toEqual(["header:todo", "header:done", "T3"]);
+    const folded = items[0];
+    if (folded?.kind !== "header") throw new Error("expected a header");
+    expect(folded.collapsed).toBe(true);
+    expect(folded.count).toBe(2);
+  });
+
+  test("folding is a header change, so only that wrapper is replaced", () => {
+    const prev = groupTasks(rows, "status");
+    const next = groupTasks(rows, "status", new Set(["done"]));
+    const out = reuseItems(prev, next);
+    expect(out[0]).toBe(prev[0]); // todo header untouched
+    expect(out[1]).toBe(prev[1]); // its rows too
+    expect(out[3]).toBe(next[3]); // the done header flipped
   });
 });
