@@ -53,6 +53,18 @@ export function Login(props: { reason?: string }): JSX.Element {
           Rask reads and writes on your behalf using your own ClickUp account, so it can only ever
           do what you could do yourself.
         </p>
+
+        {/*
+          The disclaimer belongs on this page and not only in the README. Rask
+          names ClickUp in its own copy and sends you to ClickUp's consent
+          screen from here, which is exactly the moment someone could take it
+          for an official client. Naming the mark's owner is what keeps the
+          reference nominative fair use rather than an implied endorsement.
+        */}
+        <p class="mt-3 text-ink-4 text-xs leading-relaxed">
+          Rask is an independent project, not affiliated with, endorsed by, or sponsored by ClickUp.
+          ClickUp is a trademark of Mango Technologies, Inc.
+        </p>
       </div>
     </main>
   );
