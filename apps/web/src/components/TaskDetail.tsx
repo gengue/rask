@@ -440,15 +440,15 @@ export function TaskDetail(props: {
                * properties rail can span all of them. Without that, the rail
                * sizes row one and leaves a hole under the title.
                *
-               * Below `split` there is no room for a rail: 680 + 48 + 300 + 80
-               * needs 1108px inside this panel and the window stops supplying
-               * it at 1354. The second column collapses into the first and the
+               * Below `split` there is no room for a rail: 780 + 48 + 300 + 80
+               * needs 1208px inside this panel and the window stops supplying
+               * it at 1454. The second column collapses into the first and the
                * rail becomes a strip, which the source order already puts
                * above the description — the only thing that changes is the
-               * template. The measure stays capped at 680px either way, so the
+               * template. The measure stays capped at 780px either way, so the
                * description never widens past a readable line.
                */
-              "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,680px)] max-split:grid-rows-none":
+              "grid grid-cols-[minmax(0,780px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,780px)] max-split:grid-rows-none":
                 expanded(),
             }}
           >
@@ -470,7 +470,7 @@ export function TaskDetail(props: {
               classList={{
                 /* Below `split` the rail lands in column one under the title.
                    Two columns of label/value rather than one, because a strip
-                   that is 680px wide and one property tall wastes the width it
+                   that is 780px wide and one property tall wastes the width it
                    was moved here to use. */
                 "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8 max-split:col-start-1 max-split:row-start-auto max-split:row-span-1 max-split:grid max-split:grid-cols-2 max-split:gap-x-8 max-split:gap-y-px max-split:space-y-0 max-split:pt-0":
                   expanded(),
