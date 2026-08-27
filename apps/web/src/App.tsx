@@ -757,10 +757,7 @@ export function AppShell(): JSX.Element {
           me={me()}
           spaces={spaces()}
           open={ui.sidebarOpen}
-          onSearch={() => {
-            setSearching(true);
-            queueMicrotask(() => searchInput?.focus());
-          }}
+          onSearch={() => setUi("palette", true)}
           onQuickAdd={() => setUi("quickAdd", true)}
         />
 
@@ -874,6 +871,30 @@ export function AppShell(): JSX.Element {
               </Show>
 
               <FilterBar />
+              {/* The view's own search (`/`), kept beside the controls that
+                  scope what it reads. The sidebar magnifier is the global
+                  palette; this one only ever sees the rows on screen. */}
+              <Show when={!searching()}>
+                <button
+                  type="button"
+                  title="Search this view  /"
+                  aria-label="Search this view"
+                  onClick={() => {
+                    setSearching(true);
+                    queueMicrotask(() => searchInput?.focus());
+                  }}
+                  class="flex size-6 shrink-0 items-center justify-center rounded-[5px] text-ink-3 hover:bg-hover hover:text-ink"
+                >
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M11.5 11.5 14 14M13 7.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Z"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </button>
+              </Show>
               {/* Grouping is hidden rather than disabled in the feed: the inbox
                 forces its own order, and a control that visibly does nothing is
                 worse than one that is not there. It comes back with your

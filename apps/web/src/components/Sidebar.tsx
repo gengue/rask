@@ -67,7 +67,9 @@ export function Sidebar(props: {
       <header class="flex h-12 items-center gap-1.5 px-3">
         <LogoCompact size={20} />
         <span class="flex-1 truncate font-medium text-base text-ink">Rask</span>
-        <IconButton label="Search  /" onClick={props.onSearch}>
+        {/* The workspace-wide palette, same as ⌘K — not the view filter, which
+            lives in the list header where its results are. */}
+        <IconButton label="Search  ⌘K" onClick={props.onSearch}>
           <path d="M11.5 11.5 14 14M13 7.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Z" />
         </IconButton>
         <IconButton label="New task  c" onClick={props.onQuickAdd}>
