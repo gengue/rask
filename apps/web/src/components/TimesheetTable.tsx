@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TimesheetRow } from "../lib/api.ts";
 import { formatDuration } from "../lib/format.ts";
 
@@ -64,7 +64,7 @@ function isThisWeek(now: number, start: number): boolean {
 }
 
 /** Forward navigation stops at the current week: no hours exist past it yet. */
-function canGoForward(week: Week | undefined): boolean {
+function canGoForward(week: Week | null | undefined): boolean {
   if (!week) return false;
   return !isThisWeek(week.now, week.start);
 }
@@ -99,25 +99,43 @@ export function TimesheetTable(): JSX.Element {
   const [week] = createResource(anchor, (a) => api.timesheet(a));
 
   /**
+   * The last good sheet, held by us rather than by the resource.
+   *
+   * A source change resets the resource — and `latest` with it — for a beat
+   * before the new fetch lands, which unmounted the whole grid and left the
+   * pane blank however clever the dim on top was. This signal only ever holds
+   * answers that arrived, so the table stays mounted across navigations by
+   * construction and the dim/chip have somewhere to live.
+   */
+  const [sheet, setSheet] = createSignal<Week | null>(null);
+  createEffect(() => {
+    const current = week();
+    if (current) setSheet(current);
+  });
+
+  /**
    * True from the click that changes weeks until the new answer is rendered.
    *
-   * The resource's own `loading` was tried first and twice reported nothing
-   * while the screen sat blank — a source-change refetch is not the state
-   * transition it reads as. This compares the window the server answered
-   * against the anchor on screen: mid-flight they disagree, landed they are
-   * the same instant. No resource internals left to misread.
+   * Both sides are Sundays — the anchor folded locally, the answer as the
+   * server snapped it — so the comparison converges when the asked week is
+   * the one on screen. (An earlier version compared the raw anchor against
+   * the answer and never converged; the dim never lifted.)
    */
-  const navigating = () => week.latest === undefined || week().start !== anchor();
-
-  const shift = (days: number) => {
-    // Re-anchor from the answer's own start rather than from today, so two
-    // clicks always move exactly two weeks even across a DST boundary.
-    setAnchor((week() ?? { start: Date.now() }).start + days * DAY_MS);
+  const navigating = () => {
+    const current = sheet();
+    if (!current) return false;
+    return weekStartOf(anchor()) !== current.start;
   };
 
-  /** Longest tracked day this week; the header bars scale against it. */
+  const shift = (days: number) => {
+    // Re-anchor from the sheet's own start rather than from today, so two
+    // clicks always move exactly two weeks even across a DST boundary.
+    setAnchor((sheet() ?? { start: Date.now() }).start + days * DAY_MS);
+  };
+
+  /** Longest tracked day on the sheet; the header bars scale against it. */
   const maxDay = () => {
-    const data = week();
+    const data = sheet();
     if (!data) return 0;
     return Math.max(1, ...data.rows.flatMap((row) => row.days.map((d) => d?.durationMs ?? 0)));
   };
@@ -146,7 +164,7 @@ export function TimesheetTable(): JSX.Element {
         </span>
         <button
           type="button"
-          disabled={!canGoForward(week.latest)}
+          disabled={!canGoForward(sheet())}
           onClick={() => shift(7)}
           class="rounded-[5px] px-2 py-1 text-ink-2 text-xs enabled:hover:bg-hover enabled:hover:text-ink disabled:text-ink-4"
         >
@@ -162,10 +180,10 @@ export function TimesheetTable(): JSX.Element {
           </p>
         }
       >
-        {/* On a week change the previous sheet stays put, dimmed, under a
-            spinner chip: a blank pane reads as broken, and the resource's own
-            loading/latest flags have twice not matched the screen. */}
-        <Show when={week.latest} fallback={<p class="text-ink-4 text-sm">Loading…</p>}>
+        {/* The sheet signal only ever holds answers that arrived, so the grid
+            stays mounted across a navigation — dimmed, with the chip over it —
+            instead of unmounting to a blank pane while the resource resets. */}
+        <Show when={sheet()} fallback={<p class="text-ink-4 text-sm">Loading…</p>}>
           {(data) => (
             <div class="relative transition-opacity" classList={{ "opacity-40": navigating() }}>
               <Show
