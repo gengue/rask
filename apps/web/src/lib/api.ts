@@ -756,17 +756,17 @@ export const api = {
    *
    * `tz` is the browser's own `-getTimezoneOffset()` in minutes — Sunday
    * boundary arithmetic is the server's job, but whose Sunday is the
-   * browser's to say. `weekAnchor` names the week to show with any instant
-   * inside it; the server snaps it to that week's Sunday.
+   * browser's to say. `weekAnchor` is any instant inside the wanted week;
+   * today seeds it for the current one.
    */
-  timesheet: (weekAnchor: number | null) => {
-    const tz = encodeURIComponent(String(-new Date().getTimezoneOffset()));
-    const start = weekAnchor === null ? "" : `&start=${encodeURIComponent(String(weekAnchor))}`;
-    return request<{
+  timesheet: (weekAnchor: number) =>
+    request<{
       start: number;
       end: number;
       now: number;
       rows: TimesheetRow[];
-    }>(`/api/timesheet/week?tz=${tz}${start}`);
-  },
+    }>(
+      `/api/timesheet/week?tz=${encodeURIComponent(String(-new Date().getTimezoneOffset()))}` +
+        `&start=${encodeURIComponent(String(weekAnchor))}`,
+    ),
 };
