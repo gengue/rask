@@ -1,7 +1,7 @@
 import type { ClickUpClient, ClickUpTimeEntry } from "@rask/clickup-client";
 import { ClickUpError, isTimeEntryRunning } from "@rask/clickup-client";
 import { isPlaceholder } from "@rask/clickup-client/vocabulary";
-import { type Db, tasks, users } from "@rask/schema";
+import { type Db, tasks } from "@rask/schema";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -179,7 +179,7 @@ export function timeRoutes(deps: TimeDeps) {
     if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
     try {
-      const entry = await client.getRunningTimeEntry(user.teamId, user.id);
+      const entry = await client.getRunningTimeEntry(user.teamId);
       return c.json({ entry: entry ? toDto(entry) : null });
     } catch (error) {
       const { status, error: message } = upstream(error);
@@ -224,7 +224,7 @@ export function timeRoutes(deps: TimeDeps) {
     let failure: unknown = null;
 
     try {
-      const current = await client.getRunningTimeEntry(user.teamId, user.id);
+      const current = await client.getRunningTimeEntry(user.teamId);
       // Nothing moved, so there is nothing to repair and nothing to announce.
       if (current?.task?.id === taskId) {
         return c.json({ started: toDto(current), stopped: null });
@@ -267,7 +267,7 @@ export function timeRoutes(deps: TimeDeps) {
     if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
     try {
-      const current = await client.getRunningTimeEntry(user.teamId, user.id);
+      const current = await client.getRunningTimeEntry(user.teamId);
       if (!current) {
         pushTo(user.id, "timer", { entry: null });
         return c.json({ stopped: null });
@@ -310,17 +310,14 @@ export function timeRoutes(deps: TimeDeps) {
     if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
     /*
-     * ponytail: every mirrored member, comma-joined into one parameter. Around
-     * five hundred people the URL outgrows what proxies will forward; the fix
-     * then is to page the members rather than to mirror the entries, since the
-     * response is still one call either way.
+     * No assignee list is assembled here. The endpoint answers a task-scoped
+     * call with every entry on the task — which is what this route wants —
+     * and on an OAuth token an explicit comma-joined list is a 403
+     * TIMEENTRY_059. See `getTimeEntries`.
      */
-    const members = await db.select({ id: users.id }).from(users);
-
     try {
       const entries = await client.getTimeEntries(user.teamId, {
         taskId,
-        assignees: members.map((m) => m.id),
         // An entry cannot predate the task it is on, and 0 would ask ClickUp to
         // scan from 1970 for every panel that opens.
         startDate: task.dateCreated?.getTime() ?? 0,

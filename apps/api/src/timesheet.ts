@@ -156,8 +156,9 @@ export function timesheetRoutes(deps: TimesheetDeps) {
       const taskId = entry.task?.id;
       const startMs = entry.start?.getTime();
       if (!taskId || startMs === undefined) continue;
-      if (entry.task.name && !upstreamNames.has(taskId)) {
-        upstreamNames.set(taskId, entry.task.name);
+      const upstreamName = entry.task?.name;
+      if (upstreamName && !upstreamNames.has(taskId)) {
+        upstreamNames.set(taskId, upstreamName);
       }
 
       const dayIndex = Math.floor((startMs - start) / DAY_MS);

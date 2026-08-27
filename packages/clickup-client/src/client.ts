@@ -537,18 +537,17 @@ export class ClickUpClient {
   // --- Time tracking ------------------------------------------------------
 
   /**
-   * The timer running for one user right now, or null.
+   * The timer running for the token's owner right now, or null.
    *
-   * `assignee` is not optional in practice: without it ClickUp answers for the
-   * token's own owner, which is the same person here but says so by accident
-   * rather than on purpose.
+   * No assignee parameter, on purpose: with an OAuth token the explicit id is
+   * a 403 TEAMM_002 even when it names the owner, and the endpoint answers
+   * for the owner without it — which is the one person Rask ever asks about.
    */
-  getRunningTimeEntry(teamId: string, assignee: string): Promise<ClickUpTimeEntry | null> {
+  getRunningTimeEntry(teamId: string): Promise<ClickUpTimeEntry | null> {
     return this.request(
       runningTimeEntryResponse,
       "GET",
       `/v2/team/${teamId}/time_entries/current`,
-      { query: { assignee } },
     ).then((r) => r.data ?? null);
   }
 
