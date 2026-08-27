@@ -30,6 +30,7 @@ describe("taskMenuItems", () => {
   test("offers the whole set for a task ClickUp knows about", () => {
     expect(taskMenuItems({ id: "86a1b2c3" }).map((item) => item.id)).toEqual([
       "open",
+      "copy-id",
       "copy-link",
       "copy-clickup",
       "status",
@@ -42,8 +43,11 @@ describe("taskMenuItems", () => {
   test("a task that has not reached ClickUp yet has no address to copy and nothing to delete", () => {
     // Every entry dropped here needs a ClickUp id: two of them are links that
     // would 404, and the other two are writes the outbox refuses with a 409.
+    // Copy Task ID stays: the local placeholder id is a real address inside
+    // this app even before ClickUp has one.
     expect(taskMenuItems({ id: "tmp_9f2b" }).map((item) => item.id)).toEqual([
       "open",
+      "copy-id",
       "status",
       "priority",
     ]);

@@ -120,26 +120,32 @@
    * Five sizes, no half pixels.
    *
    * There were eleven, three of them fractional (13.5, 12.5, 11.5). Half-pixel
-   * type renders soft on any display that is not retina, and 13px next to
-   * 13.5px is a difference nobody can see but every stylesheet has to carry.
-   * The rounding is deliberate in both directions: 13.5 and 12.5 both fall to
-   * their nearest whole size rather than all going up, so no row, header or
-   * chip changes height and the list still fits exactly as many rows.
+   * type renders soft on any display that is not retina, and two sizes a
+   * pixel apart is a difference nobody can see but every stylesheet has to
+   * carry. The rounding is deliberate in both directions: 13.5 and 12.5 both
+   * fall to their nearest whole size rather than all going up.
    *
-   * The line-heights are set to `inherit` so `text-base` behaves exactly like
-   * the `text-[13px]` it replaces. Tailwind ships a line-height with each of
-   * its own steps, which would have quietly re-flowed everything it touched —
-   * including prose, which sets 1.65 on the container and expects to keep it.
+   * `text-base` is 1rem and `text-lg` (the task title) is 1.75rem, both
+   * matching ClickUp's sizes; `text-md` (0.9rem) sits below base on purpose —
+   * it is nav chrome and property-rail values, which read better a step
+   * smaller than the body they frame. The rest of the ladder is px so rows,
+   * headers and chips keep exact heights.
+   *
+   * The line-heights are set to `inherit` so each step behaves exactly like
+   * the fixed-size class it replaces. Tailwind ships a line-height with each
+   * of its own steps, which would have quietly re-flowed everything it
+   * touched — including prose, which sets 1.65 on the container and expects
+   * to keep it.
    */
   --text-xs: 11px;
   --text-xs--line-height: inherit;
   --text-sm: 12px;
   --text-sm--line-height: inherit;
-  --text-base: 13px;
+  --text-base: 1rem;
   --text-base--line-height: inherit;
-  --text-md: 15px;
+  --text-md: 0.9rem;
   --text-md--line-height: inherit;
-  --text-lg: 19px;
+  --text-lg: 1.75rem;
   --text-lg--line-height: inherit;
 
   --radius-panel: 10px;
@@ -158,12 +164,13 @@
    *
    * `split` — wide enough for the detail panel to sit beside the list instead
    * of over it, and for the expanded task to keep its rail. Two constraints.
-   * The expanded task is a 680px measure plus a 300px rail, and with the 48px
-   * gap and 80px of page padding it needs 1108px inside the main panel, which
-   * is 1354px of window. Separately, a docked panel leaves `W - 676`, and at
+   * The expanded task is a 780px measure plus a 300px rail, and with the 48px
+   * gap and 80px of page padding it needs 1208px inside the main panel, which
+   * is 1454px of window. Separately, a docked panel leaves `W - 676`, and at
    * 690px of that (see --container-row-tight) the row has to start dropping
-   * columns purely because the panel is open — 1366px of window. 1370 clears
-   * both. Below it the panel is a sheet and the expanded task is one column.
+   * columns purely because the panel is open — 1366px of window. 1470 clears
+   * both (the row constraint at 1366 is subsumed). Below it the panel is a
+   * sheet and the expanded task is one column.
    *
    * `dock` — wide enough to keep the sidebar in the layout. It costs 236px,
    * leaving `W - 256`, and a fully dressed row needs 830px (see
@@ -172,7 +179,7 @@
    * drawer, not a column.
    */
   --breakpoint-dock: 1090px;
-  --breakpoint-split: 1370px;
+  --breakpoint-split: 1470px;
 
   /*
    * The row is measured against its own container, not the viewport, because

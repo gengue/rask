@@ -12,6 +12,7 @@ export type TaskAction =
   | "open"
   | "copy-link"
   | "copy-clickup"
+  | "copy-id"
   | "status"
   | "priority"
   | "archive"
@@ -50,6 +51,7 @@ export function raskTaskUrl(origin: string, taskId: string): string {
  */
 const ITEMS: Array<TaskMenuItem & { needsClickUpId?: true }> = [
   { id: "open", label: "Open", hint: "o" },
+  { id: "copy-id", label: "Copy Task ID" },
   { id: "copy-link", label: "Copy link", needsClickUpId: true },
   { id: "copy-clickup", label: "Copy ClickUp URL", needsClickUpId: true },
   { id: "status", label: "Change status", hint: "s" },

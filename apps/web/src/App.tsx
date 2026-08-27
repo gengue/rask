@@ -265,6 +265,12 @@ export function AppShell(): JSX.Element {
         closeMenu();
         void copy(clickUpTaskUrl(task.id), "ClickUp URL");
         return;
+      case "copy-id":
+        closeMenu();
+        // The custom id is what people search by in ClickUp; the opaque one is
+        // still a copyable address for tasks that never got one.
+        void copy(task.customId ?? task.id, "Task ID");
+        return;
       case "status":
         // Not `closeMenu` first: both of these replace the open popover in
         // place, and closing it would unmount the menu under the pointer.
