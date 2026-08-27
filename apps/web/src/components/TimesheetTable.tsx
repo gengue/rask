@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TimesheetRow } from "../lib/api.ts";
 import { formatDuration } from "../lib/format.ts";
 
@@ -69,6 +69,23 @@ function canGoForward(week: Week | undefined): boolean {
   return !isThisWeek(week.now, week.start);
 }
 
+/**
+ * Sunday 00:00 of the week containing `instant`, the browser's zone — the
+ * same fold the server runs on the anchor. Client-side copy, because the
+ * title must be computable from the click alone: a range derived from the
+ * answer blanks mid-flight and drags the navigation bar's layout with it.
+ */
+function weekStartOf(instant: number): number {
+  const tz = -new Date().getTimezoneOffset();
+  const local = new Date(instant + tz * 60_000);
+  const midnight = Date.UTC(
+    local.getUTCFullYear(),
+    local.getUTCMonth(),
+    local.getUTCDate() - local.getUTCDay(),
+  );
+  return midnight - tz * 60_000;
+}
+
 export function TimesheetTable(): JSX.Element {
   /**
    * The week on screen: an epoch inside it, seeded with today.
@@ -82,29 +99,19 @@ export function TimesheetTable(): JSX.Element {
   const [week] = createResource(anchor, (a) => api.timesheet(a));
 
   /**
-   * True from the click that changes weeks until the answer is on screen.
+   * True from the click that changes weeks until the new answer is rendered.
    *
-   * Not the resource's own `loading`: between setting the anchor and the
-   * fetch starting, and again across Solid's state transitions while it
-   * refetches, what `loading` and `latest` report has twice now not matched
-   * what the screen shows. A signal we flip ourselves has no semantics to
-   * misread — off at mount, on in `shift`, off once new rows are rendered.
+   * The resource's own `loading` was tried first and twice reported nothing
+   * while the screen sat blank — a source-change refetch is not the state
+   * transition it reads as. This compares the window the server answered
+   * against the anchor on screen: mid-flight they disagree, landed they are
+   * the same instant. No resource internals left to misread.
    */
-  const [navigating, setNavigating] = createSignal(false);
-
-  createEffect(() => {
-    if (!navigating()) return;
-    // Reading through the guard above: every answer arrival runs this effect,
-    // but only an arrival after navigation clears the flag.
-    week.latest;
-    week.error;
-    setNavigating(false);
-  });
+  const navigating = () => week.latest === undefined || week().start !== anchor();
 
   const shift = (days: number) => {
     // Re-anchor from the answer's own start rather than from today, so two
     // clicks always move exactly two weeks even across a DST boundary.
-    setNavigating(true);
     setAnchor((week() ?? { start: Date.now() }).start + days * DAY_MS);
   };
 
@@ -128,21 +135,18 @@ export function TimesheetTable(): JSX.Element {
         >
           ‹ Previous
         </button>
-        <Show when={week()} fallback={<span class="flex-1 text-center text-ink-4 text-xs">…</span>}>
-          {(data) => (
-            <span class="flex-1 text-center font-medium text-ink text-xs">
-              {dayLabel(data().start)} — {dayLabel(data().end - DAY_MS)}
-              <Show when={isThisWeek(data().now, data().start)}>
-                <span class="ml-2 rounded bg-chip px-1.5 py-0.5 font-normal text-ink-4">
-                  this week
-                </span>
-              </Show>
-            </span>
-          )}
-        </Show>
+        {/* From the anchor, never from the answer: the range is known the
+            moment the button is pressed, and a title that blanks mid-flight
+            takes the bar's layout with it. */}
+        <span class="flex-1 text-center font-medium text-ink text-xs">
+          {dayLabel(weekStartOf(anchor()))} — {dayLabel(weekStartOf(anchor()) + 6 * DAY_MS)}
+          <Show when={!navigating() && isThisWeek(Date.now(), weekStartOf(anchor()))}>
+            <span class="ml-2 rounded bg-chip px-1.5 py-0.5 font-normal text-ink-4">this week</span>
+          </Show>
+        </span>
         <button
           type="button"
-          disabled={!canGoForward(week())}
+          disabled={!canGoForward(week.latest)}
           onClick={() => shift(7)}
           class="rounded-[5px] px-2 py-1 text-ink-2 text-xs enabled:hover:bg-hover enabled:hover:text-ink disabled:text-ink-4"
         >
