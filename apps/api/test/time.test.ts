@@ -340,7 +340,7 @@ describe("DELETE /timer", () => {
 });
 
 describe("GET /tasks/:id/time-entries", () => {
-  test("names the window and the assignees, because both defaults are wrong", async () => {
+  test("names the window and leaves the assignee off, because OAuth forbids the list", async () => {
     const { client, calls } = stub([{ body: { data: [entry()] } }]);
     const { app } = mount(client);
 
@@ -350,8 +350,10 @@ describe("GET /tasks/:id/time-entries", () => {
     // The task's own creation date, not 30 days ago: an entry older than the
     // default window would be missing from a 200 with no sign anything was cut.
     expect(url.searchParams.get("start_date")).toBe("1756000000000");
-    // Everyone's entries, not just the caller's.
-    expect(url.searchParams.get("assignee")).toBe(ME);
+    // No assignee: a comma-joined member list is a 403 TIMEENTRY_059 on an
+    // OAuth token, and the task-scoped call answers with everyone's entries
+    // anyway — which is what this route wants.
+    expect(url.searchParams.has("assignee")).toBe(false);
     expect(url.searchParams.get("task_id")).toBe(TASK);
   });
 

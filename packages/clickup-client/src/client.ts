@@ -536,19 +536,19 @@ export class ClickUpClient {
 
   // --- Time tracking ------------------------------------------------------
 
-  /**
-   * The timer running for one user right now, or null.
+  /*
+   * The timer running for the token's owner right now, or null.
    *
-   * `assignee` is not optional in practice: without it ClickUp answers for the
-   * token's own owner, which is the same person here but says so by accident
-   * rather than on purpose.
+   * No `assignee` parameter: ClickUp answers this endpoint for the token's own
+   * owner by design, and passing the id explicitly is a 403 TEAMM_002 on an
+   * OAuth token even when it names that same owner. `assignee` stays a
+   * parameter so callers read as intentional, but it does not travel.
    */
-  getRunningTimeEntry(teamId: string, assignee: string): Promise<ClickUpTimeEntry | null> {
+  getRunningTimeEntry(teamId: string, _assignee: string): Promise<ClickUpTimeEntry | null> {
     return this.request(
       runningTimeEntryResponse,
       "GET",
       `/v2/team/${teamId}/time_entries/current`,
-      { query: { assignee } },
     ).then((r) => r.data ?? null);
   }
 
@@ -591,24 +591,20 @@ export class ClickUpClient {
   /**
    * Entries on one task.
    *
-   * Both filters have to be spelled out every time, because both defaults are
-   * wrong and neither failure says anything: without `startDate`/`endDate`
-   * ClickUp answers with the last 30 days, and without `assignee` it answers
-   * with the token owner's entries alone. A task tracked by three people last
-   * quarter would come back looking empty.
-   *
-   * `assignee` is comma-joined rather than passed as an array: this is the one
-   * parameter ClickUp wants that way, and `url()` would render an array as the
-   * repeated `assignee[]=` form the endpoint ignores.
+   * The date window has to be spelled out every time, because ClickUp's
+   * default is the last 30 days and a task tracked last quarter would come
+   * back looking empty. `assignee` deliberately goes nowhere: on an OAuth
+   * token a comma-joined list of ids is a 403 TIMEENTRY_059, and without the
+   * parameter a task-scoped call answers with every entry on the task — the
+   * only thing Rask ever asks this endpoint for.
    */
   getTimeEntries(
     teamId: string,
-    params: { taskId: string; assignees: string[]; startDate: number; endDate: number },
+    params: { taskId: string; startDate: number; endDate: number },
   ): Promise<ClickUpTimeEntry[]> {
     return this.request(timeEntriesResponse, "GET", `/v2/team/${teamId}/time_entries`, {
       query: {
         task_id: params.taskId,
-        assignee: params.assignees.length ? params.assignees.join(",") : undefined,
         start_date: params.startDate,
         end_date: params.endDate,
       },
