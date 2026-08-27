@@ -105,14 +105,16 @@ export function toTsQuery(term: string): string | null {
 }
 
 /**
- * Name, custom id and description, each the way it deserves.
+ * Name, custom id, ClickUp id and description, each the way it deserves.
  *
- * Trigram `ILIKE` on the two short columns, because people type the middle of a
- * name and the number out of a custom id, and full text on the description,
+ * Trigram `ILIKE` on the two short columns, because people type the middle of
+ * a name and the number out of a custom id, and full text on the description,
  * because it is prose and substring matching over prose is both slower and
  * noisier. Measured on the 147,000-task mirror: description search was a 334ms
  * sequential scan with no index, 15-24ms with a trigram index, and 2.5-11ms
- * with this one.
+ * with this one. The ClickUp id column rides the same trigram `ILIKE`: the id
+ * is what the URL bar and every "paste me this task" conversation hands you,
+ * and `86cbahrxg` matched nothing else in here.
  *
  * Comments are deliberately not in here. See `searchTasks`.
  */
@@ -121,7 +123,11 @@ export function textCondition(term: string): SQL | undefined {
   if (trimmed.length < MIN_SEARCH_LENGTH) return undefined;
 
   const like = `%${trimmed}%`;
-  const parts: SQL[] = [ilike(tasks.name, like), ilike(tasks.customId, like)];
+  const parts: SQL[] = [
+    ilike(tasks.name, like),
+    ilike(tasks.customId, like),
+    ilike(tasks.id, like),
+  ];
 
   const query = toTsQuery(trimmed);
   if (query) parts.push(sql`${tasks.searchVector} @@ to_tsquery('simple', ${query})`);

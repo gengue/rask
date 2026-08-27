@@ -47,6 +47,7 @@ export type { Clause, FilterOp };
  * changed.
  */
 export interface FilterableTask {
+  id: string;
   name: string;
   customId: string | null;
   status: string | null;
@@ -298,11 +299,14 @@ export function matchesClause(task: FilterableTask, clause: Clause, now: Date): 
 }
 
 /**
- * The text half of `/`, as the browser can answer it: name and custom id.
+ * The text half of `/`, as the browser can answer it: name, custom id and
+ * ClickUp id.
  *
  * Never the whole answer — the server also reads descriptions, which a row does
  * not carry — so this is only ever used where the server was not asked. See
- * `searchScope` in `lib/view.ts`, which is what decides that.
+ * `searchScope` in `lib/view.ts`, which is what decides that. The id rides
+ * along because pasting one is the fastest way to a task, and the server's
+ * `textCondition` matches it too — see the parity note atop this file.
  */
 function matchesText(task: FilterableTask, text: string): boolean {
   const query = text.trim().toLowerCase();
@@ -310,7 +314,8 @@ function matchesText(task: FilterableTask, text: string): boolean {
   if (query.length < MIN_SEARCH_LENGTH) return true;
   return (
     task.name.toLowerCase().includes(query) ||
-    (task.customId?.toLowerCase().includes(query) ?? false)
+    (task.customId?.toLowerCase().includes(query) ?? false) ||
+    task.id.toLowerCase().includes(query)
   );
 }
 

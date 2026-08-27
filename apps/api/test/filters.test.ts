@@ -356,4 +356,49 @@ describe("searchTasks", () => {
   test("a term of one character is not a search", async () => {
     expect(await searchTasks(db, "a")).toEqual([]);
   });
+
+  /*
+   * A ClickUp task id (86cbahrxg) is what the URL bar, the mobile app and
+   * every "paste me this task" conversation hand you. It is not the custom id
+   * (ENG-3011) — nothing in the mirror maps the opaque id to a row unless the
+   * search looks at tasks.id itself.
+   */
+  test("finds a task by its ClickUp id", async () => {
+    const hits = await searchTasks(db, ID("open-anna"));
+    expect(hits.map((hit) => hit.id)).toContain(ID("open-anna"));
+  });
+
+  test("an exact id match outranks a name that merely contains the term", async () => {
+    // Two rows: one whose *id* is the term, one whose *name* contains it. The
+    // id is the address — someone pasting it wants that row first. Both carry
+    // the flt- prefix in name or id so the suite's cleanup finds them; the
+    // bare-id row is removed here because cleanup's like() cannot see it.
+    try {
+      await db
+        .insert(tasks)
+        .values({
+          id: "86cbahrxg",
+          listId: LIST,
+          name: "flt-id-exact",
+          status: "open",
+          archived: false,
+        })
+        .onConflictDoNothing();
+      await db
+        .insert(tasks)
+        .values({
+          id: ID("id-rank-name"),
+          listId: LIST,
+          name: "plan 86cbahrxg review",
+          status: "open",
+          archived: false,
+        })
+        .onConflictDoNothing();
+
+      const hits = await searchTasks(db, "86cbahrxg");
+      expect(hits[0]?.id).toBe("86cbahrxg");
+    } finally {
+      await db.delete(tasks).where(eq(tasks.id, "86cbahrxg"));
+    }
+  });
 });
