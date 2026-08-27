@@ -164,13 +164,12 @@
    *
    * `split` — wide enough for the detail panel to sit beside the list instead
    * of over it, and for the expanded task to keep its rail. Two constraints.
-   * The expanded task is a 780px measure plus a 300px rail, and with the 48px
-   * gap and 80px of page padding it needs 1208px inside the main panel, which
-   * is 1454px of window. Separately, a docked panel leaves `W - 676`, and at
+   * The expanded task is a 680px measure plus a 300px rail, and with the 48px
+   * gap and 80px of page padding it needs 1108px inside the main panel, which
+   * is 1354px of window. Separately, a docked panel leaves `W - 676`, and at
    * 690px of that (see --container-row-tight) the row has to start dropping
-   * columns purely because the panel is open — 1366px of window. 1470 clears
-   * both (the row constraint at 1366 is subsumed). Below it the panel is a
-   * sheet and the expanded task is one column.
+   * columns purely because the panel is open — 1366px of window. 1370 clears
+   * both. Below it the panel is a sheet and the expanded task is one column.
    *
    * `dock` — wide enough to keep the sidebar in the layout. It costs 236px,
    * leaving `W - 256`, and a fully dressed row needs 830px (see
@@ -179,7 +178,7 @@
    * drawer, not a column.
    */
   --breakpoint-dock: 1090px;
-  --breakpoint-split: 1470px;
+  --breakpoint-split: 1370px;
 
   /*
    * The row is measured against its own container, not the viewport, because
