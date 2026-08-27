@@ -71,13 +71,14 @@ function canGoForward(week: Week | undefined): boolean {
 
 export function TimesheetTable(): JSX.Element {
   /**
-   * The week on screen: an epoch inside it, null for the week containing now.
+   * The week on screen: an epoch inside it, seeded with today.
    *
-   * Anchoring on a full instant rather than a week-offset keeps one truth —
-   * the server snaps any instant to that week's Sunday, and DST shifts cost
-   * nothing because nothing is ever counted in "seven days ago" arithmetic.
+   * Not `null`: Solid skips a sourced resource whose source starts falsy, and
+   * this page would sit on "Loading…" until a button was pressed. Today's
+   * instant means "the current week", which the server snaps to its Sunday —
+   * the same call answers both cases, one shape throughout.
    */
-  const [anchor, setAnchor] = createSignal<number | null>(null);
+  const [anchor, setAnchor] = createSignal<number>(Date.now());
   const [week] = createResource(anchor, (a) => api.timesheet(a));
 
   const shift = (days: number) => {
