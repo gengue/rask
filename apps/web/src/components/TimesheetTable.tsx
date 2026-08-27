@@ -137,9 +137,13 @@ export function TimesheetTable(): JSX.Element {
           </p>
         }
       >
-        <Show when={week()} fallback={<p class="text-ink-4 text-sm">Loading…</p>}>
+        {/* On a week change the resource keeps the previous sheet in `value`
+            while it refetches, but reads as `undefined` to `week()` unless
+            `latest` is asked for. The dim keeps the old grid on screen — a
+            blank pane reads as broken, a dimmed one as loading. */}
+        <Show when={week.latest} fallback={<p class="text-ink-4 text-sm">Loading…</p>}>
           {(data) => (
-            <>
+            <div class="transition-opacity" classList={{ "opacity-40": week.loading }}>
               <table class="w-full border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr class="text-left">
@@ -197,7 +201,7 @@ export function TimesheetTable(): JSX.Element {
                   {formatDuration(data().rows.reduce((sum, row) => sum + row.totalMs, 0)) ?? "0h"}
                 </span>
               </p>
-            </>
+            </div>
           )}
         </Show>
       </Show>
