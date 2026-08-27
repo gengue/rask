@@ -83,6 +83,11 @@ export function Sidebar(props: {
           {/* A bell. */}
           <path d="M6.4 12.5a1.6 1.6 0 0 0 3.2 0M4 7a4 4 0 0 1 8 0c0 2.4.9 3.4 1.3 3.8a.4.4 0 0 1-.3.7H3a.4.4 0 0 1-.3-.7C3.1 10.4 4 9.4 4 7Z" />
         </NavItem>
+        <NavItem to="/timesheet" label="My Timesheet">
+          {/* A clock face: the same glyph the property rail uses for time. */}
+          <circle cx="8" cy="8" r="5.6" />
+          <path d="M8 5.2V8l2 1.3" />
+        </NavItem>
       </nav>
 
       <div class="mt-5 flex-1 overflow-y-auto px-2 pb-3">
