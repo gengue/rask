@@ -201,6 +201,34 @@ describe("GET /timesheet/week", () => {
     expect(row?.days.filter((entry) => entry !== null)).toHaveLength(1);
   });
 
+  test("an explicit ?start anchors the sheet to that week, not this one", async () => {
+    // The previous week's Friday — any instant names the week and the route
+    // snaps it to the boundary.
+    const lastWeekInstant = SUNDAY_BOGOTA - 86_400_000 * 2;
+    const { client } = stub([{ body: { data: [] } }]);
+    const { app } = mount(client);
+
+    const response = await app.request(`${WEEKQ()}&start=${lastWeekInstant}`);
+    const payload = (await response.json()) as { start: number; rows: Array<object> };
+
+    expect(payload.start).toBe(SUNDAY_BOGOTA - 7 * 86_400_000);
+    expect(payload.rows).toEqual([]);
+  });
+
+  test("a hand-typed start falls back to this week rather than exploding", async () => {
+    const { client } = stub([{ body: { data: [] } }]);
+    const { app } = mount(client);
+
+    const response = await app.request(`${WEEKQ()}&start=not-a-number`);
+    const payload = (await response.json()) as { start: number };
+
+    // Whatever the garbage, the answered window must be a real week — and the
+    // boundary is midnight in some zone, hence a multiple of a quarter hour
+    // rather than of a whole day.
+    expect(Number.isFinite(payload.start)).toBe(true);
+    expect(payload.start % 900_000).toBe(0);
+  });
+
   test("entries outside the asked week land nowhere and still count nowhere", async () => {
     // A moment inside the previous week.
     const lastWeek = SUNDAY_BOGOTA - 3_600_000;

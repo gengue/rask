@@ -1,4 +1,4 @@
-import { createResource, For, type JSX, Show } from "solid-js";
+import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TimesheetRow } from "../lib/api.ts";
 import { formatDuration } from "../lib/format.ts";
 
@@ -44,11 +44,47 @@ function dayLabel(instant: number): string {
   return `${DAY_LABELS[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
+/**
+ * Whether the week starting at `start` is the one containing `now`.
+ *
+ * Day labels are drawn from UTC getters on server answers; this comparison
+ * runs in the same frame so the badge and the column agree. The tz offset is
+ * what the browser already told the server — using it here too keeps one
+ * answer to "which week is this" across both ends.
+ */
+function isThisWeek(now: number, start: number): boolean {
+  const tz = -new Date().getTimezoneOffset();
+  const local = new Date(now + tz * 60_000);
+  const midnight = Date.UTC(
+    local.getUTCFullYear(),
+    local.getUTCMonth(),
+    local.getUTCDate() - local.getUTCDay(),
+  );
+  return midnight - tz * 60_000 === start;
+}
+
+/** Forward navigation stops at the current week: no hours exist past it yet. */
+function canGoForward(week: Week | undefined): boolean {
+  if (!week) return false;
+  return !isThisWeek(week.now, week.start);
+}
+
 export function TimesheetTable(): JSX.Element {
-  // One fetch per mount. There is no week navigation yet on purpose: today is
-  // the week people come for, and a pager without an in-cell editor to answer
-  // "what did I do Tuesday" invites a screen nobody opens twice.
-  const [week] = createResource<Week>(api.timesheet);
+  /**
+   * The week on screen: an epoch inside it, null for the week containing now.
+   *
+   * Anchoring on a full instant rather than a week-offset keeps one truth —
+   * the server snaps any instant to that week's Sunday, and DST shifts cost
+   * nothing because nothing is ever counted in "seven days ago" arithmetic.
+   */
+  const [anchor, setAnchor] = createSignal<number | null>(null);
+  const [week] = createResource(anchor, (a) => api.timesheet(a));
+
+  const shift = (days: number) => {
+    // Re-anchor from the answer's own start rather than from today, so two
+    // clicks always move exactly two weeks even across a DST boundary.
+    setAnchor((week() ?? { start: Date.now() }).start + days * DAY_MS);
+  };
 
   /** Longest tracked day this week; the header bars scale against it. */
   const maxDay = () => {
@@ -58,7 +94,39 @@ export function TimesheetTable(): JSX.Element {
   };
 
   return (
-    <div class="flex-1 overflow-auto px-6 py-5">
+    <div class="flex flex-1 flex-col overflow-auto px-6 py-5">
+      {/* ‹ Anterior · range · Siguiente ›. "Next" dies on the current week:
+          the future has no hours to show, and a page that says so reads as
+          broken rather than as empty. */}
+      <div class="flex items-center gap-3 pb-4">
+        <button
+          type="button"
+          onClick={() => shift(-7)}
+          class="rounded-[5px] px-2 py-1 text-ink-2 text-xs hover:bg-hover hover:text-ink"
+        >
+          ‹ Previous
+        </button>
+        <Show when={week()} fallback={<span class="flex-1 text-center text-ink-4 text-xs">…</span>}>
+          {(data) => (
+            <span class="flex-1 text-center font-medium text-ink text-xs">
+              {dayLabel(data().start)} — {dayLabel(data().end - DAY_MS)}
+              <Show when={isThisWeek(data().now, data().start)}>
+                <span class="ml-2 rounded bg-chip px-1.5 py-0.5 font-normal text-ink-4">
+                  this week
+                </span>
+              </Show>
+            </span>
+          )}
+        </Show>
+        <button
+          type="button"
+          disabled={!canGoForward(week())}
+          onClick={() => shift(7)}
+          class="rounded-[5px] px-2 py-1 text-ink-2 text-xs enabled:hover:bg-hover enabled:hover:text-ink disabled:text-ink-4"
+        >
+          Next ›
+        </button>
+      </div>
       <Show
         when={!week.error}
         fallback={
