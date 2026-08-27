@@ -139,7 +139,7 @@ export function TaskList(props: {
             <div class="flex h-full flex-col items-center justify-center gap-1 text-ink-3">
               {/* An empty feed is an achievement, not a gap to fill, and "press
                   c to create a task" is advice for the wrong page entirely. */}
-              <div class="text-base">{emptyTitle()}</div>
+              <div class="text-md">{emptyTitle()}</div>
               <div class="text-ink-3 text-xs">{emptyHint()}</div>
             </div>
           </Show>

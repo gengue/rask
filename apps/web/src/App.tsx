@@ -811,7 +811,7 @@ export function AppShell(): JSX.Element {
                 when={searching()}
                 fallback={
                   <>
-                    <h1 class="truncate font-medium text-base text-ink tracking-[-0.005em]">
+                    <h1 class="truncate font-medium text-md text-ink tracking-[-0.005em]">
                       {viewTitle()}
                     </h1>
                     <span
@@ -865,7 +865,7 @@ export function AppShell(): JSX.Element {
                       ? "Search name, id and description…"
                       : "Search these results by name or id…"
                   }
-                  class="h-full min-w-0 flex-1 text-base"
+                  class="h-full min-w-0 flex-1 text-md"
                 />
                 <button
                   type="button"

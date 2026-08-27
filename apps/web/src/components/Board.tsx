@@ -49,7 +49,7 @@ export function Board(props: {
         fallback={
           <Show when={!viewLoading()} fallback={<SkeletonColumns />}>
             <div class="flex flex-1 flex-col items-center justify-center gap-1 text-ink-3">
-              <div class="text-base">{ui.search ? "No matches" : "Nothing here"}</div>
+              <div class="text-md">{ui.search ? "No matches" : "Nothing here"}</div>
               <div class="text-ink-3 text-xs">
                 {ui.search ? "Try a different search" : "Press c to create a task"}
               </div>

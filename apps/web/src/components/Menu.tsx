@@ -103,7 +103,7 @@ export function Menu(props: {
             onInput={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={onKeyDown}
             placeholder={props.placeholder ?? "Search..."}
-            class="h-9 w-full text-base text-ink"
+            class="h-9 w-full text-md text-ink"
           />
         </div>
 
@@ -119,7 +119,7 @@ export function Menu(props: {
                 aria-selected={active() === index()}
                 onMouseEnter={() => setActive(index())}
                 onClick={() => select(item.id)}
-                class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-base"
+                class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-md"
                 classList={{
                   "row-selected text-ink": active() === index(),
                   "text-ink-2": active() !== index(),
