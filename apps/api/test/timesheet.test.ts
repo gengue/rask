@@ -189,7 +189,12 @@ describe("GET /timesheet/week", () => {
       }>;
     };
     const row = payload.rows[0];
-    const todayIndex = Math.floor((now - SUNDAY_BOGOTA) / 86_400_000);
+    // Today in the BOGOTÁ frame, the frame the grid is laid out in: folding
+    // the epoch only works until UTC's midnight runs ahead of local evening,
+    // and then the test reads one column to the right of the entry.
+    const localNow = now - TZ_BOGOTA * 60_000;
+    const localSunday = SUNDAY_BOGOTA - TZ_BOGOTA * 60_000;
+    const todayIndex = Math.floor((localNow - localSunday) / 86_400_000);
 
     const todayCell = row?.days[todayIndex];
     expect(todayCell).not.toBeNull();
