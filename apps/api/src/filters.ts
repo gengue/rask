@@ -11,6 +11,7 @@ import { taskAssignees, taskCustomValues, tasks } from "@rask/schema";
 import {
   and,
   type Column,
+  eq,
   ilike,
   inArray,
   isNotNull,
@@ -112,9 +113,14 @@ export function toTsQuery(term: string): string | null {
  * because it is prose and substring matching over prose is both slower and
  * noisier. Measured on the 147,000-task mirror: description search was a 334ms
  * sequential scan with no index, 15-24ms with a trigram index, and 2.5-11ms
- * with this one. The ClickUp id column rides the same trigram `ILIKE`: the id
- * is what the URL bar and every "paste me this task" conversation hands you,
- * and `86cbahrxg` matched nothing else in here.
+ * with this one.
+ *
+ * The ClickUp id matches with `=` and no index of its own: a pasted id is
+ * complete by definition — nobody types the middle of `86cbahrxg` the way
+ * they type the middle of a name — and `id` is the primary key, so equality
+ * is a btree probe. An `ILIKE '%…%'` branch here would need a fourth GIN
+ * index and, worse, would keep Postgres from building a bitmap over the
+ * indexed branches of the OR.
  *
  * Comments are deliberately not in here. See `searchTasks`.
  */
@@ -126,7 +132,7 @@ export function textCondition(term: string): SQL | undefined {
   const parts: SQL[] = [
     ilike(tasks.name, like),
     ilike(tasks.customId, like),
-    ilike(tasks.id, like),
+    eq(tasks.id, trimmed),
   ];
 
   const query = toTsQuery(trimmed);

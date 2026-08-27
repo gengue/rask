@@ -304,9 +304,9 @@ export function matchesClause(task: FilterableTask, clause: Clause, now: Date): 
  *
  * Never the whole answer — the server also reads descriptions, which a row does
  * not carry — so this is only ever used where the server was not asked. See
- * `searchScope` in `lib/view.ts`, which is what decides that. The id rides
- * along because pasting one is the fastest way to a task, and the server's
- * `textCondition` matches it too — see the parity note atop this file.
+ * `searchScope` in `lib/view.ts`, which is what decides that. The id matches
+ * by equality — a pasted id is whole, and the server's `textCondition`
+ * matches it the same way — see the parity note atop this file.
  */
 function matchesText(task: FilterableTask, text: string): boolean {
   const query = text.trim().toLowerCase();
@@ -315,7 +315,7 @@ function matchesText(task: FilterableTask, text: string): boolean {
   return (
     task.name.toLowerCase().includes(query) ||
     (task.customId?.toLowerCase().includes(query) ?? false) ||
-    task.id.toLowerCase().includes(query)
+    task.id.toLowerCase() === query
   );
 }
 
