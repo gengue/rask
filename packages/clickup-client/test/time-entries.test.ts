@@ -123,20 +123,25 @@ describe("updateTimeEntry", () => {
 });
 
 describe("getTimeEntries", () => {
-  test("names the window and every assignee, because both defaults are wrong", async () => {
+  /*
+   * No `assignee` filter, verified against ClickUp on 2026-08-27: with an
+   * OAuth token, two or more comma-joined ids are answered with 403
+   * TIMEENTRY_059 "You have no access", while a task-scoped call without the
+   * parameter returns every entry on the task — which is what Rask's panel
+   * asks for in the first place. (A single id, or a personal key, accepts the
+   * parameter; that is how the assumption survived as long as it did.)
+   */
+  test("scopes to the task and the date window, letting everyone's entries through", async () => {
     const { client, calls } = makeClient([{ body: { data: [stopped] } }]);
     await client.getTimeEntries("42", {
       taskId: "9hz",
-      assignees: ["7", "8"],
       startDate: 1_700_000_000_000,
       endDate: 1_756_083_600_000,
     });
 
     const url = new URL(calls[0]?.url ?? "");
     expect(url.searchParams.get("task_id")).toBe("9hz");
-    // Comma-joined, not the repeated `assignee[]=` form: this endpoint ignores
-    // the array shape and answers with the caller's own entries alone.
-    expect(url.searchParams.get("assignee")).toBe("7,8");
+    expect(url.searchParams.has("assignee")).toBe(false);
     expect(url.searchParams.get("start_date")).toBe("1700000000000");
     expect(url.searchParams.get("end_date")).toBe("1756083600000");
   });
@@ -145,7 +150,6 @@ describe("getTimeEntries", () => {
     const { client } = makeClient([{ body: { data: null } }]);
     const entries = await client.getTimeEntries("42", {
       taskId: "9hz",
-      assignees: [],
       startDate: 0,
       endDate: 1,
     });
@@ -154,11 +158,19 @@ describe("getTimeEntries", () => {
 });
 
 describe("the running timer", () => {
-  test("asks about one person by name", async () => {
+  /*
+   * `assignee` stays off this endpoint's query, verified against ClickUp on
+   * 2026-08-27: with an OAuth token the parameter is answered with
+   * 403 TEAMM_002 "You have no an access" even when it names the token's own
+   * owner. Without it the endpoint answers for the owner — which is the one
+   * person Rask ever asks about here. (A personal key accepts the parameter,
+   * which is how the two stayed confused for as long as they did.)
+   */
+  test("asks for the token's own timer, without naming an assignee", async () => {
     const { client, calls } = makeClient([{ body: { data: live } }]);
     const entry = await client.getRunningTimeEntry("42", "7");
 
-    expect(new URL(calls[0]?.url ?? "").searchParams.get("assignee")).toBe("7");
+    expect(calls[0]?.url).not.toContain("assignee");
     expect(entry && isTimeEntryRunning(entry)).toBe(true);
   });
 
