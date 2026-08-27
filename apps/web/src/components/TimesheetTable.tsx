@@ -44,6 +44,14 @@ function dayLabel(instant: number): string {
   return `${DAY_LABELS[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
+/** "Aug 23" — the bare date, for the range title. No weekday: the column
+ *  headers under it already name the days, and the title repeating them reads
+ *  as noise on a line whose job is to say which week. */
+function dateLabel(instant: number): string {
+  const d = new Date(instant);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
 /**
  * Whether the week starting at `start` is the one containing `now`.
  *
@@ -157,7 +165,7 @@ export function TimesheetTable(): JSX.Element {
             moment the button is pressed, and a title that blanks mid-flight
             takes the bar's layout with it. */}
         <span class="flex-1 text-center font-medium text-ink text-xs">
-          {dayLabel(weekStartOf(anchor()))} — {dayLabel(weekStartOf(anchor()) + 6 * DAY_MS)}
+          {dateLabel(weekStartOf(anchor()))} — {dateLabel(weekStartOf(anchor()) + 6 * DAY_MS)}
           <Show when={!navigating() && isThisWeek(Date.now(), weekStartOf(anchor()))}>
             <span class="ml-2 rounded bg-chip px-1.5 py-0.5 font-normal text-ink-4">this week</span>
           </Show>
