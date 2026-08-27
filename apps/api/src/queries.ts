@@ -1043,7 +1043,9 @@ export async function searchTasks(db: Db, query: string, limit = 12) {
     .leftJoin(lists, eq(lists.id, tasks.listId))
     .where(and(isNull(tasks.deletedAt), eq(tasks.archived, false), matches))
     .orderBy(
-      sql`case when ${tasks.id} = ${term} then 0
+      // lower() on the id arm: the match beside it is ILIKE, and a pasted
+      // upper-case id should rank first, not lose to a name with the letters.
+      sql`case when lower(${tasks.id}) = lower(${term}) then 0
                 when ${tasks.customId} ilike ${prefix} then 1
                 when ${tasks.name} ilike ${prefix} then 2
                 when ${tasks.name} ilike ${like} then 3
