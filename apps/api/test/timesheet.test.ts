@@ -322,6 +322,9 @@ describe("GET /timesheet/week", () => {
     expect(repaired).toEqual(["never-mirrored"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.taskId).toBe("never-mirrored");
+    // The name the entry payload carried, not an ellipsis: the row has to
+    // read whole on the very first load, before any repair lands.
+    expect(rows[0]?.taskName).toBe("Lives only in ClickUp");
     expect(rows[0]?.location).toBeNull();
   });
 });
