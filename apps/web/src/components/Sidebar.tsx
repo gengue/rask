@@ -67,15 +67,41 @@ export function Sidebar(props: {
       <header class="flex h-12 items-center gap-1.5 px-3">
         <LogoCompact size={20} />
         <span class="flex-1 truncate font-medium text-base text-ink">Rask</span>
-        {/* The workspace-wide palette, same as ⌘K — not the view filter, which
-            lives in the list header where its results are. */}
-        <IconButton label="Search  ⌘K" onClick={props.onSearch}>
-          <path d="M11.5 11.5 14 14M13 7.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Z" />
-        </IconButton>
         <IconButton label="New task  c" onClick={props.onQuickAdd}>
           <path d="M8 3.5v9M3.5 8h9" />
         </IconButton>
       </header>
+
+      <div class="px-3 pb-1">
+        {/* The workspace-wide palette, same as ⌘K — not the view filter, which
+            lives in the list header where its results are. Styled as a dormant
+            input: the affordance says "type here" and the kbd chip says how. */}
+        <button
+          type="button"
+          onClick={props.onSearch}
+          class="flex h-7 w-full items-center gap-2 rounded-[5px] bg-hover px-2 text-left text-sm text-ink-4 hover:bg-hover/70"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            class="shrink-0"
+            aria-hidden="true"
+          >
+            <path
+              d="M11.5 11.5 14 14M13 7.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Z"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span class="flex-1 truncate">Search</span>
+          <span class="shrink-0 rounded-[4px] border border-line-strong px-1 text-xs leading-4">
+            ⌘K
+          </span>
+        </button>
+      </div>
 
       <nav class="flex flex-col gap-px px-2">
         <NavItem to="/" label="My Tasks">
