@@ -622,10 +622,18 @@ export function TaskDetail(props: {
                           ref={descriptionBox}
                           class="prose-rask selectable text-base"
                           classList={{
-                            "max-h-[300px] overflow-hidden transition-[max-height] duration-200":
+                            "overflow-hidden transition-[max-height] duration-200":
                               !descriptionExpanded(),
                           }}
+                          // The cap lives here and in COLLAPSED_DESCRIPTION_HEIGHT —
+                          // the measure reads the constant, the cap reads this
+                          // style, and writing it once keeps them from drifting
+                          // apart (Tailwind cannot see a computed class name, so
+                          // this is an inline style on purpose).
                           style={{
+                            "max-height": descriptionExpanded()
+                              ? undefined
+                              : `${COLLAPSED_DESCRIPTION_HEIGHT}px`,
                             "mask-image":
                               !descriptionExpanded() && descriptionOverflows()
                                 ? "linear-gradient(to bottom, black 82%, transparent)"

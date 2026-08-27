@@ -143,7 +143,9 @@
   --text-sm--line-height: inherit;
   --text-base: 1rem;
   --text-base--line-height: inherit;
-  --text-md: 0.9rem;
+  /* 14px, not 0.9rem: the ladder above keeps whole pixels because half-pixel
+   * type renders soft off-retina, and 14.4 is no exception. */
+  --text-md: 14px;
   --text-md--line-height: inherit;
   --text-lg: 1.75rem;
   --text-lg--line-height: inherit;
