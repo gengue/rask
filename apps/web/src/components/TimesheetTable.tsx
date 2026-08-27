@@ -156,7 +156,7 @@ export function TimesheetTable(): JSX.Element {
                         );
                         const bar = Math.round((total / maxDay()) * 100);
                         return (
-                          <th class="pb-2 pl-3 text-right align-bottom">
+                          <th class="max-dock:hidden max-dock:pb-2 max-dock:pl-3 pb-2 text-right align-bottom">
                             <div class="font-normal text-ink-4 text-xs">
                               {dayLabel(data().start + day() * DAY_MS)}
                             </div>
@@ -184,7 +184,7 @@ export function TimesheetTable(): JSX.Element {
                   </For>
                   <Show when={data().rows.length === 0}>
                     <tr>
-                      <td colspan="8" class="pt-6 text-ink-4 text-sm">
+                      <td colspan="2" class="pt-6 text-ink-4 text-sm">
                         Nothing tracked this week yet.
                       </td>
                     </tr>
@@ -234,7 +234,7 @@ function SheetRow(props: { weekStart: number; now: number; row: TimesheetRow }):
       </td>
       <For each={props.row.days}>
         {(cell) => (
-          <td class="py-2 pl-3 text-right align-top text-xs tabular-nums">
+          <td class="max-dock:hidden py-2 pl-3 text-right align-top text-xs tabular-nums">
             <Show when={cell} fallback={<span class="text-ink-4">—</span>}>
               {(value) => (
                 <span
