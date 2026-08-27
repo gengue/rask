@@ -58,7 +58,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 
 /**
- * Sunday 00:00 of the week containing `now`, in the zone `offsetMinutes`
+ * Sunday 00:00 of the week containing `anchor`, in the zone `offsetMinutes`
  * names — the browser's `-new Date().getTimezoneOffset()`, not this server's.
  *
  * The shift moves the instant into local wall time so the UTC getters read as
@@ -66,11 +66,11 @@ const WEEK_MS = 7 * DAY_MS;
  * same offset, returning an epoch again. A Bogotá Saturday-evening entry lands
  * in the column of the evening its owner lived.
  */
-function weekStart(now: number, offsetMinutes: number): number {
+function weekStart(anchor: number, offsetMinutes: number): number {
   // The shift moves the instant into local wall time so the UTC getters read
   // as the viewer's calendar: offsetMinutes is -getTimezoneOffset(), and local
   // wall ms = utc + offset.
-  const local = new Date(now + offsetMinutes * 60_000);
+  const local = new Date(anchor + offsetMinutes * 60_000);
   const daysSinceSunday = local.getUTCDay();
   const midnight = Date.UTC(
     local.getUTCFullYear(),
@@ -79,6 +79,14 @@ function weekStart(now: number, offsetMinutes: number): number {
   );
   // Shift back out of wall time into the epoch frame everything else speaks.
   return midnight - offsetMinutes * 60_000;
+}
+
+/** A plausible epoch: positive, sane, not a year 2286 date somebody typed. */
+function parseStart(raw: string | undefined): number | null {
+  if (raw === undefined || raw === "") return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0 || value > 4_102_444_800_000) return null;
+  return Math.trunc(value);
 }
 
 /**
@@ -103,9 +111,14 @@ export function timesheetRoutes(deps: TimesheetDeps) {
     const raw = Number(c.req.query("tz"));
     const tz = Number.isFinite(raw) ? Math.trunc(raw) : 0;
 
+    // The browser names the week it wants with any instant inside it; absent,
+    // or garbage from a hand-typed URL, the sheet falls back to this week.
     const now = Date.now();
-    const start = weekStart(now, tz);
+    const requested = parseStart(c.req.query("start"));
+    const start = weekStart(requested ?? now, tz);
     const end = start + WEEK_MS;
+    // The running entry's cell exists only in the week that contains now.
+    const currentWeek = start === weekStart(now, tz);
 
     let entries: ClickUpTimeEntry[];
     try {
@@ -141,6 +154,14 @@ export function timesheetRoutes(deps: TimesheetDeps) {
       taskIds.add(taskId);
 
       const running = (entry.duration ?? 0) < 0;
+      /*
+       * The running entry only exists inside the week containing now: its
+       * intervals started there, and an old week asked to a grid that has
+       * moved on shows nothing of it. (ClickUp's answer carries it in every
+       * window query because `current` has no end; dropping it here keeps a
+       * past sheet from growing a cell for time still being spent today.)
+       */
+      if (running && !currentWeek) continue;
       const duration = running ? Math.max(0, now - startMs) : (entry.duration ?? 0);
 
       const cellKey = `${taskId}|${dayIndex}`;
