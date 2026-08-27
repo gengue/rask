@@ -67,14 +67,18 @@ const WEEK_MS = 7 * DAY_MS;
  * in the column of the evening its owner lived.
  */
 function weekStart(now: number, offsetMinutes: number): number {
-  const local = new Date(now - offsetMinutes * 60_000);
+  // The shift moves the instant into local wall time so the UTC getters read
+  // as the viewer's calendar: offsetMinutes is -getTimezoneOffset(), and local
+  // wall ms = utc + offset.
+  const local = new Date(now + offsetMinutes * 60_000);
   const daysSinceSunday = local.getUTCDay();
   const midnight = Date.UTC(
     local.getUTCFullYear(),
     local.getUTCMonth(),
     local.getUTCDate() - daysSinceSunday,
   );
-  return midnight + offsetMinutes * 60_000;
+  // Shift back out of wall time into the epoch frame everything else speaks.
+  return midnight - offsetMinutes * 60_000;
 }
 
 /**
@@ -129,10 +133,12 @@ export function timesheetRoutes(deps: TimesheetDeps) {
       const taskId = entry.task?.id;
       const startMs = entry.start?.getTime();
       if (!taskId || startMs === undefined) continue;
-      taskIds.add(taskId);
 
       const dayIndex = Math.floor((startMs - start) / DAY_MS);
+      // An off-grid hour belongs to another week's sheet; adding the task here
+      // anyway would ship an all-empty row for hours this grid never shows.
       if (dayIndex < 0 || dayIndex > 6) continue;
+      taskIds.add(taskId);
 
       const running = (entry.duration ?? 0) < 0;
       const duration = running ? Math.max(0, now - startMs) : (entry.duration ?? 0);
