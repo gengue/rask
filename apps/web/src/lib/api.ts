@@ -501,6 +501,30 @@ export interface NewTimeEntry {
   description?: string;
 }
 
+/** One task × one day of the timesheet week. Null where nothing was tracked. */
+export interface TimesheetDay {
+  durationMs: number;
+  running: boolean;
+}
+
+/**
+ * One row of the timesheet: every interval the week held against one task.
+ *
+ * Status and location are mirror data, not entry data — ClickUp's payload
+ * carries neither, and the row reads poorly without them.
+ */
+export interface TimesheetRow {
+  taskId: string;
+  taskName: string;
+  status: string | null;
+  statusColor: string | null;
+  statusType: string | null;
+  location: string | null;
+  /** Seven cells, Sunday first; null where the day has no tracking. */
+  days: Array<TimesheetDay | null>;
+  totalMs: number;
+}
+
 export const api = {
   me: () => request<Me>("/api/me"),
 
@@ -726,4 +750,23 @@ export const api = {
     request<{ ok: true }>(`/api/time-entries/${entryId}?taskId=${encodeURIComponent(taskId)}`, {
       method: "DELETE",
     }),
+
+  /**
+   * The week grid: this person's entries, grouped by task and local day.
+   *
+   * `tz` is the browser's own `-getTimezoneOffset()` in minutes — Sunday
+   * boundary arithmetic is the server's job, but whose Sunday is the
+   * browser's to say. `weekAnchor` is any instant inside the wanted week;
+   * today seeds it for the current one.
+   */
+  timesheet: (weekAnchor: number) =>
+    request<{
+      start: number;
+      end: number;
+      now: number;
+      rows: TimesheetRow[];
+    }>(
+      `/api/timesheet/week?tz=${encodeURIComponent(String(-new Date().getTimezoneOffset()))}` +
+        `&start=${encodeURIComponent(String(weekAnchor))}`,
+    ),
 };

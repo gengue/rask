@@ -146,6 +146,22 @@ describe("getTimeEntries", () => {
     expect(url.searchParams.get("end_date")).toBe("1756083600000");
   });
 
+  test("a single assignee rides along, scopes the answer to that person", async () => {
+    const { client, calls } = makeClient([{ body: { data: [stopped] } }]);
+    await client.getTimeEntries("42", {
+      assignee: "7",
+      startDate: 1_700_000_000_000,
+      endDate: 1_756_083_600_000,
+    });
+
+    const url = new URL(calls[0]?.url ?? "");
+    // Single id, not the comma-joined list: one person across every task is
+    // what the timesheet week asks for, and a list is a 403 on OAuth.
+    expect(url.searchParams.get("assignee")).toBe("7");
+    expect(url.searchParams.has("task_id")).toBe(false);
+    expect(url.searchParams.get("start_date")).toBe("1700000000000");
+  });
+
   test("an empty data array is an answer, not a crash", async () => {
     const { client } = makeClient([{ body: { data: null } }]);
     const entries = await client.getTimeEntries("42", {

@@ -22,6 +22,7 @@ import { AppShell } from "./App.tsx";
 import { Board } from "./components/Board.tsx";
 import { RouteError } from "./components/RouteError.tsx";
 import { TaskList } from "./components/TaskList.tsx";
+import { TimesheetTable } from "./components/TimesheetTable.tsx";
 import { ListPicker, NotFound } from "./components/Unresolved.tsx";
 import { UnsupportedView, ViewTabs } from "./components/ViewTabs.tsx";
 import { api, type ResolvedRef, type Task, type View } from "./lib/api.ts";
@@ -114,6 +115,12 @@ const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
   component: InboxView,
+});
+
+const timesheetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/timesheet",
+  component: TimesheetView,
 });
 
 const listRoute = createRoute({
@@ -283,6 +290,28 @@ function InboxView(): JSX.Element {
   createEffect(() => setViewTasks(inFeedOrder(rows())));
 
   return <ListBody listId={null} activeViewId={null} />;
+}
+
+/**
+ * The week you tracked, laid out as a grid.
+ *
+ * Not one of the mirror-backed views: rows are this person's time entries,
+ * fetched live and grouped server-side, so there is nothing to register for
+ * polling and nothing SSE brings while the page is open. The shell's header
+ * still claims a title and an empty set — this route owns both honestly.
+ */
+function TimesheetView(): JSX.Element {
+  createEffect(() => {
+    setViewTitle("My Timesheet");
+    setViewListId(null);
+    setSearchScope("loaded");
+    setViewTasks([]);
+    setViewTruncated(false);
+    setViewMembership(null);
+    clearListViews();
+  });
+
+  return <TimesheetTable />;
 }
 
 function ListView(): JSX.Element {
@@ -681,6 +710,7 @@ function ListBody(props: { listId: string | null; activeViewId: string | null })
 const routeTree = rootRoute.addChildren([
   myTasksRoute,
   inboxRoute,
+  timesheetRoute,
   listRoute,
   savedViewRoute,
   viewRoute,
