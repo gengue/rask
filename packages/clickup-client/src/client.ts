@@ -589,26 +589,31 @@ export class ClickUpClient {
   }
 
   /**
-   * Entries on one task.
+   * Entries over a date window.
    *
-   * Both filters have to be spelled out every time, because both defaults are
-   * wrong and neither failure says anything: without `startDate`/`endDate`
-   * ClickUp answers with the last 30 days, and without `assignee` it answers
-   * with the token owner's entries alone. A task tracked by three people last
-   * quarter would come back looking empty.
-   *
-   * `assignee` is comma-joined rather than passed as an array: this is the one
-   * parameter ClickUp wants that way, and `url()` would render an array as the
-   * repeated `assignee[]=` form the endpoint ignores.
+   * The date window has to be spelled out every time, because ClickUp's
+   * default is the last 30 days and a week-old sheet would come back looking
+   * empty. `taskId` and `assignee` are each optional and each scopes the
+   * answer, but they must not travel together as a list: on an OAuth token a
+   * comma-joined `assignee` is a 403 TIMEENTRY_059, while a single id is
+   * accepted everywhere — a task-scoped call without the parameter answers
+   * with every entry on the task (what the entries panel wants), and an
+   * assignee-scoped one without `task_id` answers with that person's entries
+   * across the workspace (what the timesheet week asks for).
    */
   getTimeEntries(
     teamId: string,
-    params: { taskId: string; assignees: string[]; startDate: number; endDate: number },
+    params: {
+      taskId?: string;
+      assignee?: string;
+      startDate: number;
+      endDate: number;
+    },
   ): Promise<ClickUpTimeEntry[]> {
     return this.request(timeEntriesResponse, "GET", `/v2/team/${teamId}/time_entries`, {
       query: {
         task_id: params.taskId,
-        assignee: params.assignees.length ? params.assignees.join(",") : undefined,
+        assignee: params.assignee,
         start_date: params.startDate,
         end_date: params.endDate,
       },

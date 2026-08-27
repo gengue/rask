@@ -47,6 +47,7 @@ import {
   statusesForList,
 } from "./queries.ts";
 import { timeRoutes } from "./time.ts";
+import { timesheetRoutes } from "./timesheet.ts";
 import { clickUpWebhookRoutes } from "./webhooks.ts";
 import {
   applyChecklistItemPatch,
@@ -928,6 +929,15 @@ api.route(
     clientFor,
     pushTo,
     refreshTask: (userId, taskId, options) => refreshTask(userId, taskId, options),
+  }),
+);
+
+api.route(
+  "/timesheet",
+  timesheetRoutes({
+    db,
+    clientFor,
+    repairTask: refreshTask,
   }),
 );
 
