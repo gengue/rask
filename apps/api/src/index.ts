@@ -937,7 +937,11 @@ api.route(
   timesheetRoutes({
     db,
     clientFor,
-    repairTask: refreshTask,
+    // The sheet only needs the task row: paying for a comment walk per
+    // unknown task is waste, and a comment-insert failure there would abort
+    // the refresh before ingestTasks ran — leaving the sheet on "…" forever
+    // for tasks whose conversations it never asked about.
+    repairTask: (userId, taskId) => refreshTask(userId, taskId, { comments: false }),
   }),
 );
 
