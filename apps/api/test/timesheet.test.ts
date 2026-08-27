@@ -189,12 +189,15 @@ describe("GET /timesheet/week", () => {
       }>;
     };
     const row = payload.rows[0];
-    // Today in the BOGOTÁ frame, the frame the grid is laid out in: folding
-    // the epoch only works until UTC's midnight runs ahead of local evening,
-    // and then the test reads one column to the right of the entry.
-    const localNow = now - TZ_BOGOTA * 60_000;
-    const localSunday = SUNDAY_BOGOTA - TZ_BOGOTA * 60_000;
-    const todayIndex = Math.floor((localNow - localSunday) / 86_400_000);
+    /*
+     * The column the route places this entry in, computed the way the route
+     * does: the entry's own start against the week boundary, both epochs.
+     * "Today" is the wrong anchor twice over — UTC midnight runs ahead of the
+     * local evening, and the entry may have started on the other side of
+     * local midnight from `now` anyway. The entry's start is the one truth.
+     */
+    const entryStart = now - 1_800_000;
+    const todayIndex = Math.floor((entryStart - SUNDAY_BOGOTA) / 86_400_000);
 
     const todayCell = row?.days[todayIndex];
     expect(todayCell).not.toBeNull();
