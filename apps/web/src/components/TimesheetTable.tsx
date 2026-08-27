@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TimesheetRow } from "../lib/api.ts";
 import { formatDuration } from "../lib/format.ts";
 
@@ -81,9 +81,30 @@ export function TimesheetTable(): JSX.Element {
   const [anchor, setAnchor] = createSignal<number>(Date.now());
   const [week] = createResource(anchor, (a) => api.timesheet(a));
 
+  /**
+   * True from the click that changes weeks until the answer is on screen.
+   *
+   * Not the resource's own `loading`: between setting the anchor and the
+   * fetch starting, and again across Solid's state transitions while it
+   * refetches, what `loading` and `latest` report has twice now not matched
+   * what the screen shows. A signal we flip ourselves has no semantics to
+   * misread — off at mount, on in `shift`, off once new rows are rendered.
+   */
+  const [navigating, setNavigating] = createSignal(false);
+
+  createEffect(() => {
+    if (!navigating()) return;
+    // Reading through the guard above: every answer arrival runs this effect,
+    // but only an arrival after navigation clears the flag.
+    week.latest;
+    week.error;
+    setNavigating(false);
+  });
+
   const shift = (days: number) => {
     // Re-anchor from the answer's own start rather than from today, so two
     // clicks always move exactly two weeks even across a DST boundary.
+    setNavigating(true);
     setAnchor((week() ?? { start: Date.now() }).start + days * DAY_MS);
   };
 
@@ -137,13 +158,27 @@ export function TimesheetTable(): JSX.Element {
           </p>
         }
       >
-        {/* On a week change the resource keeps the previous sheet in `value`
-            while it refetches, but reads as `undefined` to `week()` unless
-            `latest` is asked for. The dim keeps the old grid on screen — a
-            blank pane reads as broken, a dimmed one as loading. */}
+        {/* On a week change the previous sheet stays put, dimmed, under a
+            spinner chip: a blank pane reads as broken, and the resource's own
+            loading/latest flags have twice not matched the screen. */}
         <Show when={week.latest} fallback={<p class="text-ink-4 text-sm">Loading…</p>}>
           {(data) => (
-            <div class="transition-opacity" classList={{ "opacity-40": week.loading }}>
+            <div class="relative transition-opacity" classList={{ "opacity-40": navigating() }}>
+              <Show
+                when={!navigating()}
+                fallback={
+                  <div class="absolute inset-x-0 top-0 z-10 flex justify-center">
+                    <span
+                      aria-live="polite"
+                      class="floating rounded-full px-3 py-1 text-ink-2 text-xs"
+                    >
+                      Loading week…
+                    </span>
+                  </div>
+                }
+              >
+                <span />
+              </Show>
               <table class="w-full border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr class="text-left">
