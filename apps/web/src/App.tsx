@@ -141,6 +141,13 @@ export function AppShell(): JSX.Element {
   const openTaskId = () => (search() as { task?: string }).task ?? null;
   const [expanded, setExpanded] = useExpanded();
 
+  // What `s`, `p`, `m`, `t` and their palette twins act on. While the panel is
+  // expanded the list is display:none, so the cursor names a row nobody can
+  // see — the task on screen is the open one, and acting on anything else is
+  // editing blind.
+  const actionTask = (): Task | null =>
+    (expanded() && tasks.get(openTaskId() ?? "")) || cursorTask();
+
   onCleanup(connect());
 
   const openTask = (task: Task) =>
@@ -181,9 +188,11 @@ export function AppShell(): JSX.Element {
    * already anchors this way.
    */
   const anchorForCursor = (): { x: number; y: number } => {
-    const task = cursorTask();
+    const task = actionTask();
     const rect = task ? document.getElementById(`task-${task.id}`)?.getBoundingClientRect() : null;
-    if (!rect) return { x: window.innerWidth / 2 - 120, y: 180 };
+    // A zero rect is the row still in the DOM behind an expanded panel; a menu
+    // anchored to it opens in the top-left corner.
+    if (!rect || rect.width === 0) return { x: window.innerWidth / 2 - 120, y: 180 };
     return { x: rect.left + 44, y: rect.bottom + 4 };
   };
 
@@ -392,7 +401,7 @@ export function AppShell(): JSX.Element {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
 
     const key = event.key;
-    const task = cursorTask();
+    const task = actionTask();
     const max = Math.max(0, rowTasks().length - 1);
 
     switch (key) {
@@ -656,7 +665,7 @@ export function AppShell(): JSX.Element {
       section: "Task",
       hint: "s",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (target) void openStatusMenu(target, anchorForCursor());
       },
     },
@@ -666,7 +675,7 @@ export function AppShell(): JSX.Element {
       section: "Task",
       hint: "p",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (!target) return;
         setMenu({ kind: "priority", task: target, statuses: [], anchor: anchorForCursor() });
         setUi("menu", "priority");
@@ -674,11 +683,11 @@ export function AppShell(): JSX.Element {
     },
     {
       id: "task:timer",
-      label: isTracking(cursorTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
+      label: isTracking(actionTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
       section: "Task",
       hint: "t",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (target) void toggleTimer(target);
       },
     },
