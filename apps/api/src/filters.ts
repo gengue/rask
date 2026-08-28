@@ -11,6 +11,7 @@ import { taskAssignees, taskCustomValues, tasks } from "@rask/schema";
 import {
   and,
   type Column,
+  eq,
   ilike,
   inArray,
   isNotNull,
@@ -105,14 +106,21 @@ export function toTsQuery(term: string): string | null {
 }
 
 /**
- * Name, custom id and description, each the way it deserves.
+ * Name, custom id, ClickUp id and description, each the way it deserves.
  *
- * Trigram `ILIKE` on the two short columns, because people type the middle of a
- * name and the number out of a custom id, and full text on the description,
+ * Trigram `ILIKE` on the two short columns, because people type the middle of
+ * a name and the number out of a custom id, and full text on the description,
  * because it is prose and substring matching over prose is both slower and
  * noisier. Measured on the 147,000-task mirror: description search was a 334ms
  * sequential scan with no index, 15-24ms with a trigram index, and 2.5-11ms
  * with this one.
+ *
+ * The ClickUp id matches with `=` and no index of its own: a pasted id is
+ * complete by definition — nobody types the middle of `86cbahrxg` the way
+ * they type the middle of a name — and `id` is the primary key, so equality
+ * is a btree probe. An `ILIKE '%…%'` branch here would need a fourth GIN
+ * index and, worse, would keep Postgres from building a bitmap over the
+ * indexed branches of the OR.
  *
  * Comments are deliberately not in here. See `searchTasks`.
  */
@@ -121,7 +129,11 @@ export function textCondition(term: string): SQL | undefined {
   if (trimmed.length < MIN_SEARCH_LENGTH) return undefined;
 
   const like = `%${trimmed}%`;
-  const parts: SQL[] = [ilike(tasks.name, like), ilike(tasks.customId, like)];
+  const parts: SQL[] = [
+    ilike(tasks.name, like),
+    ilike(tasks.customId, like),
+    eq(tasks.id, trimmed),
+  ];
 
   const query = toTsQuery(trimmed);
   if (query) parts.push(sql`${tasks.searchVector} @@ to_tsquery('simple', ${query})`);
