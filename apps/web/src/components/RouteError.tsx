@@ -15,7 +15,7 @@ export function RouteError(props: { error: unknown; reset?: () => void }): JSX.E
 
   return (
     <div class="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <div class="text-base text-ink">Something broke on the way to this view</div>
+      <div class="text-md text-ink">Something broke on the way to this view</div>
       <div class="max-w-[420px] break-words text-sm text-ink-3">{message()}</div>
       <div class="flex items-center gap-2 pt-1">
         <button

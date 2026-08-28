@@ -14,7 +14,7 @@ function Screen(props: { title: string; children: JSX.Element }): JSX.Element {
   return (
     <div class="flex flex-1 items-start justify-center overflow-y-auto px-6 pt-[18vh] pb-8">
       <div class="w-full max-w-[380px]">
-        <h2 class="font-medium text-base text-ink tracking-[-0.005em]">{props.title}</h2>
+        <h2 class="font-medium text-md text-ink tracking-[-0.005em]">{props.title}</h2>
         {props.children}
       </div>
     </div>
@@ -111,7 +111,7 @@ export function ListPicker(props: {
               <A
                 to="/list/$listId"
                 params={{ listId: list.id }}
-                class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-base text-ink-2 hover:bg-hover hover:text-ink"
+                class="flex h-7 items-center gap-2 rounded-[5px] px-2 text-md text-ink-2 hover:bg-hover hover:text-ink"
               >
                 <svg
                   width="14"

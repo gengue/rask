@@ -156,7 +156,7 @@ export function UnsupportedView(props: { view: View }): JSX.Element {
   return (
     <div class="flex flex-1 items-start justify-center overflow-y-auto px-6 pt-[18vh] pb-8">
       <div class="w-full max-w-[380px]">
-        <h2 class="font-medium text-base text-ink tracking-[-0.005em]">{props.view.name}</h2>
+        <h2 class="font-medium text-md text-ink tracking-[-0.005em]">{props.view.name}</h2>
         <p class="mt-1.5 text-ink-3 text-sm leading-relaxed">
           Rask does not draw {viewTypeLabel(props.view.type)} views. It shows tasks in a list, and a{" "}
           {viewTypeLabel(props.view.type)} is a different thing wearing the same tab — an imitation

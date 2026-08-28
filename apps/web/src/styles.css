@@ -5,10 +5,11 @@
  * Rask looks like a macOS desktop app, not a web page.
  *
  * That means: the system font (SF on macOS, so no webfont round trip and no
- * flash of fallback text), 13px base with tight tracking, near-black surfaces
- * separated by 1px hairlines instead of shadows, and one accent colour used
- * sparingly. Everything is flat. A drop shadow appears exactly once, on the
- * command palette, because that is the only surface that genuinely floats.
+ * flash of fallback text), a small type scale with tight tracking, near-black
+ * surfaces separated by 1px hairlines instead of shadows, and one accent
+ * colour used sparingly. Everything is flat. A drop shadow appears exactly
+ * once, on the command palette, because that is the only surface that
+ * genuinely floats.
  *
  * The colours themselves live in `theme.css`, which the landing page shares.
  */
@@ -38,8 +39,8 @@
   }
 
   /* Antialiasing that suits near-white text on near-black does not suit the
-     other way round: on a light background it thins the strokes and the same
-     13px type reads washed out. Light mode gets the browser's default. */
+     other way round: on a light background it thins the strokes and small
+     type reads washed out. Light mode gets the browser's default. */
   html.light body {
     -webkit-font-smoothing: auto;
   }
@@ -173,7 +174,10 @@
   font-size: var(--text-lg);
 }
 .prose-rask h2 {
-  font-size: var(--text-md);
+  /* Explicit rather than var(--text-md): md sits below base in the app's UI
+     ladder (nav chrome at 0.9rem under 1rem body), which here would render an
+     h2 smaller than the h3 below it. */
+  font-size: 1.125rem;
 }
 .prose-rask h3 {
   font-size: var(--text-base);

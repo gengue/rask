@@ -66,7 +66,7 @@ export function Sidebar(props: {
     >
       <header class="flex h-12 items-center gap-1.5 px-3">
         <LogoCompact size={20} />
-        <span class="flex-1 truncate font-medium text-base text-ink">Rask</span>
+        <span class="flex-1 truncate font-medium text-md text-ink">Rask</span>
         <IconButton label="New task  c" onClick={props.onQuickAdd}>
           <path d="M8 3.5v9M3.5 8h9" />
         </IconButton>
@@ -162,7 +162,7 @@ function SpaceNode(props: { space: Space }): JSX.Element {
         class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
         <Chevron open={isOpen(props.space.id)} muted={empty()} />
-        <span class="truncate text-base">{props.space.name}</span>
+        <span class="truncate text-md">{props.space.name}</span>
       </button>
 
       <Show when={isOpen(props.space.id)}>
@@ -186,7 +186,7 @@ function FolderNode(props: {
         class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
         <Chevron open={isOpen(props.folder.id)} muted={props.folder.lists.length === 0} />
-        <span class="truncate text-base">{props.folder.name}</span>
+        <span class="truncate text-md">{props.folder.name}</span>
       </button>
       <Show when={isOpen(props.folder.id)}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
@@ -224,7 +224,7 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
         // One string, not classList: `A` is a component, so Solid hands it
         // `classList` as an inert prop and nothing ever applies it. Every list
         // link rendered at full-brightness ink with no hover, active or not.
-        class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-7 pl-2 text-base ${
+        class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-7 pl-2 text-md ${
           active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
         }`}
       >
@@ -359,7 +359,7 @@ function NavItem(props: {
       // One string, not classList: `A` is a component, so Solid hands it
       // `classList` as an inert prop and nothing ever applies it. Every list
       // link rendered at full-brightness ink with no hover, active or not.
-      class={`flex h-7 items-center gap-2 rounded-[5px] px-2 text-base ${
+      class={`flex h-7 items-center gap-2 rounded-[5px] px-2 text-md ${
         active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
       }`}
     >

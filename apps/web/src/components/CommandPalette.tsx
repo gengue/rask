@@ -133,7 +133,7 @@ export function CommandPalette(props: {
                   command.run();
                   props.onClose();
                 }}
-                class="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-base"
+                class="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-md"
                 classList={{
                   "row-selected text-ink": active() === index(),
                   "text-ink-2": active() !== index(),

@@ -1,5 +1,6 @@
 import { parseInstant } from "@rask/clickup-client/vocabulary";
 import type { Assignee, CustomField } from "./api.ts";
+import { formatDuration } from "./format.ts";
 
 /**
  * Custom fields, as values rather than as markup.
@@ -161,6 +162,28 @@ export function formatFieldValue(type: string, config: unknown, value: unknown):
   }
   if (type === "users" && Array.isArray(value)) {
     return value.map((user: { username?: string }) => user.username ?? "?").join(", ");
+  }
+  /*
+   * A formula field is whatever its expression returns, and only the two
+   * built-in time variables are a duration — TASK_TIME_TRACKED_HOURS and
+   * TASK_TIME_ESTIMATED_HOURS arrive as decimal hours in a string
+   * ("6.483333333333333"). Every other formula is a plain number
+   * (NETWORKDAYS, ...) and must not read as "6h 29m", so the branch keys on
+   * the expression, not on the type.
+   */
+  if (type === "formula") {
+    const expression = (config as { formula?: string })?.formula ?? "";
+    if (
+      expression.includes("TASK_TIME_TRACKED_HOURS") ||
+      expression.includes("TASK_TIME_ESTIMATED_HOURS")
+    ) {
+      const hours = Number(value);
+      // Zero is the same nothing as unset: ClickUp's formula returns 0 for
+      // every task nobody has tracked against, and "0h" on hundreds of tasks
+      // is noise pretending to be data.
+      if (hours === 0) return "—";
+      if (hours > 0) return formatDuration(hours * 3_600_000) ?? String(value);
+    }
   }
   // location, formula, attachment and whatever ClickUp adds next. Printing raw
   // JSON at a person is worse than admitting we do not render this one.

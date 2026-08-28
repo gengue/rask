@@ -265,6 +265,12 @@ export function AppShell(): JSX.Element {
         closeMenu();
         void copy(clickUpTaskUrl(task.id), "ClickUp URL");
         return;
+      case "copy-id":
+        closeMenu();
+        // The custom id is what people search by in ClickUp; the opaque one is
+        // still a copyable address for tasks that never got one.
+        void copy(task.customId ?? task.id, "Task ID");
+        return;
       case "status":
         // Not `closeMenu` first: both of these replace the open popover in
         // place, and closing it would unmount the menu under the pointer.
@@ -802,7 +808,7 @@ export function AppShell(): JSX.Element {
                 when={searching()}
                 fallback={
                   <>
-                    <h1 class="truncate font-medium text-base text-ink tracking-[-0.005em]">
+                    <h1 class="truncate font-medium text-md text-ink tracking-[-0.005em]">
                       {viewTitle()}
                     </h1>
                     <span
@@ -856,7 +862,7 @@ export function AppShell(): JSX.Element {
                       ? "Search name, id and description…"
                       : "Search these results by name or id…"
                   }
-                  class="h-full min-w-0 flex-1 text-base"
+                  class="h-full min-w-0 flex-1 text-md"
                 />
                 <button
                   type="button"

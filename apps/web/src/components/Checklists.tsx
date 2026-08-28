@@ -206,7 +206,7 @@ function ChecklistBlock(props: {
                 type="button"
                 onDblClick={() => !pending() && setRenaming(true)}
                 title="Double-click to rename"
-                class="cursor-text font-medium text-base text-ink"
+                class="cursor-text font-medium text-md text-ink"
               >
                 {props.list.name}
               </button>
@@ -355,7 +355,7 @@ function Item(props: {
               type="button"
               onDblClick={() => !pending() && setEditing(true)}
               title={pending() ? "Syncing…" : "Double-click to edit"}
-              class="min-w-0 flex-1 cursor-text text-left text-base"
+              class="min-w-0 flex-1 cursor-text text-left text-md"
               classList={{
                 "pl-4": props.item.parentItemId !== null,
                 "text-ink-4 line-through": props.item.resolved,
@@ -479,7 +479,7 @@ export function InlineInput(props: {
           }
           event.stopPropagation();
         }}
-        class="min-w-0 flex-1 rounded-[5px] border border-line bg-elevated/70 px-2 py-1 text-base focus-within:border-line-strong"
+        class="min-w-0 flex-1 rounded-[5px] border border-line bg-elevated/70 px-2 py-1 text-md focus-within:border-line-strong"
       />
       <button
         type="button"

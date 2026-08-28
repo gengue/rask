@@ -82,7 +82,7 @@ export function Shortcuts(props: { onClose: () => void }): JSX.Element {
         aria-label="Keyboard shortcuts"
         class="floating relative w-[560px] rounded-xl px-6 py-5"
       >
-        <h2 class="pb-4 font-medium text-base text-ink">Keyboard shortcuts</h2>
+        <h2 class="pb-4 font-medium text-md text-ink">Keyboard shortcuts</h2>
 
         <div class="grid grid-cols-2 gap-x-8 gap-y-5">
           <For each={GROUPS}>

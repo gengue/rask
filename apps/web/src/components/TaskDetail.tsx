@@ -134,6 +134,33 @@ export function TaskDetail(props: {
     { initialValue: [] },
   );
   const [editingDescription, setEditingDescription] = createSignal(false);
+  /*
+   * ClickUp caps the rendered description at 200px; we give it 300px and the
+   * same expand affordance. Collapsed is the default so a long body never
+   * shoves the comments below the fold on open. `onMount` measures once the
+   * markdown is in the DOM; `overflowing` decides whether the toggle is
+   * rendered at all — a two-line description with an Expand button is noise.
+   */
+  const [descriptionExpanded, setDescriptionExpanded] = createSignal(false);
+  const [descriptionOverflows, setDescriptionOverflows] = createSignal(false);
+  let descriptionBox: HTMLDivElement | undefined;
+  const COLLAPSED_DESCRIPTION_HEIGHT = 300;
+  const measureDescription = () => {
+    // Compared against the collapsed cap, not clientHeight: once expanded the
+    // box grows to fit and clientHeight === scrollHeight, which would read as
+    // "fits" and un-render the only button that can collapse it again.
+    if (descriptionBox) {
+      setDescriptionOverflows(descriptionBox.scrollHeight > COLLAPSED_DESCRIPTION_HEIGHT);
+    }
+  };
+  onMount(() => {
+    measureDescription();
+    // The same description in a different task is a different height; re-measure.
+    createEffect(() => {
+      void task()?.description;
+      queueMicrotask(measureDescription);
+    });
+  });
 
   /** Optimistic edit of the open task. The collection rolls it back on failure. */
   const patch = (apply: (draft: Task) => void) => tasks.update(props.taskId, apply);
@@ -457,7 +484,7 @@ export function TaskDetail(props: {
                   class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-hover"
                 >
                   <StatusIcon type={task().statusType} color={task().statusColor} />
-                  <span class="text-base text-ink capitalize">{task().status ?? "None"}</span>
+                  <span class="text-md text-ink capitalize">{task().status ?? "None"}</span>
                 </button>
               </Property>
 
@@ -471,7 +498,7 @@ export function TaskDetail(props: {
                   class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
                 >
                   <PriorityIcon priority={task().priority} />
-                  <span class="text-base text-ink-2">
+                  <span class="text-md text-ink-2">
                     {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
                   </span>
                 </button>
@@ -488,13 +515,13 @@ export function TaskDetail(props: {
                 >
                   <Show
                     when={task().assignees.length > 0}
-                    fallback={<span class="text-base text-ink-4">Unassigned</span>}
+                    fallback={<span class="text-md text-ink-4">Unassigned</span>}
                   >
                     <For each={task().assignees}>
                       {(user) => (
                         <span class="flex items-center gap-1.5">
                           <Avatar user={user} size={17} />
-                          <span class="text-base text-ink-2">{user.username}</span>
+                          <span class="text-md text-ink-2">{user.username}</span>
                         </span>
                       )}
                     </For>
@@ -553,7 +580,7 @@ export function TaskDetail(props: {
               </Property>
 
               <Property label="List">
-                <span class="flex h-6 items-center truncate text-base text-ink-2">
+                <span class="flex h-6 items-center truncate text-md text-ink-2">
                   {task().listName ?? "—"}
                 </span>
               </Property>
@@ -576,26 +603,56 @@ export function TaskDetail(props: {
               <Show
                 when={editingDescription()}
                 fallback={
-                  <button
-                    type="button"
-                    // Named, or the button announces the whole body as its
-                    // name — several hundred words for one "edit this".
-                    aria-label="Edit description"
-                    onClick={() => setEditingDescription(true)}
-                    class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
-                  >
-                    <Show
-                      when={task().description}
-                      fallback={<span class="text-base text-ink-4">Add a description…</span>}
+                  <div>
+                    <button
+                      type="button"
+                      // Named, or the button announces the whole body as its
+                      // name — several hundred words for one "edit this".
+                      aria-label="Edit description"
+                      onClick={() => setEditingDescription(true)}
+                      class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
                     >
-                      {/* Sanitized in renderMarkdown. ClickUp descriptions are
-                          other people's input and never reach the DOM raw. */}
-                      <div
-                        class="prose-rask selectable text-base"
-                        innerHTML={renderMarkdown(task().description)}
-                      />
+                      <Show
+                        when={task().description}
+                        fallback={<span class="text-base text-ink-4">Add a description…</span>}
+                      >
+                        {/* Sanitized in renderMarkdown. ClickUp descriptions are
+                            other people's input and never reach the DOM raw. */}
+                        <div
+                          ref={descriptionBox}
+                          class="prose-rask selectable text-base"
+                          classList={{
+                            "overflow-hidden transition-[max-height] duration-200":
+                              !descriptionExpanded(),
+                          }}
+                          // The cap lives here and in COLLAPSED_DESCRIPTION_HEIGHT —
+                          // the measure reads the constant, the cap reads this
+                          // style, and writing it once keeps them from drifting
+                          // apart (Tailwind cannot see a computed class name, so
+                          // this is an inline style on purpose).
+                          style={{
+                            "max-height": descriptionExpanded()
+                              ? undefined
+                              : `${COLLAPSED_DESCRIPTION_HEIGHT}px`,
+                            "mask-image":
+                              !descriptionExpanded() && descriptionOverflows()
+                                ? "linear-gradient(to bottom, black 82%, transparent)"
+                                : undefined,
+                          }}
+                          innerHTML={renderMarkdown(task().description)}
+                        />
+                      </Show>
+                    </button>
+                    <Show when={descriptionOverflows()}>
+                      <button
+                        type="button"
+                        onClick={() => setDescriptionExpanded(!descriptionExpanded())}
+                        class="mx-auto mt-1 block rounded-[5px] px-2 py-1 text-xs text-ink-3 hover:bg-hover hover:text-ink"
+                      >
+                        {descriptionExpanded() ? "Collapse" : "Expand"}
+                      </button>
                     </Show>
-                  </button>
+                  </div>
                 }
               >
                 <MarkdownEditor
@@ -827,7 +884,7 @@ function DueField(props: {
       onChange={(next) => props.onChange(next == null ? null : new Date(next).toISOString())}
     >
       <span
-        class="text-base"
+        class="text-md"
         classList={{
           "text-urgent": label()?.tone === "overdue",
           "text-ink-2": label() != null && label()?.tone !== "overdue",
@@ -1526,7 +1583,7 @@ function FieldValue(props: {
   /** The value, or an invitation to set one. The same line under all three editors. */
   const label = () => (
     <span
-      class="truncate text-base"
+      class="truncate text-md"
       classList={{
         "text-ink-2": props.field.display !== "—",
         "text-ink-4": props.field.display === "—",
@@ -1540,10 +1597,7 @@ function FieldValue(props: {
     <Show
       when={pickable() || type() === "checkbox" || type() === "date" || typable()}
       fallback={
-        <span
-          class="flex h-6 items-center truncate text-base text-ink-2"
-          title={props.field.display}
-        >
+        <span class="flex h-6 items-center truncate text-md text-ink-2" title={props.field.display}>
           {props.field.display}
         </span>
       }

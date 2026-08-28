@@ -112,7 +112,7 @@ export function TaskRow(props: {
       {/* The title is already the brightest ink in the row; the active row used
           to nudge it to pure white, a difference of one step on a 4-step ladder
           that nobody could see and that turns invisible on a light background. */}
-      <span class="flex-1 truncate text-base text-ink">{props.task.name}</span>
+      <span class="flex-1 truncate text-md text-ink">{props.task.name}</span>
 
       <Show when={props.showList && props.task.listName}>
         {/* My Tasks spans 243 lists. Without this a row gives no clue which

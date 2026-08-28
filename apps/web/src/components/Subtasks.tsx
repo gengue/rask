@@ -66,7 +66,7 @@ export function ParentLink(props: { parent: TaskRef | null }): JSX.Element {
           </span>
           <span class="shrink-0 text-xs">Subtask of</span>
           <StatusIcon type={parent().statusType} color={parent().statusColor} size={12} />
-          <span class="truncate text-base">{parent().name}</span>
+          <span class="truncate text-md">{parent().name}</span>
         </button>
       )}
     </Show>
@@ -179,7 +179,7 @@ export function Subtasks(props: {
                     </span>
                   </Show>
                   <span
-                    class="flex-1 truncate text-base"
+                    class="flex-1 truncate text-md"
                     classList={{
                       "text-ink-4 line-through": isClosedType(subtask.statusType),
                       "text-ink": !isClosedType(subtask.statusType),
