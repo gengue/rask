@@ -536,15 +536,14 @@ export class ClickUpClient {
 
   // --- Time tracking ------------------------------------------------------
 
-  /*
+  /**
    * The timer running for the token's owner right now, or null.
    *
-   * No `assignee` parameter: ClickUp answers this endpoint for the token's own
-   * owner by design, and passing the id explicitly is a 403 TEAMM_002 on an
-   * OAuth token even when it names that same owner. `assignee` stays a
-   * parameter so callers read as intentional, but it does not travel.
+   * No assignee parameter, on purpose: with an OAuth token the explicit id is
+   * a 403 TEAMM_002 even when it names the owner, and the endpoint answers
+   * for the owner without it — which is the one person Rask ever asks about.
    */
-  getRunningTimeEntry(teamId: string, _assignee: string): Promise<ClickUpTimeEntry | null> {
+  getRunningTimeEntry(teamId: string): Promise<ClickUpTimeEntry | null> {
     return this.request(
       runningTimeEntryResponse,
       "GET",
@@ -589,22 +588,31 @@ export class ClickUpClient {
   }
 
   /**
-   * Entries on one task.
+   * Entries over a date window.
    *
    * The date window has to be spelled out every time, because ClickUp's
-   * default is the last 30 days and a task tracked last quarter would come
-   * back looking empty. `assignee` deliberately goes nowhere: on an OAuth
-   * token a comma-joined list of ids is a 403 TIMEENTRY_059, and without the
-   * parameter a task-scoped call answers with every entry on the task — the
-   * only thing Rask ever asks this endpoint for.
+   * default is the last 30 days and a week-old sheet would come back looking
+   * empty. `taskId` and `assignee` are each optional and each scopes the
+   * answer, but they must not travel together as a list: on an OAuth token a
+   * comma-joined `assignee` is a 403 TIMEENTRY_059, while a single id is
+   * accepted everywhere — a task-scoped call without the parameter answers
+   * with every entry on the task (what the entries panel wants), and an
+   * assignee-scoped one without `task_id` answers with that person's entries
+   * across the workspace (what the timesheet week asks for).
    */
   getTimeEntries(
     teamId: string,
-    params: { taskId: string; startDate: number; endDate: number },
+    params: {
+      taskId?: string;
+      assignee?: string;
+      startDate: number;
+      endDate: number;
+    },
   ): Promise<ClickUpTimeEntry[]> {
     return this.request(timeEntriesResponse, "GET", `/v2/team/${teamId}/time_entries`, {
       query: {
         task_id: params.taskId,
+        assignee: params.assignee,
         start_date: params.startDate,
         end_date: params.endDate,
       },

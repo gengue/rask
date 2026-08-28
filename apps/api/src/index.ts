@@ -47,6 +47,7 @@ import {
   statusesForList,
 } from "./queries.ts";
 import { timeRoutes } from "./time.ts";
+import { timesheetRoutes } from "./timesheet.ts";
 import { clickUpWebhookRoutes } from "./webhooks.ts";
 import {
   applyChecklistItemPatch,
@@ -928,6 +929,19 @@ api.route(
     clientFor,
     pushTo,
     refreshTask: (userId, taskId, options) => refreshTask(userId, taskId, options),
+  }),
+);
+
+api.route(
+  "/timesheet",
+  timesheetRoutes({
+    db,
+    clientFor,
+    // The sheet only needs the task row: paying for a comment walk per
+    // unknown task is waste, and a comment-insert failure there would abort
+    // the refresh before ingestTasks ran — leaving the sheet on "…" forever
+    // for tasks whose conversations it never asked about.
+    repairTask: (userId, taskId) => refreshTask(userId, taskId, { comments: false }),
   }),
 );
 

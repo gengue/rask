@@ -179,7 +179,7 @@ export function timeRoutes(deps: TimeDeps) {
     if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
     try {
-      const entry = await client.getRunningTimeEntry(user.teamId, user.id);
+      const entry = await client.getRunningTimeEntry(user.teamId);
       return c.json({ entry: entry ? toDto(entry) : null });
     } catch (error) {
       const { status, error: message } = upstream(error);
@@ -224,7 +224,7 @@ export function timeRoutes(deps: TimeDeps) {
     let failure: unknown = null;
 
     try {
-      const current = await client.getRunningTimeEntry(user.teamId, user.id);
+      const current = await client.getRunningTimeEntry(user.teamId);
       // Nothing moved, so there is nothing to repair and nothing to announce.
       if (current?.task?.id === taskId) {
         return c.json({ started: toDto(current), stopped: null });
@@ -267,7 +267,7 @@ export function timeRoutes(deps: TimeDeps) {
     if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
     try {
-      const current = await client.getRunningTimeEntry(user.teamId, user.id);
+      const current = await client.getRunningTimeEntry(user.teamId);
       if (!current) {
         pushTo(user.id, "timer", { entry: null });
         return c.json({ stopped: null });
