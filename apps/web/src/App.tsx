@@ -49,7 +49,15 @@ import { clickUpTaskUrl, raskTaskUrl, type TaskAction, taskMenuItems } from "./l
 import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
 import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
-import { clearFilters, closeOverlays, expandGroups, setUi, toggleGroup, ui } from "./lib/ui.ts";
+import {
+  clearFilters,
+  closeOverlays,
+  expandGroups,
+  setShowClosed,
+  setUi,
+  toggleGroup,
+  ui,
+} from "./lib/ui.ts";
 import {
   boardLayout,
   cursorGroup,
@@ -639,7 +647,7 @@ export function AppShell(): JSX.Element {
       id: "view:closed",
       label: ui.showClosed ? "Hide closed tasks" : "Show closed tasks",
       section: "View",
-      run: () => setUi("showClosed", !ui.showClosed),
+      run: () => setShowClosed(!ui.showClosed),
     },
     /*
      * The theme lives here rather than behind a settings page, because there
@@ -917,6 +925,7 @@ export function AppShell(): JSX.Element {
                 setting intact the moment you leave. */}
               <Show when={!viewIsFeed()} fallback={<InboxControls />}>
                 <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+                <ClosedToggle />
                 <GroupPicker />
               </Show>
             </header>
@@ -1121,6 +1130,43 @@ function InboxControls(): JSX.Element {
         </button>
       </Show>
     </>
+  );
+}
+
+/**
+ * ClickUp's "show closed tasks", as a button.
+ *
+ * The state is not new — `ui.showClosed` has always decided which statuses get
+ * a group or a column, and the palette has always been able to flip it. What
+ * was missing is that it looks like a setting. A saved view seeds the toggle
+ * from ClickUp's own `show_closed`, which is false on most boards, so the Done
+ * column was absent with nothing on screen saying it was a choice rather than a
+ * gap. `statusShown` in lib/view.ts is the rule this drives, on both layouts.
+ */
+function ClosedToggle(): JSX.Element {
+  return (
+    <button
+      type="button"
+      /* One name, whatever the state. A toggle that renames itself to "Hide
+         closed tasks" while `aria-pressed` also says it is on is read out as
+         both at once; the pressed state is the screen reader's to announce. */
+      aria-pressed={ui.showClosed}
+      aria-label="Show closed tasks"
+      title="Show closed tasks"
+      onClick={() => setShowClosed(!ui.showClosed)}
+      class="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-xs transition-colors"
+      classList={{
+        "bg-accent-soft text-ink": ui.showClosed,
+        "text-ink-4 hover:bg-hover hover:text-ink-2": !ui.showClosed,
+      }}
+    >
+      {/* The glyph does not change with the state, the chip does. Tinting it
+          with the accent read as a status that exists: 2.99:1 against the
+          check `StatusIcon` draws on top, in the light theme, which is under
+          every real status in the workspace. */}
+      <StatusIcon type="closed" color="var(--color-low)" size={12} />
+      <span>Closed</span>
+    </button>
   );
 }
 
