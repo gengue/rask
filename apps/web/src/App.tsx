@@ -53,6 +53,7 @@ import {
   clearFilters,
   closeOverlays,
   expandGroups,
+  type Layout,
   setShowClosed,
   setUi,
   toggleGroup,
@@ -925,6 +926,7 @@ export function AppShell(): JSX.Element {
                 setting intact the moment you leave. */}
               <Show when={!viewIsFeed()} fallback={<InboxControls />}>
                 <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+                <LayoutToggle />
                 <ClosedToggle />
                 <GroupPicker />
               </Show>
@@ -1130,6 +1132,72 @@ function InboxControls(): JSX.Element {
         </button>
       </Show>
     </>
+  );
+}
+
+/**
+ * Rows or columns, as two buttons.
+ *
+ * `b` and the palette have always flipped `ui.layout`, and nothing on screen
+ * said the board was there — the same gap the closed toggle below had. A saved
+ * view seeds the layout from ClickUp's own view type, so a list-typed view drew
+ * rows with no hint that columns were a keystroke away.
+ *
+ * Two buttons rather than one that flips, because with only two states the
+ * button showing what a click *does* and the button showing where you *are*
+ * look identical and mean opposite things. Both are on screen; the pressed one
+ * is the layout you are in.
+ */
+function LayoutToggle(): JSX.Element {
+  return (
+    <div class="flex shrink-0 items-center gap-0.5">
+      <LayoutButton
+        value="list"
+        label="List view"
+        d="M2.7 4h.01M2.7 8h.01M2.7 12h.01M6 4h7.3M6 8h7.3M6 12h7.3"
+      />
+      {/* Two columns of unequal height: three even ones read as the grouping
+          glyph next door rotated, which is the one thing this must not be. */}
+      <LayoutButton
+        value="board"
+        label="Board view"
+        d="M2.9 3.7h3.4v8.6H2.9zM9.7 3.7h3.4v5.2H9.7z"
+      />
+    </div>
+  );
+}
+
+function LayoutButton(props: { value: Layout; label: string; d: string }): JSX.Element {
+  const current = () => ui.layout === props.value;
+  return (
+    <button
+      type="button"
+      aria-pressed={current()}
+      aria-label={props.label}
+      /* The shortcut is named only on the button that would do what it does.
+         `b` flips the pair, so on the layout you are already in it would take
+         you off it, and a hint that reads as "press b for this" would be
+         pointing the wrong way. */
+      title={current() ? props.label : `${props.label}  b`}
+      onClick={() => setUi("layout", props.value)}
+      class="flex size-[22px] items-center justify-center rounded-[5px] transition-colors"
+      classList={{
+        "bg-accent-soft text-ink": current(),
+        "text-ink-4 hover:bg-hover hover:text-ink-2": !current(),
+      }}
+    >
+      {/* Round joins and caps on one shared path, so the board's corners and
+          the list's dots — zero-length segments — both come out of it. */}
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d={props.d}
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 
