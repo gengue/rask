@@ -17,7 +17,18 @@
 import { SQL } from "bun";
 
 const BASE = process.env.DATABASE_URL ?? "postgres://rask:rask@localhost:5432/rask";
-const NAMES = ["rask_test", "rask_test_api", "rask_test_worker", "rask_test_schema"];
+// No arguments recreates the per-package set; naming databases recreates just
+// those. The e2e globalSetup calls this with its own name rather than keeping
+// a second copy of the drop/create/migrate procedure.
+const NAMES =
+  process.argv.length > 2
+    ? process.argv.slice(2)
+    : ["rask_test", "rask_test_api", "rask_test_worker", "rask_test_schema"];
+
+for (const name of NAMES) {
+  // The names go into DDL unquoted, so refuse anything but a plain token.
+  if (!/^[a-z0-9_]+$/.test(name)) throw new Error(`suspicious database name: ${name}`);
+}
 
 function urlFor(name: string): string {
   const url = new URL(BASE);
