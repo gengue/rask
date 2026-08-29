@@ -1115,6 +1115,43 @@ html.xp aside[aria-label="Workspace"] .border-l {
   border-left-color: #8ea3c0;
 }
 
+/*
+ * The treeview expander: a nine-pixel box with a plus or a minus, which is the
+ * single loudest thing a Windows tree does and the one the chevron was not
+ * saying. The box is the <svg> itself — its own path is dropped and the two
+ * strokes are gradients, so nothing about the glyph has to come from markup.
+ * `.rotate-90` is how the component already spells "open", so the vertical
+ * stroke collapses to nothing there and the plus becomes a minus.
+ */
+html.xp aside[aria-label="Workspace"] .chevron {
+  width: 9px;
+  height: 9px;
+  border: 1px solid #7d92b3;
+  background-color: #ffffff;
+  background-image: linear-gradient(#0b3f9c 0 0), linear-gradient(#0b3f9c 0 0);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size:
+    5px 1px,
+    1px 5px;
+  /* The open state turns the chevron a quarter, and Tailwind spells that with
+     the standalone `rotate` property rather than a transform — so `transform:
+     none` cancels nothing and the minus comes out standing up. A box has no
+     business turning either way. */
+  rotate: none;
+  transform: none;
+}
+
+html.xp aside[aria-label="Workspace"] .chevron.rotate-90 {
+  background-size:
+    5px 1px,
+    0 0;
+}
+
+html.xp aside[aria-label="Workspace"] .chevron path {
+  display: none;
+}
+
 /* The palette opener is drawn as a dormant input, so under XP it becomes an
    actual one: white, sunken, square. `button.bg-hover` is the hook — it is the
    only control in the tree wearing the hover tint as its resting state. */
@@ -1298,6 +1335,160 @@ html.xp
   .rounded-full
 ) {
   border-radius: 3px;
+}
+
+/*
+ * Scrollbar arrow buttons. Chrome draws none unless they are styled, and a
+ * blue XP scrollbar with nothing at its ends is the one part of the chrome
+ * that reads as a web page. The sprite carries all four; the `:start`/`:end`
+ * pairs that would put a second button at the wrong end are dropped.
+ */
+html.xp ::-webkit-scrollbar-button {
+  display: block;
+  background-image: url("/xp/scroll-arrows.svg");
+  background-repeat: no-repeat;
+  background-size: 64px 16px;
+}
+
+html.xp ::-webkit-scrollbar-button:vertical:start:decrement {
+  height: 16px;
+  background-position: 0 0;
+}
+
+html.xp ::-webkit-scrollbar-button:vertical:end:increment {
+  height: 16px;
+  background-position: -16px 0;
+}
+
+html.xp ::-webkit-scrollbar-button:horizontal:start:decrement {
+  width: 16px;
+  background-position: -32px 0;
+}
+
+html.xp ::-webkit-scrollbar-button:horizontal:end:increment {
+  width: 16px;
+  background-position: -48px 0;
+}
+
+html.xp ::-webkit-scrollbar-button:vertical:start:increment,
+html.xp ::-webkit-scrollbar-button:vertical:end:decrement,
+html.xp ::-webkit-scrollbar-button:horizontal:start:increment,
+html.xp ::-webkit-scrollbar-button:horizontal:end:decrement {
+  display: none;
+}
+
+/*
+ * Focus is a dotted rectangle, not a ring. `.row-selected` is excluded because
+ * it draws its own in white — black dots on the Explorer highlight are gone.
+ * Text fields keep opting out for the reason the base layer gives: they show a
+ * caret and take the keystrokes, and XP does not ring them either.
+ */
+html.xp :focus-visible:not(.row-selected) {
+  outline: 1px dotted #000000;
+  outline-offset: -3px;
+}
+
+html.xp input:focus-visible,
+html.xp textarea:focus-visible {
+  outline: none;
+}
+
+/*
+ * Every small action in the detail panel is a blue link, which is what a task
+ * pane is made of. This is the selector Brutal named as its ceiling and did not
+ * take — it reaches all eleven small buttons, not the two the reference paints
+ * — because here reaching all eleven is the correct answer rather than the
+ * collateral: XP has no quiet grey action.
+ */
+html.xp aside[aria-label="Task detail"] button.text-xs {
+  color: var(--color-accent);
+}
+
+html.xp aside[aria-label="Task detail"] button.text-xs:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* The sunken bevel: the dark edge is the border, the light one sits outside
+   it on the window face. Two surfaces claim to be recessed, so both get it. */
+html.xp main,
+html.xp aside[aria-label="Workspace"] {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7);
+}
+
+/* Fields pool their shadow in the top-left corner, the way a sunken box does
+   under a light coming from there. */
+html.xp textarea,
+html.xp aside[aria-label="Workspace"] button.bg-hover {
+  box-shadow: inset 1px 1px 0 #ccd6e3;
+}
+
+/*
+ * The stop error (src/components/RouteError.tsx).
+ *
+ * Fixed and above everything, including the title bar and the menu bar: a blue
+ * screen drawn politely inside a window is not a blue screen. Unscoped like
+ * `.ember-banner`, because the component only renders it under XP — the theme
+ * check lives there, next to the decision to render at all.
+ */
+.xp-bsod {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  /* Near the top, not floating in the middle: the original was eighty columns
+     of text mode starting four lines down, and vertical centring on a wide
+     monitor is the tell that it is a web page. */
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 14vh 28px 40px;
+  background: #0000aa;
+  /* 13.3:1. The one pairing in this theme the audit cannot see, because it is
+     not built from tokens — a stop error is not part of the palette. */
+  color: #ffffff;
+  font-family: "Lucida Console", "DejaVu Sans Mono", var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+
+/* A flex column rather than `p + p` margins: one declaration instead of two,
+   and no descendant selector for the linter to worry about. */
+.xp-bsod-page {
+  display: flex;
+  width: 100%;
+  max-width: 78ch;
+  flex-direction: column;
+  gap: 1.5em;
+}
+
+.xp-bsod-link {
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+}
+
+.xp-bsod-link:hover {
+  text-decoration: underline;
+}
+
+.xp-caret {
+  animation: xp-caret 1.06s steps(1, end) infinite;
+}
+
+@keyframes xp-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* A cursor blinking forever is a real problem for some readers, and the screen
+   says everything it has to say without it. */
+@media (prefers-reduced-motion: reduce) {
+  .xp-caret {
+    animation: none;
+  }
 }
 
 /*

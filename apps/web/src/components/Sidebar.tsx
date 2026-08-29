@@ -436,7 +436,10 @@ export function Chevron(props: { open: boolean; muted?: boolean }): JSX.Element 
       height="12"
       viewBox="0 0 16 16"
       fill="none"
-      class="shrink-0 transition-transform duration-100"
+      /* `chevron` is a styling hook, not a utility: the XP skin turns this
+         glyph into a treeview's +/- box and needs a name to reach it by.
+         Pinned in skin-hooks.test.ts. */
+      class="chevron shrink-0 transition-transform duration-100"
       classList={{ "rotate-90": props.open, "opacity-35": props.muted }}
       aria-hidden="true"
     >

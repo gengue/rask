@@ -49,6 +49,10 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/Sidebar.tsx",
     markup: "bg-hover",
   },
+  // The tree's +/- boxes are drawn out of this glyph, path and all.
+  { selector: ".chevron", provider: "../src/components/Sidebar.tsx", markup: "chevron" },
+  // The stop error's own class, which only exists to be styled.
+  { selector: ".xp-bsod", provider: "../src/components/RouteError.tsx", markup: "xp-bsod" },
   // Brutal only, from here down.
   // The group-header band. Board's washes are divs and spans, not buttons.
   {
