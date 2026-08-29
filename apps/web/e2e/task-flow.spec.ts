@@ -444,6 +444,35 @@ test("pastes an image into the description and keeps the link", async ({ page })
 });
 
 /**
+ * The layout toggle.
+ *
+ * `b` flipped `ui.layout` long before anything on screen did, so what this has
+ * to check is that the two agree in both directions: a click has to redraw the
+ * panel, and the shortcut has to move the buttons. A unit test can read the
+ * store and see neither.
+ */
+test("the layout buttons switch list and board, and stay in step with `b`", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1");
+
+  const rows = page.getByRole("listbox", { name: "Tasks" });
+  const asList = page.getByRole("button", { name: "List view" });
+  const asBoard = page.getByRole("button", { name: "Board view" });
+  await expect(rows).toBeVisible();
+  await expect(asList).toHaveAttribute("aria-pressed", "true");
+  await expect(asBoard).toHaveAttribute("aria-pressed", "false");
+
+  await asBoard.click();
+  await expect(rows).toHaveCount(0);
+  await expect(asBoard).toHaveAttribute("aria-pressed", "true");
+  await expect(asList).toHaveAttribute("aria-pressed", "false");
+
+  await page.keyboard.press("b");
+  await expect(rows).toBeVisible();
+  await expect(asList).toHaveAttribute("aria-pressed", "true");
+});
+
+/**
  * The closed-task toggle, which is the board's Done column.
  *
  * End-to-end rather than another unit test for the same reason the quick filter
