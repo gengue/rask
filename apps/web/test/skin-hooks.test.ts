@@ -86,7 +86,55 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskDetail.tsx",
     markup: "<header",
   },
-  { selector: "main > div > header", provider: "../src/App.tsx", markup: "<header" },
+  // Shared by every skin that repaints the list header band. A marker class
+  // rather than `main > div > header`, which was how all of them reached it:
+  // that middle div exists only to carry `hidden` when a task is expanded, so
+  // unwrapping it is a change nobody would think twice about and every skin
+  // would shed the band with nothing red.
+  { selector: ".view-header", provider: "../src/App.tsx", markup: "view-header" },
+  // The view's name and its count, which three skins turn into a plate.
+  { selector: "main header h1", provider: "../src/App.tsx", markup: "<h1" },
+  { selector: ".bg-chip", provider: "../src/App.tsx", markup: "bg-chip" },
+  // The four labels the app title-cases from data. Read as a marker the same
+  // way `.uppercase` is.
+  { selector: ".capitalize", provider: "../src/components/TaskList.tsx", markup: "capitalize" },
+  // Tag chips on a row: outlined by Brutal, shouted by Cyberpunk.
+  {
+    selector: '[role="option"] .border',
+    provider: "../src/components/TaskRow.tsx",
+    markup: "border",
+  },
+  // Menu rows, which Cyberpunk shouts wherever the menu opens.
+  {
+    selector: '[role="listbox"]',
+    provider: "../src/components/Menu.tsx",
+    markup: 'role="listbox"',
+  },
+  // Cyberpunk only, from here down.
+  // The HUD strips hang off #root, which is in the page, not in a component.
+  { selector: "#root", provider: "../index.html", markup: 'id="root"' },
+  // The detail panel's title bar, where "TASK DETAILS" is injected. The loose
+  // form, unlike Aqua's above: nothing here depends on the header staying a
+  // direct child, and TaskDetail has exactly one.
+  {
+    selector: 'aside[aria-label="Task detail"] header',
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "<header",
+  },
+  // The property rail's label, which exists only to be repainted.
+  {
+    selector: ".field-label",
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "field-label",
+  },
+  // The task title, which is a textarea while it is being edited.
+  { selector: "textarea.text-lg", provider: "../src/components/TaskDetail.tsx", markup: "text-lg" },
+  // The cursor's left hairline, which becomes the lit tab.
+  {
+    selector: '[role="option"] > span.bg-accent',
+    provider: "../src/components/TaskRow.tsx",
+    markup: "bg-accent",
+  },
 ];
 
 describe("every selector hook the easter-egg skins rely on", () => {
@@ -166,26 +214,29 @@ describe("brutal's floating restore", () => {
  * The other thing the skins hang off and do not own: the dock breakpoint.
  *
  * Everything ornamental gets out of the way below it, because down there the
- * sidebar is a drawer and every pixel is contested. A media query cannot read
- * a custom property, so each of those blocks is a hand-copy of
- * --breakpoint-dock — three of them now, one per skin.
+ * sidebar is a drawer and every pixel is contested. Each of those blocks used
+ * to hand-copy --breakpoint-dock, one per skin, under a comment explaining
+ * that a media query cannot read a custom property — and moving the token left
+ * every copy behind, quietly and one-sidedly: the layout switches at the new
+ * width while the ornaments keep hiding at the old one, so for the band
+ * between them the drawer is drawn with a rail through it. Nothing throws.
  *
- * Moving the token leaves all three behind, and the failure is quiet and
- * one-sided: the layout switches at the new width while the ornaments keep
- * hiding at the old one, so for the band between them the drawer is drawn with
- * a rail through it, or the wall margins fight `inset-y-0`. Nothing throws.
+ * `theme()` reads the token at build time, which is what retired the copies.
+ * This is the same invariant from the other end — a literal creeping back in
+ * is a copy nobody will remember to move.
  */
-describe("the dock breakpoint the skins repeat", () => {
-  const token = palette.match(/--breakpoint-dock:\s*(\d+)px/)?.[1];
-  const copies = [...stylesheet.matchAll(/@media \(width < (\d+)px\)/g)].map((match) => match[1]);
+describe("the dock breakpoint the skins hang off", () => {
+  // Lazy up to `) {`, not `[^)]+`: the value is itself a call with a paren in
+  // it, and a greedy-free character class stops halfway through `theme(…)`.
+  const dockQueries = [...stylesheet.matchAll(/@media \(width < (.+?)\) \{/g)].map((m) => m[1]);
 
-  test("the token and the copies were actually found", () => {
-    // Without this the assertion below passes on two empty sets.
-    expect(token).toMatch(/^\d+$/);
-    expect(copies.length).toBeGreaterThan(2);
+  test("the queries were actually found", () => {
+    // Without this the assertion below passes on an empty set.
+    expect(dockQueries.length).toBeGreaterThan(2);
+    expect(palette).toMatch(/--breakpoint-dock:\s*\d+px/);
   });
 
-  test("every width query in the stylesheet is that number", () => {
-    expect([...new Set(copies)]).toEqual([token]);
+  test("every width query reads the token rather than repeating its value", () => {
+    expect([...new Set(dockQueries)]).toEqual(["theme(--breakpoint-dock)"]);
   });
 });

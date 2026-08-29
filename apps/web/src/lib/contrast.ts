@@ -56,28 +56,26 @@ export type Tokens = Record<string, string>;
 
 /**
  * The token blocks: `@theme { … }` is dark, and each `html.<name>` block
- * re-points the same names. A theme added to the stylesheet has to be added
- * here too, or it ships unaudited.
+ * re-points the same names.
+ *
+ * Found by scanning rather than named in a list. A list is a second place to
+ * add a theme, and forgetting it is silent in the worst way: `audit` skips
+ * tokens it cannot find, so an unlisted theme does not fail, it simply never
+ * gets checked. Scanning means a theme is audited for having a block at all.
+ *
+ * The first block of each name wins. Every theme is written twice in the
+ * stylesheet — once for its colours and once for `color-scheme` and the
+ * floating shadow — and only the first carries tokens.
  *
  * Only opaque hex values are collected. `--color-hover` and `--color-scrim` are
  * deliberately translucent overlays and have no fixed ratio to measure.
  */
-export function parseThemes(css: string): {
-  dark: Tokens;
-  light: Tokens;
-  ember: Tokens;
-  brutal: Tokens;
-  xp: Tokens;
-  aqua: Tokens;
-} {
-  return {
-    dark: parseBlock(css, "@theme"),
-    light: parseBlock(css, "html.light"),
-    ember: parseBlock(css, "html.ember"),
-    brutal: parseBlock(css, "html.brutal"),
-    xp: parseBlock(css, "html.xp"),
-    aqua: parseBlock(css, "html.aqua"),
-  };
+export function parseThemes(css: string): Record<string, Tokens> {
+  const themes: Record<string, Tokens> = { dark: parseBlock(css, "@theme") };
+  for (const [, name] of css.matchAll(/^html\.(\w+) \{/gm)) {
+    if (name && !(name in themes)) themes[name] = parseBlock(css, `html.${name}`);
+  }
+  return themes;
 }
 
 function parseBlock(css: string, selector: string): Tokens {

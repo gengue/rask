@@ -1048,7 +1048,10 @@ function CustomFields(props: {
 function Property(props: { label: string; children: JSX.Element }): JSX.Element {
   return (
     <div class="flex items-center gap-3 px-2">
-      <span class="w-[104px] shrink-0 truncate text-sm text-ink-3" title={props.label}>
+      {/* `field-label` is a styling hook, not a layout class: the easter-egg
+        skins repaint every property name at once and a width is not an
+        identity. Pinned in skin-hooks.test.ts. */}
+      <span class="field-label w-[104px] shrink-0 truncate text-sm text-ink-3" title={props.label}>
         {props.label}
       </span>
       <div class="min-w-0 flex-1">{props.children}</div>

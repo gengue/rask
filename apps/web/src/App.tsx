@@ -893,7 +893,13 @@ export function AppShell(): JSX.Element {
           {/* The expanded task takes the whole panel; the list is still there,
             one Escape away. */}
           <div class="flex min-w-0 flex-1 flex-col" classList={{ hidden: expanded() }}>
-            <header class="flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5">
+            {/* `view-header` is a styling hook, not a layout class: the
+              easter-egg skins repaint this whole band, and the only other way
+              to reach it is `main > div > header` — through a wrapper div that
+              exists purely to carry `hidden` when a task is expanded. Unwrap
+              that and the skins shed silently, which no test can see. Pinned in
+              skin-hooks.test.ts. */}
+            <header class="view-header flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5">
               {/* The only way back to the workspace tree for a mouse below
                 `dock`, where the sidebar is a drawer. */}
               <button

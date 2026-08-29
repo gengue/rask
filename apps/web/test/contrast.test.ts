@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { AA_LARGE, AA_TEXT, audit, contrastRatio, parseThemes } from "../src/lib/contrast.ts";
+import { THEMES } from "../src/lib/theme.ts";
 
 const css = await Bun.file(new URL("../src/theme.css", import.meta.url)).text();
 const themes = parseThemes(css);
+
+/** Indexing a Record is `Tokens | undefined`, and a missing block is a bug. */
+function tokensFor(name: string) {
+  const found = themes[name];
+  if (!found) throw new Error(`no ${name} block in the stylesheet`);
+  return found;
+}
 
 /**
  * The colours, checked against the standard rather than against an opinion.
@@ -50,11 +58,10 @@ describe("the stylesheet", () => {
   });
 
   test("the themes are actually different", () => {
-    expect(themes.dark.app).not.toBe(themes.light.app);
-    expect(themes.ember.app).not.toBe(themes.dark.app);
-    expect(themes.brutal.app).not.toBe(themes.light.app);
-    expect(themes.xp.app).not.toBe(themes.light.app);
-    expect(themes.aqua.app).not.toBe(themes.light.app);
+    // Every wall distinct, rather than a hand-picked pair per theme — the same
+    // list-kept-in-step-by-hand this file exists to catch elsewhere.
+    const walls = Object.values(themes).map((tokens) => tokens.app);
+    expect(new Set(walls).size).toBe(walls.length);
   });
 
   /*
@@ -68,20 +75,22 @@ describe("the stylesheet", () => {
    * two places at once.
    */
   /*
-   * `parseThemes` names its blocks explicitly, so a stylesheet block it does
-   * not know about ships unaudited — a fourth theme could quietly skip every
-   * AA check. This closes that door: any `html.<name>` block in theme.css
-   * must be a theme the audit returns.
+   * The seam between the menu and the palette.
+   *
+   * `parseThemes` finds the blocks by scanning, so a theme can no longer ship
+   * unaudited by being left off a list — which also made the old
+   * every-block-is-audited check tautological. What it cannot see is a theme
+   * that ships with no block at all: one the menu offers and the stylesheet
+   * has never heard of, where every colour falls through to dark and nothing
+   * errors. This fails in both directions instead.
    */
-  test("every html.<name> block in the stylesheet is audited", () => {
-    const declared = new Set([...css.matchAll(/html\.(\w+)\s*\{/g)].map((match) => match[1]));
-    for (const name of declared) {
-      expect(Object.keys(themes)).toContain(name);
-    }
+  test("the audited themes are exactly the ones the menu offers", () => {
+    const menu = THEMES.map(([value]) => value).filter((value) => value !== "system");
+    expect(Object.keys(themes).sort()).toEqual(menu.sort());
   });
 
   test("every theme defines the same set of tokens", () => {
-    const dark = Object.keys(themes.dark).sort().join();
+    const dark = Object.keys(tokensFor("dark")).sort().join();
     // Named rather than asserted one theme per line: the per-line form was a
     // list of theme names kept in step by hand, which is the thing this test
     // exists to catch happening in the stylesheet.
