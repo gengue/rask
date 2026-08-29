@@ -449,6 +449,36 @@ test("pastes an image into the description and keeps the link", async ({ page })
 });
 
 /**
+ * The editor's footer promises "esc to cancel", so Escape has to mean that —
+ * back out of the edit — and never fall through to the shell, whose own
+ * Escape closes the whole panel.
+ */
+test("Escape cancels the description edit instead of closing the task", async ({ page }) => {
+  // The same seeded task the paste test opens, for the same reason.
+  const taskId = "t2601";
+
+  await page.goto("/__dev-login");
+  await page.goto(`/list/L1?task=${taskId}`);
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await detail.getByRole("button", { name: "Edit description" }).click();
+
+  const editor = detail.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.type("discarded on cancel ");
+  await page.keyboard.press("Escape");
+
+  // Back to the rendered body, panel still open — and the typing gone: cancel
+  // discards, it must never ride the blur into a commit.
+  await expect(detail.getByRole("button", { name: "Edit description" })).toBeVisible();
+  await expect(detail).not.toContainText("discarded on cancel");
+
+  // A second Escape is the shell's: now the panel goes.
+  await page.keyboard.press("Escape");
+  await expect(detail).not.toBeVisible();
+});
+
+/**
  * The layout toggle.
  *
  * `b` flipped `ui.layout` long before anything on screen did, so what this has
