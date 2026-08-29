@@ -59,3 +59,45 @@ export function toggleSubtaskField(field: SubtaskField): void {
     // Private mode, or a full quota. The choice still holds for this session.
   }
 }
+
+/**
+ * A boolean reading preference with the same lifecycle as the columns above:
+ * read once at import, flipped from a button, kept in localStorage so a reload
+ * does not undo it.
+ */
+function persistedFlag(key: string, fallback: boolean) {
+  const read = (): boolean => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallback : raw === "1";
+    } catch {
+      return fallback;
+    }
+  };
+  const [flag, setFlag] = createSignal(read());
+  const toggle = (): void => {
+    const next = !flag();
+    setFlag(next);
+    try {
+      localStorage.setItem(key, next ? "1" : "0");
+    } catch {
+      // Private mode, or a full quota. The choice still holds for this session.
+    }
+  };
+  return [flag, toggle] as const;
+}
+
+/**
+ * Whether the panel's subtask rows hide the ones already closed.
+ *
+ * Distinct from the list view's `showClosed`: that is about which tasks a view
+ * shows, this is about how much of a parent's history the panel replays. The
+ * header keeps counting done/total either way, so nothing hidden is unsaid.
+ */
+export const [hideDoneSubtasks, toggleHideDoneSubtasks] = persistedFlag(
+  "rask.subtasks.hideDone",
+  false,
+);
+
+/** Whether the expanded task view draws its subtasks as an index rail on the left. */
+export const [subtaskIndexOpen, toggleSubtaskIndex] = persistedFlag("rask.subtasks.index", false);

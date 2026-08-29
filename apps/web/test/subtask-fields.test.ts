@@ -65,6 +65,31 @@ describe("a choice", () => {
   });
 });
 
+describe("the two flags", () => {
+  test("start off, and a flip survives the reload", async () => {
+    const first = await load();
+    expect(first.hideDoneSubtasks()).toBe(false);
+    expect(first.subtaskIndexOpen()).toBe(false);
+    first.toggleHideDoneSubtasks();
+    first.toggleSubtaskIndex();
+
+    const second = await load(Object.fromEntries(store));
+
+    expect(second.hideDoneSubtasks()).toBe(true);
+    expect(second.subtaskIndexOpen()).toBe(true);
+  });
+
+  test("a flip back survives too", async () => {
+    const first = await load({ "rask.subtasks.hideDone": "1" });
+    expect(first.hideDoneSubtasks()).toBe(true);
+    first.toggleHideDoneSubtasks();
+
+    const second = await load(Object.fromEntries(store));
+
+    expect(second.hideDoneSubtasks()).toBe(false);
+  });
+});
+
 describe("a storage key that is not ours", () => {
   test("falls back rather than rendering a column that does not exist", async () => {
     const { showsField, subtaskFields } = await load({
