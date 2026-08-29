@@ -503,3 +503,455 @@ html.ember aside[aria-label="Workspace"]::after {
 html.ember .row-selected {
   box-shadow: inset 0 0 0 1px rgb(140 110 70 / 0.55);
 }
+
+/*
+ * Brutal's set dressing.
+ *
+ * The tokens in theme.css make Brutal a colour scheme; this makes it a poster.
+ * Same contract as Ember: the materials are SVGs in public/brutal/, and
+ * everything hangs off selector hooks the hooks test pins, so a rename in a
+ * component sheds the skin loudly rather than silently.
+ *
+ * Where Ember only tinted, this one repaints. The reference is polychrome —
+ * a hot pink Filter, a yellow Status, teal group chips, violet section labels
+ * — and a poster painted in one ink is not the reference. So the Memphis
+ * palette lives here as its own five names, and every pairing built from it is
+ * annotated with the ratio it was chosen for: `contrast.ts` reads theme.css
+ * and cannot see this file, so these are hand-checked and have to say so.
+ *
+ * The one thing the reference does that the palette could not: white on hot
+ * pink is 3.6:1. Ink on it is 5.1:1, so the poster's black-on-magenta wins and
+ * the reference's white lettering is what gets sacrificed — the same bargain
+ * light mode documents for its due-date amber.
+ */
+html.brutal {
+  --brutal-ink: #131316;
+  --brutal-teal: #2ee0c6;
+  --brutal-pink: #f0417e;
+  --brutal-yellow: #ffd93d;
+  --brutal-violet: #5233e8;
+  /* Nothing blurs. Two offsets and a hard edge, everywhere. */
+  --brutal-lift: 3px 3px 0 var(--brutal-ink);
+}
+
+/* The wall: violet graph paper strewn with confetti. Both live on the body
+   itself, not a fixed overlay, so panels cover them and the shapes only show
+   where the wall does — the margins, and the gap between the two cards. */
+html.brutal body {
+  background-image: url("/brutal/confetti.svg"), url("/brutal/grid.svg");
+  background-size:
+    620px 620px,
+    26px 26px;
+}
+
+/*
+ * Two cards on a wall, not one window with a divider.
+ *
+ * `main` stops being a surface: it keeps the flex layout and gives up its
+ * background, border and clipping, so the list and the detail panel each
+ * become a pasted card with the wall showing between and around them. The
+ * margin is 22px rather than the 8px gutters the other themes use — the wall,
+ * its grid and its confetti are the theme, and at 8px they read as a
+ * rendering artefact rather than a place.
+ */
+html.brutal main {
+  margin: 22px;
+  gap: 20px;
+  background: none;
+  border: 0;
+  overflow: visible;
+}
+
+html.brutal main > div,
+html.brutal aside[aria-label="Task detail"] {
+  background-color: var(--color-panel);
+  background-image: url("/brutal/paper.svg");
+  background-size: 360px 360px;
+  border: 2px solid var(--brutal-ink);
+  box-shadow: 5px 5px 0 var(--brutal-ink);
+  /* `main` gave up its clipping, so each card has to do its own. */
+  overflow: hidden;
+}
+
+/*
+ * Floating menus are cream paper wherever they open — including anchored
+ * inside the black sidebar, whose scope below re-points the whole ink ladder
+ * light. The menu is `position: fixed` but still a DOM child of the sidebar,
+ * and custom properties inherit through the anchor, so a menu opened there
+ * painted pale grey on cream.
+ *
+ * Restoring the theme-block values explicitly is the only fix CSS has: there
+ * is no "inherit from :root" for a custom property. That makes this a second
+ * copy of the `html.brutal` block in theme.css, so it has to match token for
+ * token with what the sidebar re-points — `skin-hooks.test.ts` pins both
+ * halves, because a drifted copy is wrong only inside menus opened from the
+ * sidebar, which is the last place anyone looks.
+ */
+html.brutal .floating {
+  background-image: url("/brutal/paper.svg");
+  background-size: 360px 360px;
+  --color-ink: #0e0e11;
+  --color-ink-2: #17171b;
+  --color-ink-3: #1b1b20;
+  --color-ink-4: #1e1e24;
+  --color-ink-prose: #121216;
+  --color-line: #131316;
+  --color-line-strong: #000000;
+  --color-accent: #16123f;
+  --color-accent-soft: #16123f24;
+  --color-on-accent: #ffd93d;
+  --color-urgent: #6f0f20;
+  --color-high: #553305;
+  --color-ok: #123f1e;
+  --color-hover: rgb(0 0 0 / 0.06);
+  --color-selected: rgb(0 0 0 / 0.09);
+  --color-chip: rgb(0 0 0 / 0.07);
+  --color-wash: rgb(0 0 0 / 0.035);
+  --color-scrollbar: #131316;
+  --color-scrollbar-hover: #000000;
+}
+
+/*
+ * The sidebar is the reference's one dark slab, with a teal spine down its
+ * open edge. Opposite polarity to the audited palette, so the whole ink ladder
+ * is re-pointed inside the scope — ratios on #131316: ink 18.2, ink-2 13.9,
+ * ink-3 11.5, ink-4 9.2, prose 16.4, accent (the yellow) 13.5, ok 7.4 — all
+ * past the floors the audit enforces elsewhere. The status tones come back to
+ * their dark-theme values for the same reason: oxblood on near-black is
+ * invisible.
+ */
+html.brutal aside[aria-label="Workspace"] {
+  background: var(--brutal-ink);
+  border-right: 6px solid var(--brutal-teal);
+  --color-ink: #fdfdfa;
+  --color-ink-2: #d9d9e2;
+  --color-ink-3: #c6c6d2;
+  --color-ink-4: #b6b6c3;
+  --color-ink-prose: #ececf2;
+  --color-line: #34343e;
+  --color-line-strong: #52525f;
+  --color-accent: #ffd93d;
+  --color-accent-soft: #ffd93d29;
+  --color-on-accent: var(--brutal-ink);
+  --color-urgent: #f2606a;
+  --color-high: #f2994a;
+  --color-ok: #2ecd6f;
+  --color-hover: rgb(255 255 255 / 0.09);
+  --color-selected: rgb(255 255 255 / 0.13);
+  --color-chip: rgb(255 255 255 / 0.1);
+  --color-wash: rgb(255 255 255 / 0.05);
+  --color-scrollbar: #3a3a46;
+  --color-scrollbar-hover: #52525f;
+}
+
+/* Every word in the tree is shouted, which is what makes it a poster and not
+   a file browser. The footer's name goes with them. */
+html.brutal aside[aria-label="Workspace"] a,
+html.brutal aside[aria-label="Workspace"] .text-md {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+}
+
+/* The open list, in teal with an ink outline. Ink on this teal is 11.1:1, so
+   the whole ladder collapses onto near-black inside the chip. */
+html.brutal aside[aria-label="Workspace"] .row-selected {
+  background: var(--brutal-teal);
+  box-shadow: inset 0 0 0 2px var(--brutal-ink);
+  --color-ink: var(--brutal-ink);
+  --color-ink-2: var(--brutal-ink);
+  --color-ink-3: #1f1f26;
+  --color-ink-4: #1f1f26;
+  --color-accent: var(--brutal-ink);
+}
+
+/* My Tasks is the reference's one standing button rather than a nav row:
+   yellow, outlined, lifted. Ink on it is 13.5:1. It stays yellow when it is
+   also the open route — it reads as a button, and a button does not become a
+   different colour for being where you are. */
+html.brutal aside[aria-label="Workspace"] a[href="/"] {
+  background: var(--brutal-yellow);
+  box-shadow:
+    inset 0 0 0 2px var(--brutal-ink),
+    var(--brutal-lift);
+  margin-bottom: 5px;
+  --color-ink: var(--brutal-ink);
+  --color-ink-2: var(--brutal-ink);
+}
+
+/* Section labels in the tree are pasted tags, not quiet captions. */
+html.brutal aside[aria-label="Workspace"] .uppercase {
+  align-self: flex-start;
+  background: var(--brutal-yellow);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 1px 8px;
+  margin-bottom: 4px;
+}
+
+/*
+ * The list header: an outlined title plate, a violet count, and the two
+ * controls the reference paints loudest.
+ *
+ * In the reference that whole row sits on the wall, above the card — the card
+ * starts at the tabs. Reproducing that literally would mean the card's paper,
+ * border and shadow all starting 48px down inside their own element, which is
+ * a pseudo-element and a stacking context threaded through a scroller that
+ * already documents why it must not become a containing block. Painting the
+ * band with the wall instead puts the same plate and the same two buttons on
+ * the same violet, inside the card's outline rather than above it, for three
+ * declarations.
+ */
+html.brutal main > div > header {
+  background-color: var(--color-app);
+  background-image: url("/brutal/grid.svg");
+  background-size: 26px 26px;
+  border-bottom: 2px solid var(--brutal-ink);
+}
+
+/* Small header controls read as pressed-out chips, the way everything
+   clickable does in the reference. Filter and the grouping picker override
+   the fill below; this is what the rest get. */
+html.brutal main > div > header button {
+  border: 2px solid var(--brutal-ink);
+  background-color: var(--color-overlay);
+  color: var(--brutal-ink);
+  padding-inline: 5px;
+}
+
+html.brutal main header h1 {
+  background: var(--color-overlay);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 3px 11px;
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+html.brutal main header h1 + .bg-chip {
+  background: var(--brutal-violet);
+  color: #ffffff; /* 7.0:1 */
+  border: 2px solid var(--brutal-ink);
+  padding: 2px 8px;
+}
+
+/* Filter, in hot pink. Ink on it is 5.1:1. */
+html.brutal [aria-label="Add a filter"] {
+  background: var(--brutal-pink);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 0 8px;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+/* The grouping picker — "Status" in the reference — in yellow. It is the only
+   header control with a `capitalize` label, which is the hook. Ink 13.5:1. */
+html.brutal main header button:has(> span.capitalize) {
+  background: var(--brutal-yellow);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 0 8px;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+/*
+ * Group headers are a chip and a counter sitting on the paper, not a tinted
+ * band across it. The band goes; the label becomes the reference's teal chip
+ * (ink 11.1:1) and the count its own outlined box.
+ */
+html.brutal button.bg-wash {
+  background-color: transparent;
+  border-bottom: 0;
+}
+
+html.brutal button.bg-wash > span.capitalize {
+  background: var(--brutal-teal);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 1px 10px;
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+html.brutal button.bg-wash > span.bg-chip {
+  background: var(--color-overlay);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  padding: 1px 7px;
+}
+
+/*
+ * Tags are outlined stickers rather than tinted washes.
+ *
+ * `!important` because TaskRow writes the border and the fill as an inline
+ * style, derived from the tag's own ClickUp colour, and an inline style beats
+ * every stylesheet rule regardless of specificity. Only the border is taken:
+ * the fill stays the tag's colour, which is the part the row is trying to
+ * say, and is exactly what a poster would outline rather than repaint.
+ */
+html.brutal [role="option"] .border {
+  /* biome-ignore lint/complexity/noImportantStyles: the value it overrides is
+     an inline style, which no specificity can outrank */
+  border-color: var(--brutal-ink) !important;
+  font-weight: 700;
+}
+
+/* Rows are ruled in marker, and the cursor's left hairline becomes the
+   reference's fat yellow tab. */
+html.brutal [role="option"] {
+  border-bottom-style: dashed;
+  border-bottom-color: var(--color-line-strong);
+}
+
+html.brutal [role="option"] > span.bg-accent:first-of-type {
+  width: 6px;
+  background: var(--brutal-yellow);
+}
+
+/*
+ * The cursor is a violet slab with white ink, the reference's selected row.
+ * Darker than the wall token on purpose: white needs 4.5:1 and the wall only
+ * gives 3.6. Ratios on #5233e8: ink (white) 7.0, ink-2 6.6, ink-3 6.3,
+ * ink-4 6.0, accent (light yellow) 5.5; the status tints all sit above 5.
+ */
+html.brutal .row-selected {
+  background: var(--brutal-violet);
+  box-shadow: inset 0 0 0 2px var(--brutal-ink);
+  --color-ink: #ffffff;
+  --color-ink-2: #f1edff;
+  --color-ink-3: #e7e1ff;
+  --color-ink-4: #ded6ff;
+  --color-ink-prose: #ffffff;
+  --color-accent: #ffe066;
+  --color-urgent: #ffb3ba;
+  --color-high: #ffd28f;
+  --color-ok: #a5f0b8;
+  --color-low: #d9d3ff;
+}
+
+/* Headings are shouted: every uppercase label goes heavy and a touch wider. */
+html.brutal .uppercase {
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+/* The detail panel's section labels are the reference's violet tabs. The h3 is
+   every titled section's heading, and `section.border-t` is the same hook
+   Ember hangs its lozenge on. White on violet is 7.0:1. */
+html.brutal aside[aria-label="Task detail"] section h3 {
+  /* The h3 is itself a flex row (label plus count), so it is a block that
+     would otherwise stripe the full width instead of sitting as a tab. */
+  width: fit-content;
+  background: var(--brutal-violet);
+  color: #ffffff;
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 2px 9px;
+}
+
+/* Attachments and Time entries hang their action inside the heading, so the
+   tab swallows it. Give it back its own edge: a cream chip on the violet,
+   ink 16.7:1. */
+html.brutal aside[aria-label="Task detail"] section h3 button {
+  background: var(--color-overlay);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  padding: 0 6px;
+  margin-left: 8px;
+}
+
+/* ponytail: the reference paints "+ Add checklist" and "+ Add subtask" as pink
+   buttons and they stay plain here. Both are `button.-mx-1.text-xs`, which
+   nine other small actions in the panel also are, so the only selector that
+   reaches the two of them reaches all eleven. Ceiling: two buttons duller than
+   the reference. Upgrade path: a marker class in Checklists.tsx and
+   Subtasks.tsx, pinned in the hooks test like every other hook here. */
+
+/* The task title is the poster's headline. */
+html.brutal aside[aria-label="Task detail"] h1,
+html.brutal aside[aria-label="Task detail"] textarea.text-lg {
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.005em;
+}
+
+/* Nothing is filleted. --radius-panel is already 0; this catches the ad-hoc
+   radii spelled as utilities. Circles (avatars, dots) keep being circles. */
+html.brutal
+:is([class*="rounded-["], .rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl):not(
+  .rounded-full
+) {
+  border-radius: 0;
+}
+
+html.brutal ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+}
+
+/* Every disc gets the marker outline. Outline, not box-shadow: the stacked
+   avatars draw their overlap ring with Tailwind's ring-2, which is a
+   box-shadow this must not replace. */
+html.brutal .rounded-full {
+  outline: 1.5px solid var(--brutal-ink);
+  outline-offset: -1px;
+}
+
+/* Long-form inputs are pasted paper slips: sharp, double-ruled in ink. */
+html.brutal textarea {
+  background: var(--color-overlay);
+  border-radius: 0;
+  box-shadow: inset 0 0 0 2px var(--brutal-ink);
+}
+
+html.brutal textarea::placeholder {
+  font-weight: 600;
+}
+
+/* The solid accent button — Comment, and its siblings — is violet with white
+   lettering, 7.0:1, lifted like everything else that can be pressed. */
+html.brutal button.bg-accent {
+  background-color: var(--brutal-violet);
+  color: #ffffff;
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+/* Pictures in descriptions read as pasted photos. */
+html.brutal .prose-rask img {
+  border: 2px solid var(--brutal-ink);
+  border-radius: 0;
+}
+
+/*
+ * Below the dock breakpoint the sidebar is a drawer over the list and every
+ * pixel is contested, so the wall margins collapse back to the other themes'
+ * gutters and the cards keep only their outline. The flat textures stay; they
+ * cost no room. `width < 1090px` is --breakpoint-dock (theme.css); a media
+ * query cannot read the token, so the number is repeated here — keep them in
+ * step.
+ */
+@media (width < 1090px) {
+  html.brutal main {
+    margin: 8px;
+    gap: 0;
+  }
+
+  html.brutal main > div,
+  html.brutal aside[aria-label="Task detail"] {
+    box-shadow: none;
+  }
+
+  html.brutal aside[aria-label="Workspace"] {
+    border-right-width: 2px;
+  }
+}
