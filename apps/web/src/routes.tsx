@@ -93,8 +93,13 @@ const TRUTHY = new Set<unknown>([true, 1, "1", "true"]);
 const rootRoute = createRootRoute({
   component: AppShell,
   // A throw during render otherwise unmounts the entire tree and leaves a white
-  // window until someone reloads.
+  // window until someone reloads. The adapter implements this with Solid's own
+  // <ErrorBoundary> around the root match, so every child route lands here too —
+  // a second boundary inside the shell would only shadow this one.
   errorComponent: (props) => <RouteError error={props.error} reset={props.reset} />,
+  // The boundary swallows what it catches: without this, a production crash
+  // leaves the fallback on screen and nothing in the console to debug it by.
+  onCatch: (error) => console.error(error),
   validateSearch: (search: Record<string, unknown>): AppSearch => ({
     task: typeof search.task === "string" ? search.task : undefined,
     // `1` as readily as `true`, because this one gets typed by hand into a URL
