@@ -23,6 +23,7 @@ test("switches theme from the menu and keeps it across a reload", async ({ page 
     ["Aqua", "aqua"],
     ["Ember", "ember"],
     ["Brutalist", "brutal"],
+    ["Windows XP", "xp"],
     ["Dark", "dark"],
     ["Light", "light"],
   ] as const) {

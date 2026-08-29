@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * The easter-egg skins (Ember, Brutal, Aqua) hang off selectors they do not own:
+ * The easter-egg skins (Ember, Brutal, XP, Aqua) hang off selectors they do not
+ * own:
  * aria-labels and utility classes that live in component markup. A rename over
  * there — the detail panel's label, `bg-panel` becoming `bg-panel/95`, the
  * section border class — sheds the skin with no error anywhere, which is
@@ -36,6 +37,28 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskDetail.tsx",
     markup: "bg-accent",
   },
+  // Shared by more than one skin, so filed under none of them: XP's blue
+  // caption bar and Aqua's title bar are the same header, and both of them
+  // dress the workspace search field.
+  {
+    selector: 'aside[aria-label="Workspace"] > header',
+    provider: "../src/components/Sidebar.tsx",
+    markup: "<header",
+  },
+  // `bg-hover` as a base class is unique to the search field in the sidebar —
+  // every other control there spells it `hover:bg-hover`, a different class
+  // token — so the class run is the hook rather than the bare name.
+  {
+    selector: "button.bg-hover",
+    provider: "../src/components/Sidebar.tsx",
+    markup: "bg-hover px-2",
+  },
+  // XP only, from here down. The treeview's dotted rules.
+  { selector: ".border-l", provider: "../src/components/Sidebar.tsx", markup: "border-l" },
+  // The tree's +/- boxes are drawn out of this glyph, path and all.
+  { selector: ".chevron", provider: "../src/components/Sidebar.tsx", markup: "chevron" },
+  // The stop error's own class, which only exists to be styled.
+  { selector: ".xp-bsod", provider: "../src/components/RouteError.tsx", markup: "xp-bsod" },
   // Brutal only, from here down.
   // The group-header band. Board's washes are divs and spans, not buttons.
   {
@@ -55,28 +78,15 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskRow.tsx",
     markup: 'role="option"',
   },
-  // Aqua only, from here down. The three headers it turns into toolbars have
-  // to stay direct children of the landmarks they hang off, which is what the
-  // `>` in each selector is asserting.
-  {
-    selector: 'aside[aria-label="Workspace"] > header',
-    provider: "../src/components/Sidebar.tsx",
-    markup: "<header",
-  },
+  // Aqua only, from here down. The headers it turns into toolbars have to stay
+  // direct children of the landmarks they hang off, which is what the `>` in
+  // each selector is asserting.
   {
     selector: 'aside[aria-label="Task detail"] > header',
     provider: "../src/components/TaskDetail.tsx",
     markup: "<header",
   },
   { selector: "main > div > header", provider: "../src/App.tsx", markup: "<header" },
-  // The workspace search field. `bg-hover` as a base class is unique to it in
-  // the sidebar — every other control there spells it `hover:bg-hover` — so
-  // the class run is the hook, not the bare token.
-  {
-    selector: "button.bg-hover",
-    provider: "../src/components/Sidebar.tsx",
-    markup: "bg-hover px-2",
-  },
 ];
 
 describe("every selector hook the easter-egg skins rely on", () => {
@@ -149,5 +159,33 @@ describe("brutal's floating restore", () => {
     const missing = Object.keys(sidebar).filter((name) => !(name in restored));
 
     expect(missing).toEqual([]);
+  });
+});
+
+/**
+ * The other thing the skins hang off and do not own: the dock breakpoint.
+ *
+ * Everything ornamental gets out of the way below it, because down there the
+ * sidebar is a drawer and every pixel is contested. A media query cannot read
+ * a custom property, so each of those blocks is a hand-copy of
+ * --breakpoint-dock — three of them now, one per skin.
+ *
+ * Moving the token leaves all three behind, and the failure is quiet and
+ * one-sided: the layout switches at the new width while the ornaments keep
+ * hiding at the old one, so for the band between them the drawer is drawn with
+ * a rail through it, or the wall margins fight `inset-y-0`. Nothing throws.
+ */
+describe("the dock breakpoint the skins repeat", () => {
+  const token = palette.match(/--breakpoint-dock:\s*(\d+)px/)?.[1];
+  const copies = [...stylesheet.matchAll(/@media \(width < (\d+)px\)/g)].map((match) => match[1]);
+
+  test("the token and the copies were actually found", () => {
+    // Without this the assertion below passes on two empty sets.
+    expect(token).toMatch(/^\d+$/);
+    expect(copies.length).toBeGreaterThan(2);
+  });
+
+  test("every width query in the stylesheet is that number", () => {
+    expect([...new Set(copies)]).toEqual([token]);
   });
 });

@@ -31,14 +31,14 @@
         }
         // Any theme that names itself is honoured as stored; anything else —
         // absent, unreadable, a name this build no longer has — follows the OS.
-        const theme = ["light", "dark", "ember", "brutal", "aqua"].includes(stored)
+        const theme = ["light", "dark", "ember", "brutal", "xp", "aqua"].includes(stored)
           ? stored
           : window.matchMedia("(prefers-color-scheme: dark)").matches
             ? "dark"
             : "light";
         document.documentElement.classList.add(theme);
-        // Ember is a dark theme as far as native controls go; Brutal and Aqua
-        // are light.
+        // Ember is a dark theme as far as native controls go; Brutal, XP and
+        // Aqua are light.
         document.documentElement.style.colorScheme =
           theme === "dark" || theme === "ember" ? "dark" : "light";
       })();
