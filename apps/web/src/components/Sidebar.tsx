@@ -1,5 +1,6 @@
-import { createEffect, createMemo, For, type JSX, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import type { Me, Space } from "../lib/api.ts";
+import { celebrate } from "../lib/celebration.tsx";
 import { inboxPredicate, inboxSeenAt, inboxTruncated } from "../lib/inbox.ts";
 import { useLiveTasks } from "../lib/live.ts";
 import { A, useParams, useRouterState } from "../lib/nav.tsx";
@@ -13,9 +14,10 @@ import {
 } from "../lib/sidebar-state.ts";
 import { signOut } from "../lib/signed-out.ts";
 import { connected } from "../lib/sse.ts";
-import { nextTheme, setTheme, themeChoice, themeLabel } from "../lib/theme.ts";
+import { setTheme, THEMES, themeChoice, themeLabel } from "../lib/theme.ts";
 import { Avatar } from "./Avatar.tsx";
 import { LogoCompact } from "./Logo.tsx";
+import { Menu } from "./Menu.tsx";
 
 /**
  * The sidebar.
@@ -59,8 +61,27 @@ export function Sidebar(props: {
   const unreadRows = useLiveTasks(createMemo(() => inboxPredicate(props.me?.id, inboxSeenAt())));
   const unread = () => unreadRows().length;
 
+  /*
+   * Inbox zero, celebrated. Only the moment it *empties* counts: mounting with
+   * nothing unread is a quiet morning, not a victory, so the first reading
+   * only arms the comparison. `celebrate` is a no-op outside the Ember theme.
+   *
+   * Unlike the task banner, this one is deliberately not limited to local
+   * actions: the count is the badge's own live number, and if a teammate's
+   * change is what emptied it, the inbox is clean either way. In that rare
+   * remote case there is no user gesture, so the chime is refused by autoplay
+   * policy and only the banner shows — which is the right degradation.
+   */
+  let lastUnread: number | undefined;
+  createEffect(() => {
+    const count = unread();
+    if (lastUnread !== undefined && lastUnread > 0 && count === 0) celebrate("inboxCleared");
+    lastUnread = count;
+  });
+
   return (
     <aside
+      aria-label="Workspace"
       class="flex w-[236px] shrink-0 flex-col max-dock:absolute max-dock:inset-y-0 max-dock:left-0 max-dock:z-40 max-dock:border-line max-dock:border-r max-dock:bg-app"
       classList={{ "max-dock:hidden": !props.open }}
     >
@@ -469,56 +490,87 @@ function useRevealActiveList(spaces: () => Space[]): void {
 }
 
 /**
- * The theme, as one button.
+ * The theme, as one button opening a menu.
  *
  * It was only in the command palette, which is where every other action lives
  * — and which nobody finds by looking, because there is nothing to look at.
  * Somebody wanting light mode has no reason to guess that ⌘K holds it.
  *
- * Three states cycling rather than a two-way toggle, because "System" is not
- * the same as whichever of the two the system happens to be right now, and it
- * is the default: a toggle would offer no way back to it. The icon carries the
- * current state and the tooltip names what the next press does, so one button
- * says all three things without a menu.
+ * It used to cycle: three states behind one press, the tooltip naming the
+ * next. Ember made it four, and four is past what a blind press can carry —
+ * getting from Light back to System now meant a tour through the two dark
+ * themes, a flash of near-black each. A menu names all four and costs one
+ * more click only when changing, which is the rare case.
  */
 function ThemeButton(): JSX.Element {
-  const next = () => nextTheme(themeChoice());
+  const [anchor, setAnchor] = createSignal<{ x: number; y: number } | null>(null);
 
   return (
-    <button
-      type="button"
-      onClick={() => setTheme(next())}
-      title={`Theme: ${themeLabel(themeChoice())} — switch to ${themeLabel(next())}`}
-      aria-label={`Theme: ${themeLabel(themeChoice())}. Switch to ${themeLabel(next())}`}
-      class="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
-    >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <Show when={themeChoice() === "system"}>
-          {/* A display: the theme is whatever the machine says. */}
-          <path
-            d="M2.5 3.5h11v7h-11v-7ZM6 13h4M8 10.5V13"
-            stroke="currentColor"
-            stroke-width="1.3"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </Show>
-        <Show when={themeChoice() === "light"}>
-          <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-            <circle cx="8" cy="8" r="3" />
-            <path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" />
-          </g>
-        </Show>
-        <Show when={themeChoice() === "dark"}>
-          <path
-            d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1Z"
-            stroke="currentColor"
-            stroke-width="1.3"
-            stroke-linejoin="round"
-          />
-        </Show>
-      </svg>
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setAnchor({ x: rect.left, y: rect.top - 8 });
+        }}
+        title={`Theme: ${themeLabel(themeChoice())}`}
+        aria-label={`Theme: ${themeLabel(themeChoice())}. Choose a theme`}
+        class="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <Show when={themeChoice() === "system"}>
+            {/* A display: the theme is whatever the machine says. */}
+            <path
+              d="M2.5 3.5h11v7h-11v-7ZM6 13h4M8 10.5V13"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </Show>
+          <Show when={themeChoice() === "light"}>
+            <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+              <circle cx="8" cy="8" r="3" />
+              <path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" />
+            </g>
+          </Show>
+          <Show when={themeChoice() === "dark"}>
+            <path
+              d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1Z"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linejoin="round"
+            />
+          </Show>
+          <Show when={themeChoice() === "ember"}>
+            {/* A flame, for the theme lit by one. */}
+            <path
+              d="M8 1.8c2.2 2.3 4.3 4.3 4.3 6.9a4.3 4.3 0 0 1-8.6 0C3.7 6.1 5.8 4.1 8 1.8Zm0 9.7a2 2 0 0 0 2-2c0-1.1-.9-2-2-3.1-1.1 1.1-2 2-2 3.1a2 2 0 0 0 2 2Z"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linejoin="round"
+            />
+          </Show>
+        </svg>
+      </button>
+      <Menu
+        items={THEMES.map(([value, label]) => ({
+          id: value,
+          label,
+          hint: themeChoice() === value ? "on" : undefined,
+        }))}
+        anchor={anchor()}
+        placeholder="Theme..."
+        width={180}
+        up
+        onSelect={(id) => {
+          const choice = THEMES.find(([value]) => value === id)?.[0];
+          if (choice) setTheme(choice);
+          setAnchor(null);
+        }}
+        onClose={() => setAnchor(null)}
+      />
+    </>
   );
 }
 

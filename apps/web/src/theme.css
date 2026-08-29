@@ -257,6 +257,59 @@ html.light {
 }
 
 /*
+ * Ember.
+ *
+ * The easter egg: a warm near-black lit by firelight, picked from the theme
+ * menu like the other two. It is a full citizen, not a novelty layer — the
+ * same token set as light, audited by the same script against the same AA
+ * floors, so "due today" is as readable by candlelight as anywhere else.
+ *
+ * Everything it does not name falls through to the dark values in `@theme`,
+ * which is the right fallback: the interaction tints are white overlays on a
+ * near-black surface in both, and `color-scheme` stays dark via `:root`.
+ *
+ * The serif stack is the theme. Every component asks for `--font-sans` by
+ * role, so re-pointing one variable redresses the whole app without a single
+ * component knowing — the same trick the colours use, applied to type.
+ *
+ * The set dressing — stone, leather, frames, vignette — lives in the
+ * client's styles.css under the same class, because this file is shared
+ * with the landing page and the landing page stays bare.
+ */
+html.ember {
+  --color-app: #0a0807;
+  --color-panel: #14100a;
+  --color-elevated: #1c1610;
+  --color-overlay: #211a12;
+
+  --color-line: #32281a;
+  --color-line-strong: #4e3d27;
+
+  --color-ink: #f0e6d2;
+  --color-ink-2: #b5a78d;
+  --color-ink-3: #a09378;
+  --color-ink-4: #97896d;
+  --color-ink-prose: #d9ccb3;
+
+  --color-accent: #e5933c;
+  --color-accent-soft: #e5933c29;
+  --color-on-accent: #241606;
+
+  --color-urgent: #e8683f;
+  --color-high: #d9a13c;
+  --color-low: #8a7d68;
+  --color-ok: #89a54a;
+
+  --color-scrollbar: #3d3020;
+  --color-scrollbar-hover: #4f4030;
+
+  --color-code: #d9b877;
+  --color-selection: #3a2c15;
+
+  --font-sans: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+}
+
+/*
  * Tells the browser which way round everything native goes: form controls, the
  * canvas before our CSS lands, and the scrollbars we do not style. The inline
  * script sets the same thing on the element so it applies on the first paint,

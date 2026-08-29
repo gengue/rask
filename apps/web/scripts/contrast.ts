@@ -10,10 +10,11 @@
 import { audit, parseThemes } from "../src/lib/contrast.ts";
 
 const css = await Bun.file(new URL("../src/theme.css", import.meta.url)).text();
-const findings = audit(parseThemes(css));
+const themes = parseThemes(css);
+const findings = audit(themes);
 const failures = findings.filter((f) => f.ratio < f.min);
 
-for (const theme of ["dark", "light"]) {
+for (const theme of Object.keys(themes)) {
   console.log(`\n${theme}`);
   for (const finding of findings.filter((entry) => entry.theme === theme)) {
     const mark = finding.ratio < finding.min ? "FAIL" : "ok  ";
