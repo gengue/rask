@@ -9,6 +9,7 @@ import {
   toDateInput,
 } from "../lib/format.ts";
 import { reconcileStorage } from "../lib/reconcile-storage.ts";
+import { heldValue } from "../lib/resource.ts";
 import { elapsed, isTracking, running, stopTimer, toggleTimer } from "../lib/timer.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -65,16 +66,14 @@ export function TimeEntries(props: { taskId: string }): JSX.Element {
   });
 
   /*
-   * Read through `state`, never by calling the accessor unguarded.
-   *
-   * A resource accessor re-throws whatever its fetcher rejected with, and this
-   * one talks to ClickUp — an expired token answers 409. Read plainly, that
-   * throw escapes into the detail panel's render and takes the whole task with
-   * it: description, comments, checklists, everything, over a panel nobody was
-   * looking at. The section says it failed and the rest of the task survives.
+   * `heldValue`, never `entries()`. This resource talks to ClickUp — an
+   * expired token answers 409, so the plain read can throw over a panel nobody
+   * was looking at; and every expand after the first is a fetch in flight, so
+   * the plain read suspended the whole page to the router's boundary for the
+   * length of a ClickUp round trip. The section says it failed and the rest of
+   * the task survives.
    */
-  const rows = () =>
-    entries.state === "ready" || entries.state === "refreshing" ? (entries() ?? []) : [];
+  const rows = () => heldValue(entries) ?? [];
   const failed = () => entries.state === "errored";
 
   /*

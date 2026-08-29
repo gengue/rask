@@ -1,6 +1,7 @@
 import { placeholderId } from "@rask/clickup-client/vocabulary";
 import { createResource, createSignal, type JSX, onMount, Show } from "solid-js";
 import { api } from "../lib/api.ts";
+import { readyValue } from "../lib/resource.ts";
 import { tasks } from "../lib/store.ts";
 import { StatusIcon } from "./StatusIcon.tsx";
 
@@ -25,7 +26,9 @@ export function QuickAdd(props: {
     () => props.listId,
     (listId) => api.statuses(listId).catch(() => []),
   );
-  const initial = () => statuses()?.[0] ?? null;
+  // `readyValue`, because the plain accessor read while the fetch is in
+  // flight unmounted the whole page behind the box until the statuses came.
+  const initial = () => readyValue(statuses)?.[0] ?? null;
 
   onMount(() => input.focus());
 
