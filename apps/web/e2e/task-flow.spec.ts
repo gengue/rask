@@ -371,6 +371,63 @@ test("picks the columns a subtask row shows, and keeps the task open on the way 
 });
 
 /**
+ * Hiding done subtasks, and the index rail the expanded view can grow.
+ *
+ * The seeded subtask statuses come out of a PRNG, so the test makes its own
+ * facts first: one subtask is patched to done through the API and the counts
+ * are read back from the same response the panel will render. What only a
+ * browser can catch is the wiring — the toggle filtering the rows the reader
+ * sees, and the rail existing only where the layout has room for it.
+ */
+test("hides done subtasks on request, and the expanded view grows an index rail", async ({
+  page,
+}) => {
+  const taskId = "t2601";
+  await page.goto("/__dev-login");
+
+  const before = await (await page.request.get(`/api/tasks/${taskId}`)).json();
+  const firstSub = before.subtasks[0];
+  await page.request.patch(`/api/tasks/${firstSub.id}`, { data: { status: "done" } });
+  const detailJson = await (await page.request.get(`/api/tasks/${taskId}`)).json();
+  const openCount = detailJson.subtasks.filter(
+    (sub: { statusType: string }) => sub.statusType !== "done" && sub.statusType !== "closed",
+  ).length;
+
+  await page.goto(`/list/L1?task=${taskId}`);
+  const section = page.locator("section", {
+    has: page.getByRole("heading", { name: /Subtasks/i }),
+  });
+  await expect(section.locator("li")).toHaveCount(detailJson.subtasks.length);
+
+  await section.getByRole("button", { name: "Hide done" }).click();
+  await expect(section.locator("li")).toHaveCount(openCount);
+
+  // Collapsed there is no room for a rail, so its toggle only exists expanded.
+  await expect(page.getByRole("button", { name: "Show subtask index" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Expand task" }).click();
+  await page.getByRole("button", { name: "Show subtask index" }).click();
+
+  const rail = page.getByRole("navigation", { name: "Subtasks" });
+  await expect(rail).toBeVisible();
+  // The rail obeys the same "Hide done" the section does.
+  await expect(rail.locator("li")).toHaveCount(openCount);
+
+  // Clicking an entry opens that subtask; the rail then has nothing to index.
+  const target = detailJson.subtasks.find(
+    (sub: { statusType: string }) => sub.statusType !== "done" && sub.statusType !== "closed",
+  );
+  await rail.locator("li button").first().click();
+  await expect(page).toHaveURL(new RegExp(`task=${target.id}`));
+
+  // Both choices are preferences: they survive a reload.
+  await page.goto(`/list/L1?task=${taskId}&expanded=1`);
+  await expect(page.getByRole("navigation", { name: "Subtasks" }).locator("li")).toHaveCount(
+    openCount,
+  );
+  await expect(section.getByRole("button", { name: "Show done" })).toBeVisible();
+});
+
+/**
  * A screenshot pasted into the description becomes an attachment and a link.
  *
  * Stubbed at the network edge on purpose. The upload is the one write that

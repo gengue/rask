@@ -65,9 +65,10 @@ const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.tsx").then((m) => ({ default: m.MarkdownEditor })),
 );
 
+import { subtaskIndexOpen, toggleSubtaskIndex } from "../lib/subtask-fields.ts";
 import { Menu, type MenuItem } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
-import { ParentLink, Subtasks } from "./Subtasks.tsx";
+import { ParentLink, SubtaskIndex, Subtasks } from "./Subtasks.tsx";
 import { TimeControl, TimeEntries } from "./Time.tsx";
 
 /**
@@ -341,6 +342,27 @@ export function TaskDetail(props: {
       />
 
       <header class="flex h-12 shrink-0 items-center gap-2 border-line/70 border-b px-4">
+        {/* On the left, next to the rail it summons. Only where it has
+            something to draw: the expanded layout, a task with subtasks —
+            collapsed there is no room for a rail. */}
+        <Show when={expanded() && (task()?.subtasks.length ?? 0) > 0}>
+          <button
+            type="button"
+            onClick={toggleSubtaskIndex}
+            aria-pressed={subtaskIndexOpen()}
+            title={subtaskIndexOpen() ? "Hide subtask index" : "Show subtask index"}
+            aria-label={subtaskIndexOpen() ? "Hide subtask index" : "Show subtask index"}
+            class="-ml-1 flex size-6 items-center justify-center rounded-[5px] hover:bg-hover hover:text-ink"
+            classList={{ "text-ink": subtaskIndexOpen(), "text-ink-3": !subtaskIndexOpen() }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+                <path d="M6.5 3v10" />
+              </g>
+            </svg>
+          </button>
+        </Show>
         <Show when={task()?.customId}>
           <span class="font-mono text-ink-3 text-xs">{task()?.customId}</span>
         </Show>
@@ -432,282 +454,291 @@ export function TaskDetail(props: {
          * children keep their order and the collapsed panel is untouched.
          */}
         {(task) => (
-          <div
-            class="flex-1 overflow-y-auto"
-            classList={{
-              /*
-               * Three explicit rows — title, description, comments — so the
-               * properties rail can span all of them. Without that, the rail
-               * sizes row one and leaves a hole under the title.
-               *
-               * Below `split` there is no room for a rail: 680 + 48 + 300 + 80
-               * needs 1108px inside this panel and the window stops supplying
-               * it at 1354. The second column collapses into the first and the
-               * rail becomes a strip, which the source order already puts
-               * above the description — the only thing that changes is the
-               * template. The measure stays capped at 680px either way, so the
-               * description never widens past a readable line.
-               */
-              "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,680px)] max-split:grid-rows-none":
-                expanded(),
-            }}
-          >
-            <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": expanded() }}>
-              <ParentLink parent={task().parent} />
-              <TitleField
-                value={task().name}
-                onCommit={(name) => {
-                  mutate((current) => (current ? { ...current, name } : current));
-                  tasks.update(props.taskId, (draft) => {
-                    draft.name = name;
-                  });
-                }}
-              />
-            </div>
-
+          <div class="flex min-h-0 flex-1">
+            <Show when={expanded() && subtaskIndexOpen() && task().subtasks.length > 0}>
+              <SubtaskIndex task={task()} />
+            </Show>
             <div
-              class="space-y-px px-3 pb-4"
+              class="min-w-0 flex-1 overflow-y-auto"
               classList={{
-                /* Below `split` the rail lands in column one under the title.
-                   Two columns of label/value rather than one, because a strip
-                   that is 680px wide and one property tall wastes the width it
-                   was moved here to use. */
-                "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8 max-split:col-start-1 max-split:row-start-auto max-split:row-span-1 max-split:grid max-split:grid-cols-2 max-split:gap-x-8 max-split:gap-y-px max-split:space-y-0 max-split:pt-0":
+                /*
+                 * Three explicit rows — title, description, comments — so the
+                 * properties rail can span all of them. Without that, the rail
+                 * sizes row one and leaves a hole under the title.
+                 *
+                 * Below `split` there is no room for a rail: 680 + 48 + 300 + 80
+                 * needs 1108px inside this panel and the window stops supplying
+                 * it at 1354. The second column collapses into the first and the
+                 * rail becomes a strip, which the source order already puts
+                 * above the description — the only thing that changes is the
+                 * template. The measure stays capped at 680px either way, so the
+                 * description never widens past a readable line.
+                 */
+                "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,680px)] max-split:grid-rows-none":
                   expanded(),
               }}
             >
-              <Property label="Status">
-                <button
-                  type="button"
-                  aria-label={`Status: ${task().status ?? "none"}`}
-                  onClick={props.onStatusClick}
-                  class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-hover"
-                >
-                  <StatusIcon type={task().statusType} color={task().statusColor} />
-                  <span class="text-md text-ink capitalize">{task().status ?? "None"}</span>
-                </button>
-              </Property>
-
-              <Property label="Priority">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    setPriorityMenu({ x: rect.left, y: rect.bottom + 6 });
+              <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": expanded() }}>
+                <ParentLink parent={task().parent} />
+                <TitleField
+                  value={task().name}
+                  onCommit={(name) => {
+                    mutate((current) => (current ? { ...current, name } : current));
+                    tasks.update(props.taskId, (draft) => {
+                      draft.name = name;
+                    });
                   }}
-                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
-                >
-                  <PriorityIcon priority={task().priority} />
-                  <span class="text-md text-ink-2">
-                    {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
-                  </span>
-                </button>
-              </Property>
-
-              <Property label="Assignees">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    setAssigneeMenu({ x: rect.left, y: rect.bottom + 6 });
-                  }}
-                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
-                >
-                  <Show
-                    when={task().assignees.length > 0}
-                    fallback={<span class="text-md text-ink-4">Unassigned</span>}
-                  >
-                    <For each={task().assignees}>
-                      {(user) => (
-                        <span class="flex items-center gap-1.5">
-                          <Avatar user={user} size={17} />
-                          <span class="text-md text-ink-2">{user.username}</span>
-                        </span>
-                      )}
-                    </For>
-                  </Show>
-                </button>
-              </Property>
-
-              <Property label="Due">
-                <DueField
-                  value={task().dueDate}
-                  onChange={(iso) =>
-                    patch((draft) => {
-                      draft.dueDate = iso;
-                    })
-                  }
                 />
-              </Property>
+              </div>
 
-              <Property label="Tags">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    clearSpaceTags([]);
-                    setTagMenu({ x: rect.left, y: rect.bottom + 6 });
-                  }}
-                  class="-mx-1.5 flex h-6 w-full items-center gap-1 rounded-[5px] px-1.5 text-left hover:bg-hover"
-                >
-                  <Show
-                    when={task().tags.length > 0}
-                    fallback={<span class="text-base text-ink-4">Add…</span>}
+              <div
+                class="space-y-px px-3 pb-4"
+                classList={{
+                  /* Below `split` the rail lands in column one under the title.
+                   Two columns of label/value rather than one, because a strip
+                   that is 680px wide and one property tall wastes the width it
+                   was moved here to use. */
+                  "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8 max-split:col-start-1 max-split:row-start-auto max-split:row-span-1 max-split:grid max-split:grid-cols-2 max-split:gap-x-8 max-split:gap-y-px max-split:space-y-0 max-split:pt-0":
+                    expanded(),
+                }}
+              >
+                <Property label="Status">
+                  <button
+                    type="button"
+                    aria-label={`Status: ${task().status ?? "none"}`}
+                    onClick={props.onStatusClick}
+                    class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-hover"
                   >
-                    <For each={task().tags}>
-                      {(tag) => (
-                        <span
-                          class="rounded-[4px] border px-1.5 py-px text-xs leading-4 text-ink-2"
-                          style={{
-                            "border-color": `${tag.bg ?? "var(--color-line-strong)"}55`,
-                            background: `${tag.bg ?? "transparent"}24`,
-                          }}
-                        >
-                          {tag.name}
-                        </span>
-                      )}
-                    </For>
-                  </Show>
-                </button>
-              </Property>
+                    <StatusIcon type={task().statusType} color={task().statusColor} />
+                    <span class="text-md text-ink capitalize">{task().status ?? "None"}</span>
+                  </button>
+                </Property>
 
-              <Property label="Time">
-                <TimeControl
-                  taskId={props.taskId}
-                  taskName={task().name}
-                  timeSpent={task().timeSpent}
-                />
-              </Property>
+                <Property label="Priority">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setPriorityMenu({ x: rect.left, y: rect.bottom + 6 });
+                    }}
+                    class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                  >
+                    <PriorityIcon priority={task().priority} />
+                    <span class="text-md text-ink-2">
+                      {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
+                    </span>
+                  </button>
+                </Property>
 
-              <Property label="List">
-                <span class="flex h-6 items-center truncate text-md text-ink-2">
-                  {task().listName ?? "—"}
-                </span>
-              </Property>
-
-              <CustomFields
-                taskId={props.taskId}
-                fields={task().customFields}
-                onChanged={() => void refetch()}
-              />
-            </div>
-
-            <section
-              class="border-line/70 border-t px-5 py-4"
-              /* Below `split` the hairline comes back: the property strip is
-                 now directly above the description and the two need a seam. */
-              classList={{
-                "col-start-1 border-t-0 px-0 pt-0 max-split:border-t max-split:pt-6": expanded(),
-              }}
-            >
-              <Show
-                when={editingDescription()}
-                fallback={
-                  <div>
-                    <button
-                      type="button"
-                      // Named, or the button announces the whole body as its
-                      // name — several hundred words for one "edit this".
-                      aria-label="Edit description"
-                      onClick={() => setEditingDescription(true)}
-                      class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
+                <Property label="Assignees">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setAssigneeMenu({ x: rect.left, y: rect.bottom + 6 });
+                    }}
+                    class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                  >
+                    <Show
+                      when={task().assignees.length > 0}
+                      fallback={<span class="text-md text-ink-4">Unassigned</span>}
                     >
-                      <Show
-                        when={task().description}
-                        fallback={<span class="text-base text-ink-4">Add a description…</span>}
-                      >
-                        {/* Sanitized in renderMarkdown. ClickUp descriptions are
-                            other people's input and never reach the DOM raw. */}
-                        <div
-                          ref={descriptionBox}
-                          class="prose-rask selectable text-base"
-                          classList={{
-                            "overflow-hidden transition-[max-height] duration-200":
-                              !descriptionExpanded(),
-                          }}
-                          // The cap lives here and in COLLAPSED_DESCRIPTION_HEIGHT —
-                          // the measure reads the constant, the cap reads this
-                          // style, and writing it once keeps them from drifting
-                          // apart (Tailwind cannot see a computed class name, so
-                          // this is an inline style on purpose).
-                          style={{
-                            "max-height": descriptionExpanded()
-                              ? undefined
-                              : `${COLLAPSED_DESCRIPTION_HEIGHT}px`,
-                            "mask-image":
-                              !descriptionExpanded() && descriptionOverflows()
-                                ? "linear-gradient(to bottom, black 82%, transparent)"
-                                : undefined,
-                          }}
-                          innerHTML={renderMarkdown(task().description)}
-                        />
-                      </Show>
-                    </button>
-                    <Show when={descriptionOverflows()}>
+                      <For each={task().assignees}>
+                        {(user) => (
+                          <span class="flex items-center gap-1.5">
+                            <Avatar user={user} size={17} />
+                            <span class="text-md text-ink-2">{user.username}</span>
+                          </span>
+                        )}
+                      </For>
+                    </Show>
+                  </button>
+                </Property>
+
+                <Property label="Due">
+                  <DueField
+                    value={task().dueDate}
+                    onChange={(iso) =>
+                      patch((draft) => {
+                        draft.dueDate = iso;
+                      })
+                    }
+                  />
+                </Property>
+
+                <Property label="Tags">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      clearSpaceTags([]);
+                      setTagMenu({ x: rect.left, y: rect.bottom + 6 });
+                    }}
+                    class="-mx-1.5 flex h-6 w-full items-center gap-1 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                  >
+                    <Show
+                      when={task().tags.length > 0}
+                      fallback={<span class="text-base text-ink-4">Add…</span>}
+                    >
+                      <For each={task().tags}>
+                        {(tag) => (
+                          <span
+                            class="rounded-[4px] border px-1.5 py-px text-xs leading-4 text-ink-2"
+                            style={{
+                              "border-color": `${tag.bg ?? "var(--color-line-strong)"}55`,
+                              background: `${tag.bg ?? "transparent"}24`,
+                            }}
+                          >
+                            {tag.name}
+                          </span>
+                        )}
+                      </For>
+                    </Show>
+                  </button>
+                </Property>
+
+                <Property label="Time">
+                  <TimeControl
+                    taskId={props.taskId}
+                    taskName={task().name}
+                    timeSpent={task().timeSpent}
+                  />
+                </Property>
+
+                <Property label="List">
+                  <span class="flex h-6 items-center truncate text-md text-ink-2">
+                    {task().listName ?? "—"}
+                  </span>
+                </Property>
+
+                <CustomFields
+                  taskId={props.taskId}
+                  fields={task().customFields}
+                  onChanged={() => void refetch()}
+                />
+              </div>
+
+              <section
+                class="border-line/70 border-t px-5 py-4"
+                /* Below `split` the hairline comes back: the property strip is
+                 now directly above the description and the two need a seam. */
+                classList={{
+                  "col-start-1 border-t-0 px-0 pt-0 max-split:border-t max-split:pt-6": expanded(),
+                }}
+              >
+                <Show
+                  when={editingDescription()}
+                  fallback={
+                    <div>
                       <button
                         type="button"
-                        onClick={() => setDescriptionExpanded(!descriptionExpanded())}
-                        class="mx-auto mt-1 block rounded-[5px] px-2 py-1 text-xs text-ink-3 hover:bg-hover hover:text-ink"
+                        // Named, or the button announces the whole body as its
+                        // name — several hundred words for one "edit this".
+                        aria-label="Edit description"
+                        onClick={() => setEditingDescription(true)}
+                        class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
                       >
-                        {descriptionExpanded() ? "Collapse" : "Expand"}
+                        <Show
+                          when={task().description}
+                          fallback={<span class="text-base text-ink-4">Add a description…</span>}
+                        >
+                          {/* Sanitized in renderMarkdown. ClickUp descriptions are
+                            other people's input and never reach the DOM raw. */}
+                          <div
+                            ref={descriptionBox}
+                            class="prose-rask selectable text-base"
+                            classList={{
+                              "overflow-hidden transition-[max-height] duration-200":
+                                !descriptionExpanded(),
+                            }}
+                            // The cap lives here and in COLLAPSED_DESCRIPTION_HEIGHT —
+                            // the measure reads the constant, the cap reads this
+                            // style, and writing it once keeps them from drifting
+                            // apart (Tailwind cannot see a computed class name, so
+                            // this is an inline style on purpose).
+                            style={{
+                              "max-height": descriptionExpanded()
+                                ? undefined
+                                : `${COLLAPSED_DESCRIPTION_HEIGHT}px`,
+                              "mask-image":
+                                !descriptionExpanded() && descriptionOverflows()
+                                  ? "linear-gradient(to bottom, black 82%, transparent)"
+                                  : undefined,
+                            }}
+                            innerHTML={renderMarkdown(task().description)}
+                          />
+                        </Show>
                       </button>
+                      <Show when={descriptionOverflows()}>
+                        <button
+                          type="button"
+                          onClick={() => setDescriptionExpanded(!descriptionExpanded())}
+                          class="mx-auto mt-1 block rounded-[5px] px-2 py-1 text-xs text-ink-3 hover:bg-hover hover:text-ink"
+                        >
+                          {descriptionExpanded() ? "Collapse" : "Expand"}
+                        </button>
+                      </Show>
+                    </div>
+                  }
+                >
+                  <MarkdownEditor
+                    value={task().description ?? ""}
+                    autofocus
+                    onFiles={(files, insert) => {
+                      insertIntoDescription = insert;
+                      void descriptionUploader.upload(files);
+                    }}
+                    onCancel={() => setEditingDescription(false)}
+                    onCommit={(description) => {
+                      setEditingDescription(false);
+                      // The description is not in the task collection: carrying
+                      // it would mean fetching every body for a 500-row list.
+                      // Show it locally and send it straight to the API.
+                      mutate((current) => (current ? { ...current, description } : current));
+                      void api.patchTask(props.taskId, { description });
+                    }}
+                  />
+                  <div class="pt-2 text-xs text-ink-4">
+                    {/* An upload waits on ClickUp, and the attachments strip that
+                      would otherwise say so is below the fold while editing. */}
+                    <Show
+                      when={descriptionUploader.pending()[0]}
+                      fallback="⌘↵ to save · esc to cancel"
+                    >
+                      {(name) => <>Uploading {name()}…</>}
                     </Show>
                   </div>
-                }
-              >
-                <MarkdownEditor
-                  value={task().description ?? ""}
-                  autofocus
-                  onFiles={(files, insert) => {
-                    insertIntoDescription = insert;
-                    void descriptionUploader.upload(files);
-                  }}
-                  onCancel={() => setEditingDescription(false)}
-                  onCommit={(description) => {
-                    setEditingDescription(false);
-                    // The description is not in the task collection: carrying
-                    // it would mean fetching every body for a 500-row list.
-                    // Show it locally and send it straight to the API.
-                    mutate((current) => (current ? { ...current, description } : current));
-                    void api.patchTask(props.taskId, { description });
-                  }}
-                />
-                <div class="pt-2 text-xs text-ink-4">
-                  {/* An upload waits on ClickUp, and the attachments strip that
-                      would otherwise say so is below the fold while editing. */}
-                  <Show
-                    when={descriptionUploader.pending()[0]}
-                    fallback="⌘↵ to save · esc to cancel"
-                  >
-                    {(name) => <>Uploading {name()}…</>}
-                  </Show>
-                </div>
-              </Show>
-            </section>
+                </Show>
+              </section>
 
-            {/* Inside the comments row rather than beside it: expanded, this
+              {/* Inside the comments row rather than beside it: expanded, this
                 container is a grid whose third row is the one that stretches,
                 and a fourth child would push the conversation to the bottom of
                 the panel. */}
-            <div classList={{ "col-start-1": expanded() }}>
-              <Attachments
-                items={task().attachments}
-                pending={[...uploader.pending(), ...descriptionUploader.pending()]}
-                onPick={() => filePicker.click()}
-              />
+              <div classList={{ "col-start-1": expanded() }}>
+                <Attachments
+                  items={task().attachments}
+                  pending={[...uploader.pending(), ...descriptionUploader.pending()]}
+                  onPick={() => filePicker.click()}
+                />
 
-              <Checklists
-                taskId={props.taskId}
-                checklists={task().checklists}
-                onDetail={acceptDetail}
-                onOptimistic={optimistic}
-              />
+                <Checklists
+                  taskId={props.taskId}
+                  checklists={task().checklists}
+                  onDetail={acceptDetail}
+                  onOptimistic={optimistic}
+                />
 
-              <Subtasks task={task()} onOptimistic={optimistic} onRefresh={() => void refetch()} />
+                <Subtasks
+                  task={task()}
+                  onOptimistic={optimistic}
+                  onRefresh={() => void refetch()}
+                />
 
-              <TimeEntries taskId={props.taskId} />
+                <TimeEntries taskId={props.taskId} />
 
-              <Comments taskId={props.taskId} threads={task().comments} onDetail={acceptDetail} />
+                <Comments taskId={props.taskId} threads={task().comments} onDetail={acceptDetail} />
+              </div>
             </div>
           </div>
         )}
