@@ -26,6 +26,7 @@ import { RunningTimer } from "./components/Time.tsx";
 import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
+import { CelebrationBanner } from "./lib/celebration.tsx";
 import { PRIORITY_LABELS } from "./lib/format.ts";
 import {
   INBOX_WINDOW_DAYS,
@@ -1049,6 +1050,10 @@ export function AppShell(): JSX.Element {
         {/* Last, so it covers everything, and always mounted: it is what makes
           images inside descriptions and comments clickable. */}
         <Lightbox />
+
+        {/* The Ember theme's full-screen victory banner. Renders nothing
+          until `celebrate` fires, which itself is a no-op outside Ember. */}
+        <CelebrationBanner />
       </div>
     </Show>
   );

@@ -21,6 +21,8 @@ export function Menu(props: {
   anchor: { x: number; y: number } | null;
   placeholder?: string;
   width?: number;
+  /** Grow upward from the anchor, for menus opened along the bottom edge. */
+  up?: boolean;
   onSelect: (id: string) => void;
   onClose: () => void;
 }): JSX.Element {
@@ -87,14 +89,28 @@ export function Menu(props: {
   const width = () => props.width ?? 240;
   // Clamp so a menu opened near the right or bottom edge stays fully visible.
   const left = () => Math.min(props.anchor?.x ?? 0, window.innerWidth - width() - 12);
-  const top = () => Math.min(props.anchor?.y ?? 0, window.innerHeight - 320);
+  /*
+   * Downward menus clamp their top so the tallest possible list stays on
+   * screen. That clamp is wrong for a menu opened from the bottom edge: it
+   * tears the popover off its button and leaves it floating over the list,
+   * which is what the theme menu did from the sidebar footer. `up` pins the
+   * bottom to the anchor instead, so the menu grows away from the edge and
+   * stays attached however short it is.
+   */
+  const position = () =>
+    props.up
+      ? { left: `${left()}px`, bottom: `${window.innerHeight - (props.anchor?.y ?? 0)}px` }
+      : {
+          left: `${left()}px`,
+          top: `${Math.min(props.anchor?.y ?? 0, window.innerHeight - 320)}px`,
+        };
 
   return (
     <Show when={props.anchor}>
       <div
         data-menu
         class="floating fixed z-50 overflow-hidden rounded-lg"
-        style={{ left: `${left()}px`, top: `${top()}px`, width: `${width()}px` }}
+        style={{ ...position(), width: `${width()}px` }}
       >
         <div class="border-line/80 border-b px-3">
           <input

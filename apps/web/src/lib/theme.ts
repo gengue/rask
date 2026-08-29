@@ -1,19 +1,18 @@
 import { createSignal } from "solid-js";
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice = "system" | "light" | "dark" | "ember";
 
-/** Ordered so "System", the default, comes first, and so cycling starts there. */
+/**
+ * Ordered so "System", the default, comes first. "Ember" is the easter egg —
+ * a fourth theme rather than a third mode, which is what turned the cycling
+ * button into a menu: four states behind one blind press is a slot machine.
+ */
 export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
   ["system", "System"],
   ["light", "Light"],
   ["dark", "Dark"],
+  ["ember", "Ember"],
 ];
-
-/** The next choice in that order, which is what one button can offer. */
-export function nextTheme(current: ThemeChoice): ThemeChoice {
-  const index = THEMES.findIndex(([value]) => value === current);
-  return THEMES[(index + 1) % THEMES.length]?.[0] ?? "system";
-}
 
 export function themeLabel(choice: ThemeChoice): string {
   return THEMES.find(([value]) => value === choice)?.[1] ?? "System";
@@ -50,7 +49,7 @@ const media =
 function read(): ThemeChoice {
   try {
     const value = localStorage.getItem(KEY);
-    return value === "light" || value === "dark" ? value : "system";
+    return value === "light" || value === "dark" || value === "ember" ? value : "system";
   } catch {
     return "system";
   }
@@ -61,7 +60,7 @@ const [systemDark, setSystemDark] = createSignal(media?.matches ?? false);
 
 export const themeChoice = choice;
 
-export function resolvedTheme(): "light" | "dark" {
+export function resolvedTheme(): "light" | "dark" | "ember" {
   const value = choice();
   if (value !== "system") return value;
   return systemDark() ? "dark" : "light";
@@ -77,7 +76,9 @@ function apply(): void {
   const root = document.documentElement;
   root.classList.toggle("dark", theme === "dark");
   root.classList.toggle("light", theme === "light");
-  root.style.colorScheme = theme;
+  root.classList.toggle("ember", theme === "ember");
+  // Ember is a dark theme as far as native controls and scrollbars go.
+  root.style.colorScheme = theme === "light" ? "light" : "dark";
 }
 
 media?.addEventListener("change", (event) => {

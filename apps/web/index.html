@@ -29,11 +29,16 @@
         } catch {
           // Private mode, or storage blocked. Follow the system and move on.
         }
-        const dark =
-          stored === "dark" ||
-          (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.classList.add(dark ? "dark" : "light");
-        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        const theme =
+          stored === "ember"
+            ? "ember"
+            : stored === "dark" ||
+                (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+              ? "dark"
+              : "light";
+        document.documentElement.classList.add(theme);
+        // Ember is a dark theme as far as native controls go.
+        document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
       })();
     </script>
   </head>
