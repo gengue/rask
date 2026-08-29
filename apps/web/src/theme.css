@@ -380,6 +380,84 @@ html.brutal {
 }
 
 /*
+ * XP.
+ *
+ * The third easter egg: Windows XP in its Luna Blue dress — Tahoma at 11px,
+ * the beige `#ece9d8` window face, white client areas, and blue everywhere a
+ * heading or a selection needs to be. Same contract as the other two: one
+ * token set, audited by the same script against the same AA floors.
+ *
+ * The ink ladder collapses to four near-blacks because XP's does. Its own
+ * greyed-out label is `#808080`, which is 2.9:1 on the window face and fails
+ * outright — so the bottom of the ladder is darker than the reference and the
+ * hierarchy is carried by weight and colour, which is what XP actually leans
+ * on anyway (bold blue headings, black body, blue links).
+ *
+ * The accent is Luna's dark caption blue rather than its selection blue.
+ * `#316ac5` — the Explorer highlight — is 5.3:1 on white but only 4.4:1 on the
+ * beige face, and the face is where half the accent text sits. The selection
+ * blue is still in the theme; it lives in styles.css as the fill behind the
+ * row cursor, where white ink is what has to clear the floor and does at 7.1.
+ *
+ * The window chrome — title bar, menu bar, the frame around the whole thing,
+ * the Explorer task pane — lives in the client's styles.css under the same
+ * class, because this file is shared with the landing page and the landing
+ * page stays bare.
+ */
+html.xp {
+  --color-app: #ece9d8;
+  --color-panel: #ffffff;
+  --color-elevated: #e8edf7;
+  --color-overlay: #ffffff;
+
+  --color-line: #b6c0d0;
+  /* The sunken-field border XP draws around every text box. */
+  --color-line-strong: #7f9db9;
+
+  --color-ink: #000000;
+  --color-ink-2: #333333;
+  --color-ink-3: #454540;
+  --color-ink-4: #5e5e56;
+  --color-ink-prose: #141414;
+
+  --color-accent: #1c3f95;
+  --color-accent-soft: #1c3f9524;
+  --color-on-accent: #ffffff;
+
+  --color-urgent: #b31f2b;
+  --color-high: #8a5200;
+  --color-low: #6a6a66;
+  --color-ok: #1a7a3c;
+
+  /* Hover and selection tint towards the Explorer highlight rather than going
+     flatly darker: on XP everything that reacts to the pointer goes blue. */
+  --color-hover: rgb(49 106 197 / 0.12);
+  --color-selected: rgb(49 106 197 / 0.2);
+  --color-chip: rgb(10 36 106 / 0.08);
+  --color-wash: rgb(10 36 106 / 0.035);
+  --color-scrim: rgb(0 0 0 / 0.35);
+
+  /* Nothing paints from these under XP: styles.css rebuilds the whole
+     scrollbar, gradient and arrow buttons included. They are here because
+     every theme defines the same set of tokens — the parity test in
+     contrast.test.ts is what says so — and they are what the thumb would fall
+     back to if that rule ever went away. */
+  --color-scrollbar: #a8c2e8;
+  --color-scrollbar-hover: #7ba3d9;
+
+  --color-code: #1d6b57;
+  /* Pale enough that the dimmest ink on it is still 4.6:1. */
+  --color-selection: #cddcf3;
+
+  /* Tahoma is the whole typographic argument. Every platform that is not
+     Windows falls through to something with the same 11px workhorse job. */
+  --font-sans: Tahoma, "Segoe UI", Verdana, Geneva, Kalimati, sans-serif;
+
+  /* XP rounds corners, but by three pixels, not ten. */
+  --radius-panel: 3px;
+}
+
+/*
  * Tells the browser which way round everything native goes: form controls, the
  * canvas before our CSS lands, and the scrollbars we do not style. The inline
  * script sets the same thing on the element so it applies on the first paint,
@@ -401,4 +479,10 @@ html.light {
 html.brutal {
   color-scheme: light;
   --floating-shadow: 0 0 0 2px #131316, 5px 5px 0 #131316;
+}
+
+/* XP floats with a hard grey drop shadow, the way its menus and dialogs do. */
+html.xp {
+  color-scheme: light;
+  --floating-shadow: 0 0 0 1px #a0a0a0, 3px 3px 3px rgb(0 0 0 / 0.28);
 }

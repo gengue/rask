@@ -1,0 +1,41 @@
+<!-- Minimise, maximise and close, drawn the way Luna draws them: a rounded
+     glossy pill each, the last one red. Sized 1:1 with the strip they sit in
+     (72x21) so `background-size` can scale the set as one. -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="72" height="21" viewBox="0 0 72 21">
+  <defs>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5f9bef"/>
+      <stop offset=".45" stop-color="#2b6fdd"/>
+      <stop offset=".5" stop-color="#1c5ecd"/>
+      <stop offset="1" stop-color="#6ba7f2"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f08a72"/>
+      <stop offset=".45" stop-color="#dc4a26"/>
+      <stop offset=".5" stop-color="#c93a17"/>
+      <stop offset="1" stop-color="#ee8a68"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#0b3f9c" stroke-width="1">
+    <rect x="1.5" y="2.5" width="20" height="16" rx="3" fill="url(#blue)"/>
+    <rect x="23.5" y="2.5" width="20" height="16" rx="3" fill="url(#blue)"/>
+    <rect x="47.5" y="2.5" width="22" height="16" rx="3" fill="url(#red)" stroke="#8f2409"/>
+  </g>
+  <g fill="url(#gloss)">
+    <rect x="3" y="4" width="17" height="6" rx="2.5"/>
+    <rect x="25" y="4" width="17" height="6" rx="2.5"/>
+    <rect x="49" y="4" width="19" height="6" rx="2.5"/>
+  </g>
+
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="square">
+    <path d="M7.5 14h7"/>
+    <path d="M28.5 7.5h10v7h-10z" stroke-width="1.6"/>
+    <path d="M29 9.2h9" stroke-width="1.6"/>
+    <path d="M54.5 7.5l6 6M60.5 7.5l-6 6"/>
+  </g>
+</svg>

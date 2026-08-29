@@ -1,0 +1,35 @@
+<!-- The four scrollbar arrow buttons as one 64x16 strip: up, down, left,
+     right. A sprite rather than four files because CSS cannot rotate a
+     background image, and `background-position` picks the cell for free.
+     The gloss runs across the bar it belongs to — horizontally on the two
+     vertical buttons, vertically on the two horizontal ones. -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="64" height="16" viewBox="0 0 64 16">
+  <defs>
+    <linearGradient id="across" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fbfcfe"/>
+      <stop offset=".35" stop-color="#d5e2f6"/>
+      <stop offset=".65" stop-color="#b3caee"/>
+      <stop offset="1" stop-color="#93b3e4"/>
+    </linearGradient>
+    <linearGradient id="down" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbfcfe"/>
+      <stop offset=".35" stop-color="#d5e2f6"/>
+      <stop offset=".65" stop-color="#b3caee"/>
+      <stop offset="1" stop-color="#93b3e4"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#6c8fca" stroke-width="1">
+    <rect x=".5" y=".5" width="15" height="15" fill="url(#across)"/>
+    <rect x="16.5" y=".5" width="15" height="15" fill="url(#across)"/>
+    <rect x="32.5" y=".5" width="15" height="15" fill="url(#down)"/>
+    <rect x="48.5" y=".5" width="15" height="15" fill="url(#down)"/>
+  </g>
+
+  <g fill="#12386f">
+    <path d="M8 5.4 11.6 10.2h-7.2z"/>
+    <path d="M24 10.6 20.4 5.8h7.2z"/>
+    <path d="M37.4 8 42.2 4.4v7.2z"/>
+    <path d="M58.6 8 53.8 11.6V4.4z"/>
+  </g>
+</svg>
