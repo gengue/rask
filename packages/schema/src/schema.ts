@@ -210,7 +210,12 @@ export const lists = pgTable(
     content: text("content"),
     taskCount: integer("task_count"),
     archived: boolean("archived").notNull().default(false),
-    /** Only set when the list overrides its Space's statuses. */
+    /**
+     * The List's own status set, null when it just uses its Space's.
+     *
+     * "Own" as ClickUp reports it, which includes a set inherited from a Folder
+     * that overrides -- the List payload carries the effective one either way.
+     */
     statuses: jsonb<StatusDef[] | null>("statuses"),
     syncedAt: ts("synced_at").notNull().defaultNow(),
   },
