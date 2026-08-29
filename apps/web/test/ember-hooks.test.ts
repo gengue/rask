@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * Ember's set dressing hangs off selectors it does not own: aria-labels and
- * utility classes that live in component markup. A rename over there — the
- * detail panel's label, `bg-panel` becoming `bg-panel/95`, the section border
- * class — sheds the skin with no error anywhere, which is exactly the kind of
- * failure this repo pins with a test. Each row says: the stylesheet still
- * targets this hook, and the component still provides it.
+ * The easter-egg skins (Ember, Brutal) hang off selectors they do not own:
+ * aria-labels and utility classes that live in component markup. A rename over
+ * there — the detail panel's label, `bg-panel` becoming `bg-panel/95`, the
+ * section border class — sheds the skin with no error anywhere, which is
+ * exactly the kind of failure this repo pins with a test. Each row says: the
+ * stylesheet still targets this hook, and the component still provides it.
  */
 const stylesheet = await Bun.file(new URL("../src/styles.css", import.meta.url)).text();
 
@@ -35,9 +35,15 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskDetail.tsx",
     markup: "bg-accent",
   },
+  // Brutal only: the group-header band. Board's washes are divs and spans.
+  {
+    selector: "button.bg-wash",
+    provider: "../src/components/TaskList.tsx",
+    markup: "bg-wash",
+  },
 ];
 
-describe("every selector hook the ember skin relies on", () => {
+describe("every selector hook the easter-egg skins rely on", () => {
   for (const { selector, provider, markup } of HOOKS) {
     test(`${selector} is targeted by the stylesheet and provided by ${provider}`, async () => {
       expect(stylesheet).toContain(selector);

@@ -503,3 +503,220 @@ html.ember aside[aria-label="Workspace"]::after {
 html.ember .row-selected {
   box-shadow: inset 0 0 0 1px rgb(140 110 70 / 0.55);
 }
+
+/*
+ * Brutal's set dressing.
+ *
+ * The tokens in theme.css make Brutal a colour scheme; this makes it a poster.
+ * Same contract as Ember: the materials are SVGs in public/brutal/, every
+ * texture is a *translucent* overlay so the audited token underneath still
+ * owns the base colour, and everything hangs off the selector hooks the
+ * ember-hooks test already pins. The two deliberate exceptions to translucency
+ * are the sidebar and the selected row, which the reference paints in opposite
+ * polarity to the panels — both re-point the ink tokens the way .row-selected
+ * already re-points ink-4, and every re-pointed pair is annotated with its
+ * hand-checked ratio because the audit cannot see this file.
+ */
+
+/* The wall: violet graph paper strewn with confetti. Both live on the body
+   itself, not a fixed overlay, so panels cover them and the shapes only show
+   where the wall does — page edges and the gaps between panels. */
+html.brutal body {
+  background-image: url("/brutal/confetti.svg"), url("/brutal/grid.svg");
+  background-size:
+    560px 560px,
+    26px 26px;
+}
+
+/* Panel surfaces are flecked cream paper. */
+html.brutal .bg-panel,
+html.brutal .floating {
+  background-image: url("/brutal/paper.svg");
+  background-size: 360px 360px;
+}
+
+/* A floating menu is cream paper wherever it opens — including anchored
+   inside the black sidebar, whose scope below re-points the whole ink ladder
+   light. Custom properties inherit through the anchor, so a menu opened there
+   painted pale grey on cream. Restore the theme-block values explicitly. */
+html.brutal .floating {
+  --color-ink: #0e0e11;
+  --color-ink-2: #17171b;
+  --color-ink-3: #1b1b20;
+  --color-ink-4: #1e1e24;
+  --color-ink-prose: #121216;
+  --color-line: #131316;
+  --color-line-strong: #000000;
+  --color-accent: #16123f;
+  --color-accent-soft: #16123f24;
+  --color-on-accent: #ffd93d;
+  --color-urgent: #6f0f20;
+  --color-high: #553305;
+  --color-ok: #123f1e;
+  --color-hover: rgb(0 0 0 / 0.06);
+  --color-selected: rgb(0 0 0 / 0.09);
+  --color-chip: rgb(0 0 0 / 0.07);
+  --color-wash: rgb(0 0 0 / 0.035);
+}
+
+/* The big panel is a pasted-on card: wall showing on every side, a 2px ink
+   frame drawn as an overlay (so the layout inside never moves) and a hard
+   offset block behind. The shadow sits on the element, not the ::after,
+   because `main` clips its own children with overflow-hidden but a box-shadow
+   is drawn outside that clip. The default 8px gutters become a real margin —
+   the wall, its grid and the confetti are the theme, and at 8px they read as
+   a rendering glitch instead of a place. The detail panel lives *inside*
+   main, so its frame comes from the ::after below and it needs no shadow —
+   main's overflow would clip one anyway. */
+html.brutal main {
+  margin: 16px;
+  box-shadow: 5px 5px 0 rgb(19 19 22 / 0.85);
+}
+
+html.brutal aside[aria-label="Task detail"] {
+  position: relative;
+}
+
+html.brutal main::after,
+html.brutal aside[aria-label="Task detail"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  border: 2px solid var(--color-line);
+}
+
+/*
+ * The sidebar is the reference's one dark slab. Opposite polarity to the
+ * audited palette, so the whole ink ladder is re-pointed inside the scope —
+ * ratios on #131316: ink 18.2, ink-2 13.9, ink-3 11.5, ink-4 9.2, prose 16.4,
+ * accent (the yellow) 13.5, ok 7.4 — all past the floors the audit enforces
+ * elsewhere. The status tones come back to their dark-theme values for the
+ * same reason: oxblood on near-black is invisible.
+ */
+html.brutal aside[aria-label="Workspace"] {
+  background: #131316;
+  --color-ink: #fdfdfa;
+  --color-ink-2: #d9d9e2;
+  --color-ink-3: #c6c6d2;
+  --color-ink-4: #b6b6c3;
+  --color-ink-prose: #ececf2;
+  --color-line: #34343e;
+  --color-line-strong: #52525f;
+  --color-accent: #ffd93d;
+  --color-accent-soft: #ffd93d29;
+  --color-on-accent: #131316;
+  --color-urgent: #f2606a;
+  --color-high: #f2994a;
+  --color-ok: #2ecd6f;
+  --color-hover: rgb(255 255 255 / 0.09);
+  --color-selected: rgb(255 255 255 / 0.13);
+  --color-chip: rgb(255 255 255 / 0.1);
+  --color-wash: rgb(255 255 255 / 0.05);
+  --color-scrollbar: #3a3a46;
+  --color-scrollbar-hover: #52525f;
+}
+
+/*
+ * The cursor is a violet slab with white ink, the reference's selected row.
+ * Darker than the wall token on purpose: white needs 4.5:1 and the wall only
+ * gives 3.6. Ratios on #5233e8: ink (white) 6.6, ink-2 6.2, ink-3 5.9,
+ * ink-4 5.6, accent (light yellow) 5.2; the status tints all sit above 5.
+ */
+html.brutal .row-selected {
+  background: #5233e8;
+  box-shadow: inset 0 0 0 2px #131316;
+  --color-ink: #ffffff;
+  --color-ink-2: #f1edff;
+  --color-ink-3: #e7e1ff;
+  --color-ink-4: #ded6ff;
+  --color-ink-prose: #ffffff;
+  --color-accent: #ffe066;
+  --color-urgent: #ffb3ba;
+  --color-high: #ffd28f;
+  --color-ok: #a5f0b8;
+  --color-low: #d9d3ff;
+}
+
+/* Headings are shouted: every uppercase label goes heavy and a touch wider. */
+html.brutal .uppercase {
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+/* Group headers are the reference's colour-chip bands. One colour for all of
+   them: the status tint under each is ClickUp data this stylesheet cannot
+   reach, and the yellow is the poster's. Ink on it is 13.2:1 by hand.
+   `button.bg-wash` is unique to the group header — Board's washes are inert
+   divs and spans. */
+html.brutal button.bg-wash {
+  background-color: #ffd93d;
+  border-bottom: 2px solid var(--color-line);
+  font-weight: 800;
+}
+
+/* Nothing is filleted. --radius-panel is already 0; this catches the ad-hoc
+   radii spelled as utilities. Circles (avatars, dots) keep being circles. */
+html.brutal
+:is([class*="rounded-["], .rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl):not(
+  .rounded-full
+) {
+  border-radius: 0;
+}
+
+html.brutal ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+}
+
+/* Every disc gets the marker outline. Outline, not box-shadow: the stacked
+   avatars draw their overlap ring with Tailwind's ring-2, which is a
+   box-shadow this must not replace. */
+html.brutal .rounded-full {
+  outline: 1.5px solid var(--color-line);
+  outline-offset: -1px;
+}
+
+/* Long-form inputs are pasted paper slips: sharp, double-ruled in ink. */
+html.brutal textarea {
+  background: var(--color-overlay);
+  border-radius: 0;
+  box-shadow: inset 0 0 0 2px var(--color-line);
+}
+
+html.brutal textarea::placeholder {
+  font-weight: 600;
+}
+
+/* The solid accent button is the reference's yellow chip: the audited
+   accent/on-accent pair turned the other way up, same 12.8:1 either way. */
+html.brutal button.bg-accent {
+  background-color: var(--color-on-accent);
+  color: var(--color-accent);
+  border: 2px solid var(--color-line);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--color-line);
+  font-weight: 700;
+}
+
+/* Section breaks in the detail panel get a solid ink tab on the rule — the
+   brutal cousin of Ember's lozenge, on the same section.border-t hook. */
+html.brutal aside[aria-label="Task detail"] section.border-t {
+  position: relative;
+}
+
+html.brutal aside[aria-label="Task detail"] section.border-t::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--color-line);
+}
+
+/* Pictures in descriptions read as pasted photos. */
+html.brutal .prose-rask img {
+  border: 2px solid var(--color-line);
+  border-radius: 0;
+}

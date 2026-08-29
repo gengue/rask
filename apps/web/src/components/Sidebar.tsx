@@ -551,6 +551,16 @@ function ThemeButton(): JSX.Element {
               stroke-linejoin="round"
             />
           </Show>
+          <Show when={themeChoice() === "brutal"}>
+            {/* A Memphis zigzag, for the theme drawn in marker. */}
+            <path
+              d="M2 10.5 5 5l3 5.5L11 5l3 5.5"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="square"
+              stroke-linejoin="miter"
+            />
+          </Show>
         </svg>
       </button>
       <Menu

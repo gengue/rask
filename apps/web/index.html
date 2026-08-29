@@ -30,15 +30,16 @@
           // Private mode, or storage blocked. Follow the system and move on.
         }
         const theme =
-          stored === "ember"
-            ? "ember"
+          stored === "ember" || stored === "brutal"
+            ? stored
             : stored === "dark" ||
                 (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches)
               ? "dark"
               : "light";
         document.documentElement.classList.add(theme);
-        // Ember is a dark theme as far as native controls go.
-        document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
+        // Ember is a dark theme as far as native controls go; Brutal is light.
+        document.documentElement.style.colorScheme =
+          theme === "light" || theme === "brutal" ? "light" : "dark";
       })();
     </script>
   </head>

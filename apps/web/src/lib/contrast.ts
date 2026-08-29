@@ -62,11 +62,17 @@ export type Tokens = Record<string, string>;
  * Only opaque hex values are collected. `--color-hover` and `--color-scrim` are
  * deliberately translucent overlays and have no fixed ratio to measure.
  */
-export function parseThemes(css: string): { dark: Tokens; light: Tokens; ember: Tokens } {
+export function parseThemes(css: string): {
+  dark: Tokens;
+  light: Tokens;
+  ember: Tokens;
+  brutal: Tokens;
+} {
   return {
     dark: parseBlock(css, "@theme"),
     light: parseBlock(css, "html.light"),
     ember: parseBlock(css, "html.ember"),
+    brutal: parseBlock(css, "html.brutal"),
   };
 }
 

@@ -310,6 +310,76 @@ html.ember {
 }
 
 /*
+ * Brutal.
+ *
+ * The second easter egg: Memphis-brutalist — a violet wall behind cream paper
+ * panels, everything drawn in near-black ink. Like Ember it is a full citizen:
+ * the same token set, audited by the same script against the same AA floors.
+ *
+ * The ink ladder is deliberately compressed to four near-blacks. The wall is
+ * the constraint: every ink has to clear 4.5:1 on the violet as well as on
+ * cream, and a violet light enough for that leaves no room for greys — ink-4
+ * lands at 4.66:1 on it as it is. Brutalism agrees: text is black everywhere,
+ * and hierarchy is carried by weight and case, not by fading.
+ *
+ * The accent is ink-dark for the same reason (violet-on-violet is 1:1), which
+ * makes links read as underlined print — correct for the genre. The solid
+ * button gets its colour back in styles.css by swapping the audited pair:
+ * on-accent yellow as the fill, accent as the text, same ratio either way up.
+ *
+ * The status tones sacrifice even more hue than light mode does — each one
+ * has to hold 3:1 on the violet wall, which drags red to oxblood and green to
+ * bottle. On cream they all sit above 9:1.
+ *
+ * The set dressing — grid wall, confetti, hard offset shadows, the black
+ * sidebar — lives in the client's styles.css under the same class, because
+ * this file is shared with the landing page and the landing page stays bare.
+ */
+html.brutal {
+  --color-app: #8b74f4;
+  --color-panel: #f8f3e6;
+  --color-elevated: #eee6d2;
+  --color-overlay: #fffdf4;
+
+  --color-line: #131316;
+  --color-line-strong: #000000;
+
+  --color-ink: #0e0e11;
+  --color-ink-2: #17171b;
+  --color-ink-3: #1b1b20;
+  --color-ink-4: #1e1e24;
+  --color-ink-prose: #121216;
+
+  --color-accent: #16123f;
+  --color-accent-soft: #16123f24;
+  --color-on-accent: #ffd93d;
+
+  --color-urgent: #6f0f20;
+  --color-high: #553305;
+  --color-low: #2e2e35;
+  --color-ok: #123f1e;
+
+  --color-hover: rgb(0 0 0 / 0.06);
+  --color-selected: rgb(0 0 0 / 0.09);
+  --color-chip: rgb(0 0 0 / 0.07);
+  --color-wash: rgb(0 0 0 / 0.035);
+  --color-scrim: rgb(0 0 0 / 0.4);
+
+  --color-scrollbar: #131316;
+  --color-scrollbar-hover: #000000;
+
+  --color-code: #0f5646;
+  /* A highlighter, not a tint: the dimmest ink on it is still 16:1. */
+  --color-selection: #ffe9a8;
+
+  /* Geometric faces the platforms already ship — Memphis without a webfont. */
+  --font-sans: "Futura", "Century Gothic", "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+
+  /* Brutalism has no fillets. Circles opt out in styles.css. */
+  --radius-panel: 0px;
+}
+
+/*
  * Tells the browser which way round everything native goes: form controls, the
  * canvas before our CSS lands, and the scrollbars we do not style. The inline
  * script sets the same thing on the element so it applies on the first paint,
@@ -325,4 +395,10 @@ html.ember {
 html.light {
   color-scheme: light;
   --floating-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 12px 32px -8px rgb(15 23 42 / 0.18);
+}
+
+/* Brutal floats nothing softly: a 2px ink ring and a hard offset block. */
+html.brutal {
+  color-scheme: light;
+  --floating-shadow: 0 0 0 2px #131316, 5px 5px 0 #131316;
 }

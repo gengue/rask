@@ -41,7 +41,7 @@ describe("the ratio itself", () => {
 describe("the stylesheet", () => {
   test("every theme block is found, with the tokens the app uses", () => {
     // If the parse silently returned nothing, every assertion below would pass.
-    for (const tokens of [themes.dark, themes.light, themes.ember]) {
+    for (const tokens of [themes.dark, themes.light, themes.ember, themes.brutal]) {
       expect(Object.keys(tokens).length).toBeGreaterThan(10);
       expect(tokens.ink).toMatch(/^#[0-9a-f]{6}$/i);
       expect(tokens.app).toMatch(/^#[0-9a-f]{6}$/i);
@@ -51,6 +51,7 @@ describe("the stylesheet", () => {
   test("the themes are actually different", () => {
     expect(themes.dark.app).not.toBe(themes.light.app);
     expect(themes.ember.app).not.toBe(themes.dark.app);
+    expect(themes.brutal.app).not.toBe(themes.light.app);
   });
 
   /*
@@ -80,6 +81,7 @@ describe("the stylesheet", () => {
     const dark = Object.keys(themes.dark).sort();
     expect(Object.keys(themes.light).sort()).toEqual(dark);
     expect(Object.keys(themes.ember).sort()).toEqual(dark);
+    expect(Object.keys(themes.brutal).sort()).toEqual(dark);
   });
 
   test("every token pair clears WCAG AA, in every theme", () => {

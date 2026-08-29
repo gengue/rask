@@ -1,0 +1,5 @@
+<!-- The wall's graph-paper grid: one cell, tiled. Translucent white so the
+     violet token underneath still owns the base colour. -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="26" height="26">
+  <path d="M0 .5h26M.5 0v26" stroke="#ffffff" stroke-opacity=".16" stroke-width="1"/>
+</svg>

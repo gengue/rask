@@ -16,8 +16,10 @@ describe("the list", () => {
     expect(THEMES[0]?.[0]).toBe("system");
   });
 
-  test("ember is on offer — the easter egg is only reachable through this list", () => {
-    expect(THEMES.map(([value]) => value)).toContain("ember");
+  test("the easter eggs are on offer — they are only reachable through this list", () => {
+    const values = THEMES.map(([value]) => value);
+    expect(values).toContain("ember");
+    expect(values).toContain("brutal");
   });
 });
 
