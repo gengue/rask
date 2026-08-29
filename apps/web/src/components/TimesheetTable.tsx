@@ -1,6 +1,7 @@
 import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TimesheetRow } from "../lib/api.ts";
 import { formatDuration } from "../lib/format.ts";
+import { heldValue } from "../lib/resource.ts";
 
 /**
  * My week: one row per task tracked against, seven day columns, totals.
@@ -117,7 +118,10 @@ export function TimesheetTable(): JSX.Element {
    */
   const [sheet, setSheet] = createSignal<Week | null>(null);
   createEffect(() => {
-    const current = week();
+    // `heldValue`, because `week()` re-throws a failed fetch into this effect,
+    // and with no ErrorBoundary that took the page down before the error line
+    // in the render below ever got to say what happened.
+    const current = heldValue(week);
     if (current) setSheet(current);
   });
 

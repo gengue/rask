@@ -1,4 +1,4 @@
-import { placeholderId } from "@rask/clickup-client/vocabulary";
+import { isPlaceholder, PLACEHOLDER_PREFIX, placeholderId } from "@rask/clickup-client/vocabulary";
 
 /**
  * A row the outbox has not shipped yet, so ClickUp has no id for it.
@@ -241,6 +241,32 @@ export async function createTask(
   });
 
   return id;
+}
+
+/**
+ * The real id a create's placeholder became, once the outbox has shipped it.
+ *
+ * The browser opens a just-created task under its `tmp_` id. When the worker
+ * ships the create it retires that placeholder and the real row arrives under
+ * ClickUp's id — with nothing in the browser linking the two. The outbox row is
+ * the link: the worker writes `entity_id` before it retires the placeholder,
+ * so by the time a browser sees the placeholder die the answer is here.
+ *
+ * `pending` separates "not shipped yet" from "rejected or unknown": the first
+ * should keep a panel open on the placeholder, the second should close it.
+ */
+export async function resolveCreatedTask(
+  db: Db,
+  taskId: string,
+): Promise<{ id: string | null; pending: boolean }> {
+  if (!isPlaceholder(taskId)) return { id: null, pending: false };
+  const clientId = taskId.slice(PLACEHOLDER_PREFIX.length);
+  const [row] = await db
+    .select({ entityId: outbox.entityId, status: outbox.status })
+    .from(outbox)
+    .where(and(eq(outbox.clientId, clientId), eq(outbox.op, "create_task")));
+  if (!row) return { id: null, pending: false };
+  return { id: row.entityId, pending: row.entityId === null && row.status !== "failed" };
 }
 
 /**

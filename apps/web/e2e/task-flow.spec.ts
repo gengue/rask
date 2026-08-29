@@ -114,7 +114,9 @@ test("the quick filter narrows a list to me, and stays visible where its button 
   await expect(chip).toHaveCount(0);
 });
 
-test("creates a task from the quick add dialog", async ({ page }) => {
+test("creates a task from the quick add dialog, opens it and puts it under the cursor", async ({
+  page,
+}) => {
   await page.goto("/__dev-login");
   await page.goto("/list/L1");
   await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
@@ -129,11 +131,14 @@ test("creates a task from the quick add dialog", async ({ page }) => {
 
   await expect(dialog).toBeHidden();
 
-  // The new task lands in the list's first status group, which may be below the
-  // fold in a 140-row list. Search for it rather than assuming it is on screen.
-  await page.keyboard.press("/");
-  await page.getByPlaceholder(/^Search name/).fill(title);
-  await expect(page.getByText(title)).toBeVisible();
+  // The new task opens on its own — under its placeholder id, since no worker
+  // runs here to ship it — and the row lands under the keyboard cursor, even
+  // when its status group is below the fold in a 140-row list.
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole("heading", { name: title })).toBeVisible();
+  await expect(page).toHaveURL(/task=tmp_/);
+  await expect(page.locator(".row-selected").getByText(title)).toBeVisible();
 });
 
 /**
@@ -498,6 +503,36 @@ test("pastes an image into the description and keeps the link", async ({ page })
   // Committed, the markdown is an image and not the text of one.
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(detail.locator(`img[src="${url}"]`)).toHaveCount(2);
+});
+
+/**
+ * The editor's footer promises "esc to cancel", so Escape has to mean that —
+ * back out of the edit — and never fall through to the shell, whose own
+ * Escape closes the whole panel.
+ */
+test("Escape cancels the description edit instead of closing the task", async ({ page }) => {
+  // The same seeded task the paste test opens, for the same reason.
+  const taskId = "t2601";
+
+  await page.goto("/__dev-login");
+  await page.goto(`/list/L1?task=${taskId}`);
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await detail.getByRole("button", { name: "Edit description" }).click();
+
+  const editor = detail.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.type("discarded on cancel ");
+  await page.keyboard.press("Escape");
+
+  // Back to the rendered body, panel still open — and the typing gone: cancel
+  // discards, it must never ride the blur into a commit.
+  await expect(detail.getByRole("button", { name: "Edit description" })).toBeVisible();
+  await expect(detail).not.toContainText("discarded on cancel");
+
+  // A second Escape is the shell's: now the panel goes.
+  await page.keyboard.press("Escape");
+  await expect(detail).not.toBeVisible();
 });
 
 /**

@@ -210,6 +210,84 @@ test("opening the tag picker keeps the task detail mounted while tags load", asy
   await expect(page.locator("[data-menu]").getByRole("option", { name: /billing/ })).toBeVisible();
 });
 
+/**
+ * The router wraps every route match in a Suspense boundary with no fallback.
+ *
+ * Anything that suspends inside the route — a resource read while its fetch is
+ * in flight, a lazy chunk still downloading — falls through to that boundary,
+ * which unmounts the entire page and remounts it when the read settles. These
+ * two tests hold the read open and assert the page is still there: node
+ * identity, not visibility, because Suspense re-inserts the same nodes on
+ * resolve and a check after the fact would pass on the broken build too.
+ */
+test("expanding time entries keeps the page mounted while entries load", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reads = 0;
+  await page.route("**/api/tasks/*/time-entries", async (route) => {
+    // The first expand is what resolves the resource; the blink only ever
+    // happened on the refetches after that, so the second read is the one held.
+    reads++;
+    if (reads > 1) await held;
+    await route.fulfill({ json: { entries: [] } });
+  });
+
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1?task=t2726");
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  const description = detail.locator(".prose-rask").first();
+  await expect(description).toBeVisible();
+  const descriptionNode = await description.elementHandle();
+  if (!descriptionNode) throw new Error("no rendered description on screen");
+
+  const toggle = detail.getByRole("button", { name: /^Time entries/ });
+  await toggle.click();
+  await expect(detail.getByText("No time tracked yet.")).toBeVisible();
+  await toggle.click(); // fold it back…
+  await toggle.click(); // …and the second expand refetches a resolved resource
+  try {
+    const stillMounted = await page.evaluate((node) => node.isConnected, descriptionNode);
+    expect(stillMounted).toBe(true);
+  } finally {
+    release();
+  }
+  await expect(detail.getByText("No time tracked yet.")).toBeVisible();
+});
+
+test("opening the description editor keeps the page mounted while it loads", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // The Vite dev server serves the source module graph, so the editor's lazy
+  // chunk is its source path. Holding the module holds the lazy() promise.
+  await page.route("**/src/components/MarkdownEditor.tsx*", async (route) => {
+    await held;
+    await route.continue();
+  });
+
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1?task=t2726");
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  const heading = detail.getByRole("heading", { level: 1 });
+  await expect(heading).toBeVisible();
+  const headingNode = await heading.elementHandle();
+  if (!headingNode) throw new Error("no rendered title on screen");
+
+  await detail.getByRole("button", { name: "Edit description" }).click();
+  try {
+    const stillMounted = await page.evaluate((node) => node.isConnected, headingNode);
+    expect(stillMounted).toBe(true);
+  } finally {
+    release();
+  }
+  await expect(detail.locator(".cm-editor")).toBeVisible();
+});
+
 test("editing a task field leaves the description DOM alone", async ({ page }) => {
   await page.route("**/api/spaces/*/tags", (route) =>
     route.fulfill({ json: [{ name: "billing", fg: null, bg: null }] }),
@@ -394,6 +472,51 @@ test("a task changing does not re-sort the inbox under the reader", async ({ pag
   // Nothing moved, so nothing above it had to be rebuilt.
   expect(churn.order).toBe(churn.wasOrder);
   expect(churn.removed).toBeLessThanOrEqual(REMOVAL_BUDGET);
+});
+
+/**
+ * A resource read re-throws its fetcher's rejection once nothing is in flight,
+ * and the app has no ErrorBoundary: before `heldValue`, one failed 30-second
+ * poll put the detail resource in "errored", the next render read threw, and
+ * the whole page went down for good. The panel may degrade while errored; the
+ * shell must survive, and the next good poll must bring the content back.
+ */
+test("a failed 30 second refresh does not take the page down", async ({ page }) => {
+  let detailReads = 0;
+  await page.route("**/api/tasks/t2726", async (route) => {
+    detailReads++;
+    if (detailReads === 2) return route.fulfill({ status: 500, json: { error: "boom" } });
+    await route.continue();
+  });
+
+  await page.clock.install();
+  const timerLoaded = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/timer",
+  );
+  await page.goto("/__dev-login");
+  await (await timerLoaded).finished();
+
+  const taskUrl = "/api/tasks/t2726";
+  const initial = page.waitForResponse((response) => new URL(response.url()).pathname === taskUrl);
+  await page.goto("/list/L1?task=t2726");
+  await (await initial).finished();
+
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail.locator(".prose-rask").first()).toBeVisible();
+
+  const failed = page.waitForResponse((response) => new URL(response.url()).pathname === taskUrl);
+  await page.clock.fastForward(30_000);
+  await (await failed).finished();
+
+  await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
+  await expect(detail).toBeVisible();
+
+  const recovered = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === taskUrl,
+  );
+  await page.clock.fastForward(30_000);
+  await (await recovered).finished();
+  await expect(detail.locator(".prose-rask").first()).toBeVisible();
 });
 
 test("editing one task leaves the other board cards' DOM alone", async ({ page }) => {

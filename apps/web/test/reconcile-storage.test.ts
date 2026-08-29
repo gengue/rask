@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createMemo, createRoot, createSignal } from "solid-js";
 import { unwrap } from "solid-js/store";
 import type { TimeEntry } from "../src/lib/api.ts";
 import { reconcileStorage } from "../src/lib/reconcile-storage.ts";
@@ -57,5 +58,51 @@ describe("reconcileStorage", () => {
     set([entry()]);
     set(undefined);
     expect(value()).toBeUndefined();
+  });
+
+  /*
+   * The setter must not subscribe its caller. It reads `state.value` to build
+   * its answer, and unguarded that read lands in whatever reactive scope called
+   * it — the effect that resets the time-entries panel on a task switch calls
+   * `mutate(undefined)`, so it got subscribed to the resource's value and
+   * re-ran on every fetch that landed, folding the section it had just opened
+   * and throwing the answer away.
+   */
+  test("set does not subscribe its caller to the stored value", () => {
+    createRoot((dispose) => {
+      const [value, set] = reconcileStorage<TimeEntry[]>(undefined);
+      const [epoch, setEpoch] = createSignal(0);
+
+      let clears = 0;
+      const clearing = createMemo(() => {
+        epoch();
+        clears++;
+        set(undefined);
+      });
+      let reads = 0;
+      const reading = createMemo(() => {
+        reads++;
+        return value();
+      });
+      clearing();
+      reading();
+      expect(clears).toBe(1);
+
+      // A fetch landing elsewhere writes the value. The reading memo re-runs —
+      // which is what proves reactivity is alive in this test environment and
+      // the clearing assertion below is measuring something.
+      set([entry()]);
+      reading();
+      expect(reads).toBe(2);
+      clearing();
+      expect(clears).toBe(1);
+
+      // And the setter's declared dependency still works.
+      setEpoch(1);
+      clearing();
+      expect(clears).toBe(2);
+
+      dispose();
+    });
   });
 });

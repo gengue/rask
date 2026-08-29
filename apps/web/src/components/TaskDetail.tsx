@@ -2,6 +2,7 @@ import { formatMention } from "@rask/clickup-client/mentions";
 import { isPlaceholder, parseInstant } from "@rask/clickup-client/vocabulary";
 import {
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   For,
@@ -10,6 +11,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  Suspense,
 } from "solid-js";
 import { unwrap } from "solid-js/store";
 import {
@@ -45,6 +47,7 @@ import { renderMarkdown } from "../lib/markdown.ts";
 import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
 import { useExpanded } from "../lib/nav.tsx";
 import { reconcileStorage } from "../lib/reconcile-storage.ts";
+import { heldValue } from "../lib/resource.ts";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
 import { tasks } from "../lib/store.ts";
@@ -111,12 +114,28 @@ export function TaskDetail(props: {
    */
   const live = useLiveTask(() => props.taskId);
 
+  /**
+   * The fetched detail, only while it is the open task's.
+   *
+   * `heldValue` holds the previous panel across a refetch, renders the panel's
+   * own Loading… line before the first answer instead of suspending the whole
+   * page, and degrades to that same line on a failed fetch instead of
+   * re-throwing it into the render. The memo on top is what keeps that cheap:
+   * `heldValue` watches the resource's state, which flaps ready → refreshing →
+   * ready on every background poll, and the memo answers the flap with the
+   * same object — reconcile keeps the reference stable — so nothing downstream
+   * re-runs until different bytes actually arrive.
+   */
+  const fetched = createMemo(() => {
+    const current = heldValue(detail);
+    return current && current.id === props.taskId ? current : null;
+  });
+
   const task = () => {
-    // `latest` does not hold the previous panel in Suspense while a new task loads.
-    const fetched = detail.latest;
-    if (!fetched || fetched.id !== props.taskId) return null;
+    const current = fetched();
+    if (!current) return null;
     const row = live();
-    return row ? withLiveTask(fetched, row) : fetched;
+    return row ? withLiveTask(current, row) : current;
   };
 
   const [assigneeMenu, setAssigneeMenu] = createSignal<{ x: number; y: number } | null>(null);
@@ -228,8 +247,8 @@ export function TaskDetail(props: {
   const optimistic = (
     apply: (current: TaskDetailData) => TaskDetailData,
   ): TaskDetailData | null => {
-    const current = detail();
-    if (!current || current.id !== props.taskId) return null;
+    const current = fetched();
+    if (!current) return null;
     const before = structuredClone(unwrap(current));
     const next = apply(current);
     if (next.id !== props.taskId) return null;
@@ -252,9 +271,9 @@ export function TaskDetail(props: {
 
   createEffect(() => {
     const row = live();
-    const fetched = detail();
-    if (!row || !fetched || fetched.id !== props.taskId) return;
-    if (row.dateUpdated === fetched.dateUpdated) return;
+    const current = fetched();
+    if (!row || !current) return;
+    if (row.dateUpdated === current.dateUpdated) return;
     if (row.dateUpdated === lastSeenUpdate) return;
     lastSeenUpdate = row.dateUpdated;
     void refetch();
@@ -681,23 +700,29 @@ export function TaskDetail(props: {
                     </div>
                   }
                 >
-                  <MarkdownEditor
-                    value={task().description ?? ""}
-                    autofocus
-                    onFiles={(files, insert) => {
-                      insertIntoDescription = insert;
-                      void descriptionUploader.upload(files);
-                    }}
-                    onCancel={() => setEditingDescription(false)}
-                    onCommit={(description) => {
-                      setEditingDescription(false);
-                      // The description is not in the task collection: carrying
-                      // it would mean fetching every body for a 500-row list.
-                      // Show it locally and send it straight to the API.
-                      mutate((current) => (current ? { ...current, description } : current));
-                      void api.patchTask(props.taskId, { description });
-                    }}
-                  />
+                  {/* Its own boundary, because a lazy component suspends to the
+                      nearest one and without this that is the router's, wrapped
+                      around the whole route: the first edit after a page load
+                      blanked everything for the length of the chunk download. */}
+                  <Suspense fallback={<div class="py-1 text-base text-ink-4">Loading editor…</div>}>
+                    <MarkdownEditor
+                      value={task().description ?? ""}
+                      autofocus
+                      onFiles={(files, insert) => {
+                        insertIntoDescription = insert;
+                        void descriptionUploader.upload(files);
+                      }}
+                      onCancel={() => setEditingDescription(false)}
+                      onCommit={(description) => {
+                        setEditingDescription(false);
+                        // The description is not in the task collection: carrying
+                        // it would mean fetching every body for a 500-row list.
+                        // Show it locally and send it straight to the API.
+                        mutate((current) => (current ? { ...current, description } : current));
+                        void api.patchTask(props.taskId, { description });
+                      }}
+                    />
+                  </Suspense>
                   <div class="pt-2 text-xs text-ink-4">
                     {/* An upload waits on ClickUp, and the attachments strip that
                       would otherwise say so is below the fold while editing. */}
@@ -807,7 +832,7 @@ export function TaskDetail(props: {
             anchor={anchor()}
             width={240}
             placeholder="Add or remove a tag…"
-            items={(spaceTags.latest ?? []).map((tag) => ({
+            items={(heldValue(spaceTags) ?? []).map((tag) => ({
               id: tag.name,
               label: tag.name,
               // Toggles, so say which ones are already on.

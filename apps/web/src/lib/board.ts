@@ -3,8 +3,8 @@ import type { StatusDef, Task } from "./api.ts";
 import { globalMemo } from "./global-memo.ts";
 import type { FlatItem } from "./grouping.ts";
 import { tasks } from "./store.ts";
-import { type GroupBy, setUi, ui } from "./ui.ts";
-import { flatItems, rowTasks, statusShown, viewListId, viewStatuses } from "./view.ts";
+import { type GroupBy, ui } from "./ui.ts";
+import { flatItems, statusShown, viewListId, viewStatuses } from "./view.ts";
 
 /**
  * The board, as data.
@@ -248,12 +248,13 @@ export function moveToColumn(task: Task, column: BoardColumn): void {
   const status = column.status;
   if (!status || status.status === task.status) return;
 
+  // The cursor stays on this card while it moves: `lib/view.ts` anchors it to
+  // the row's id rather than its position.
   tasks.update(task.id, (draft) => {
     draft.status = status.status;
     draft.statusColor = status.color ?? null;
     draft.statusType = status.type ?? null;
   });
-  follow(task.id);
 }
 
 /**
@@ -267,21 +268,6 @@ export function shiftColumn(task: Task, delta: -1 | 1): void {
   const index = columns.findIndex((column) => column.tasks.some((row) => row.id === task.id));
   const target = index === -1 ? undefined : columns[index + delta];
   if (target) moveToColumn(task, target);
-}
-
-/**
- * Keeps the cursor on the card that just moved.
- *
- * Changing a status regroups the view under the cursor, so the index it holds
- * would otherwise be pointing at whichever card slid into that slot. Deferred
- * by a microtask because the regroup happens through the collection, the live
- * query and an effect before `rowTasks` is the new order.
- */
-function follow(id: string): void {
-  queueMicrotask(() => {
-    const index = rowTasks().findIndex((task) => task.id === id);
-    if (index >= 0) setUi("cursor", index);
-  });
 }
 
 // --- geometry --------------------------------------------------------------

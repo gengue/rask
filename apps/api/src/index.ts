@@ -74,6 +74,7 @@ import {
   newCommentInput,
   newTaskInput,
   renameChecklist,
+  resolveCreatedTask,
   setCustomField,
   setTaskTags,
   taskPatchInput,
@@ -605,6 +606,17 @@ api.get("/views/:id/tasks", async (c) => {
   return c.json(rows);
 });
 
+/**
+ * What a placeholder task turned into.
+ *
+ * A browser can be showing `?task=tmp_…` when the outbox drains and the
+ * placeholder dies; this is how it follows the task to its real id instead of
+ * being left holding a snapshot no write can address. See `resolveCreatedTask`.
+ */
+api.get("/tasks/:id/resolved", async (c) =>
+  c.json(await resolveCreatedTask(db, c.req.param("id"))),
+);
+
 api.get("/tasks/:id", async (c) => {
   const detail = await getTaskDetail(db, c.req.param("id"));
   if (!detail) return c.json({ error: "not found" }, 404);
@@ -620,6 +632,12 @@ api.get("/tasks/:id", async (c) => {
 api.patch("/tasks/:id", async (c) => {
   const body = taskPatchInput.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  // Queued anyway, the patch ships addressed to an id ClickUp never assigned
+  // and 404s — same reason the delete below refuses. Now that a just-created
+  // task opens on its own, its placeholder is on screen for the couple of
+  // seconds this window lasts, so the refusal is no longer a corner case.
+  if (isPlaceholder(c.req.param("id"))) return c.json({ error: NOT_YET }, 409);
 
   await applyTaskPatch(db, {
     taskId: c.req.param("id"),
@@ -674,6 +692,7 @@ api.post("/tasks/:id/comments", async (c) => {
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
 
   const taskId = c.req.param("id");
+  if (isPlaceholder(taskId)) return c.json({ error: NOT_YET }, 409);
   await createComment(db, { taskId, userId: c.get("user").id, comment: body.data });
   return c.json(await pushDetail(c.get("user").id, taskId), 201);
 });
@@ -726,6 +745,7 @@ api.post("/tasks/:id/checklists", async (c) => {
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
 
   const taskId = c.req.param("id");
+  if (isPlaceholder(taskId)) return c.json({ error: NOT_YET }, 409);
   await createChecklist(db, { taskId, userId: c.get("user").id, checklist: body.data });
   return c.json(await pushDetail(c.get("user").id, taskId), 201);
 });
@@ -851,6 +871,7 @@ api.post("/tasks/:id/attachments", async (c) => {
 api.put("/tasks/:id/tags", async (c) => {
   const body = taskTagsInput.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+  if (isPlaceholder(c.req.param("id"))) return c.json({ error: NOT_YET }, 409);
 
   await setTaskTags(db, {
     taskId: c.req.param("id"),
@@ -886,6 +907,7 @@ const customFieldInput = z.object({ value: z.unknown(), mirror: z.unknown() });
 api.put("/tasks/:id/fields/:fieldId", async (c) => {
   const body = customFieldInput.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+  if (isPlaceholder(c.req.param("id"))) return c.json({ error: NOT_YET }, 409);
 
   await setCustomField(db, {
     taskId: c.req.param("id"),

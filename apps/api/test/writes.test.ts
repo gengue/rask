@@ -28,6 +28,7 @@ import {
   findChecklistItem,
   findComment,
   isEditable,
+  resolveCreatedTask,
   setCustomField,
   setTaskTags,
 } from "../src/writes.ts";
@@ -371,6 +372,57 @@ describe("createTask", () => {
     expect(rows[0]?.payload).not.toHaveProperty("parent");
 
     await db.delete(tasks).where(eq(tasks.id, id));
+  });
+});
+
+/**
+ * The placeholder-to-real-id lookup the browser leans on when the panel is
+ * open on a `tmp_` task the worker just retired. Wrong answers here are
+ * silent in the worst way: `pending: false` for a queued create closes a
+ * panel on a task that is about to exist.
+ */
+describe("resolveCreatedTask", () => {
+  const CLIENT = "resolve-client";
+  const PLACEHOLDER = `tmp_${CLIENT}`;
+
+  afterEach(async () => {
+    await db.delete(tasks).where(eq(tasks.id, PLACEHOLDER));
+  });
+
+  async function queueCreate() {
+    await createTask(db, {
+      userId: AUTHOR,
+      task: { listId: "writes-test-list", name: "resolve me", assignees: [], clientId: CLIENT },
+    });
+  }
+
+  test("still queued answers pending, with no id yet", async () => {
+    await queueCreate();
+    expect(await resolveCreatedTask(db, PLACEHOLDER)).toEqual({ id: null, pending: true });
+  });
+
+  test("shipped answers the real id", async () => {
+    await queueCreate();
+    // What the worker writes the moment ClickUp answers the create.
+    await db
+      .update(outbox)
+      .set({ entityId: "real-1", status: "done" })
+      .where(eq(outbox.clientId, CLIENT));
+    expect(await resolveCreatedTask(db, PLACEHOLDER)).toEqual({ id: "real-1", pending: false });
+  });
+
+  test("rejected answers nothing, and not pending", async () => {
+    await queueCreate();
+    await db.update(outbox).set({ status: "failed" }).where(eq(outbox.clientId, CLIENT));
+    expect(await resolveCreatedTask(db, PLACEHOLDER)).toEqual({ id: null, pending: false });
+  });
+
+  test("a placeholder nobody queued answers nothing", async () => {
+    expect(await resolveCreatedTask(db, "tmp_never-queued")).toEqual({ id: null, pending: false });
+  });
+
+  test("a real id is not resolved at all", async () => {
+    expect(await resolveCreatedTask(db, TASK)).toEqual({ id: null, pending: false });
   });
 });
 
