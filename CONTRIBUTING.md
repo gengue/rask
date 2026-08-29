@@ -124,6 +124,11 @@ End-to-end, which starts its own API, Vite and database on their own ports:
 bun run --cwd apps/web e2e
 ```
 
+When the default stack is busy (say, a second checkout mid-run),
+`E2E_API_PORT`, `E2E_WEB_PORT` and `E2E_DB_NAME` move this run onto its own
+ports and database. Two concurrent runs need two checkouts — a single checkout
+still shares `apps/web/.dev-session` and `test-results/` between them.
+
 Before changing a colour token:
 
 ```bash
