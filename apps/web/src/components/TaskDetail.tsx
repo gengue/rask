@@ -369,8 +369,8 @@ export function TaskDetail(props: {
             type="button"
             onClick={toggleSubtaskIndex}
             aria-pressed={subtaskIndexOpen()}
-            title={subtaskIndexOpen() ? "Hide subtask index" : "Show subtask index"}
-            aria-label={subtaskIndexOpen() ? "Hide subtask index" : "Show subtask index"}
+            title="Subtask index"
+            aria-label="Subtask index"
             class="-ml-1 flex size-6 items-center justify-center rounded-[5px] hover:bg-hover hover:text-ink"
             classList={{ "text-ink": subtaskIndexOpen(), "text-ink-3": !subtaskIndexOpen() }}
           >

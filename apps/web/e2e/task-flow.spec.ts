@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isClosedType } from "@rask/clickup-client/vocabulary";
 
 /**
  * The flow Rask exists for: open a list, move a task's status without opening
@@ -390,13 +391,17 @@ test("hides done subtasks on request, and the expanded view grows an index rail"
   const taskId = "t2601";
   await page.goto("/__dev-login");
 
+  // The seeded subtask statuses come out of a PRNG, so the test deals its own
+  // hand: the first subtask done, the second open, whatever the seed said.
   const before = await (await page.request.get(`/api/tasks/${taskId}`)).json();
-  const firstSub = before.subtasks[0];
-  await page.request.patch(`/api/tasks/${firstSub.id}`, { data: { status: "done" } });
+  await page.request.patch(`/api/tasks/${before.subtasks[0].id}`, { data: { status: "done" } });
+  await page.request.patch(`/api/tasks/${before.subtasks[1].id}`, {
+    data: { status: "in progress" },
+  });
   const detailJson = await (await page.request.get(`/api/tasks/${taskId}`)).json();
-  const openCount = detailJson.subtasks.filter(
-    (sub: { statusType: string }) => sub.statusType !== "done" && sub.statusType !== "closed",
-  ).length;
+  const open = detailJson.subtasks.filter(
+    (sub: { statusType: string }) => !isClosedType(sub.statusType),
+  );
 
   await page.goto(`/list/L1?task=${taskId}`);
   const section = page.locator("section", {
@@ -405,29 +410,29 @@ test("hides done subtasks on request, and the expanded view grows an index rail"
   await expect(section.locator("li")).toHaveCount(detailJson.subtasks.length);
 
   await section.getByRole("button", { name: "Hide done" }).click();
-  await expect(section.locator("li")).toHaveCount(openCount);
+  await expect(section.locator("li")).toHaveCount(open.length);
 
   // Collapsed there is no room for a rail, so its toggle only exists expanded.
-  await expect(page.getByRole("button", { name: "Show subtask index" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Subtask index" })).toHaveCount(0);
   await page.getByRole("button", { name: "Expand task" }).click();
-  await page.getByRole("button", { name: "Show subtask index" }).click();
+  await page.getByRole("button", { name: "Subtask index" }).click();
 
   const rail = page.getByRole("navigation", { name: "Subtasks" });
   await expect(rail).toBeVisible();
   // The rail obeys the same "Hide done" the section does.
-  await expect(rail.locator("li")).toHaveCount(openCount);
+  await expect(rail.locator("li")).toHaveCount(open.length);
 
-  // Clicking an entry opens that subtask; the rail then has nothing to index.
-  const target = detailJson.subtasks.find(
-    (sub: { statusType: string }) => sub.statusType !== "done" && sub.statusType !== "closed",
-  );
+  // Clicking an entry opens that subtask without collapsing the panel — the
+  // rail only exists expanded, so dropping `expanded` here would close the
+  // very layout the reader navigated from.
   await rail.locator("li button").first().click();
-  await expect(page).toHaveURL(new RegExp(`task=${target.id}`));
+  await expect(page).toHaveURL(new RegExp(`task=${open[0].id}`));
+  await expect(page).toHaveURL(/expanded=/);
 
   // Both choices are preferences: they survive a reload.
   await page.goto(`/list/L1?task=${taskId}&expanded=1`);
   await expect(page.getByRole("navigation", { name: "Subtasks" }).locator("li")).toHaveCount(
-    openCount,
+    open.length,
   );
   await expect(section.getByRole("button", { name: "Show done" })).toBeVisible();
 });

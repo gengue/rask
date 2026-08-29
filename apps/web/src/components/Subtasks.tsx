@@ -37,14 +37,20 @@ import { StatusIcon } from "./StatusIcon.tsx";
 /** Narrow: four labels and a tick, anchored to its right edge under the button. */
 const PICKER_WIDTH = 200;
 
-/** Navigates to a task, in its own list, with the detail panel open. */
+/**
+ * Navigates to a task, in its own list, with the detail panel open.
+ *
+ * Merging into the search rather than replacing it, because `expanded` lives
+ * there too: the index rail only exists expanded, so a click that dropped the
+ * flag collapsed the panel the reader was navigating from.
+ */
 function useOpenTask(): (task: TaskRef) => void {
   const navigate = useNavigate();
   return (task) => {
     void navigate({
       to: "/list/$listId",
       params: { listId: task.listId },
-      search: { task: task.id },
+      search: (prev: Record<string, unknown>) => ({ ...prev, task: task.id }),
     });
   };
 }
@@ -141,9 +147,10 @@ export function Subtasks(props: {
           </h3>
           <div class="-mx-1 flex items-baseline gap-1">
             <Show when={done() > 0}>
+              {/* The label is the state ("Show done" while hidden), so no
+                  aria-pressed — both together read doubly to a screen reader. */}
               <button
                 type="button"
-                aria-pressed={hideDoneSubtasks()}
                 onClick={toggleHideDoneSubtasks}
                 class="rounded-[5px] px-1 text-ink-4 text-xs leading-4 hover:bg-hover hover:text-ink-2"
               >
