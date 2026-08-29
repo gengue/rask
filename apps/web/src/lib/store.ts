@@ -1,6 +1,7 @@
 import { createCollection } from "@tanstack/solid-db";
 import { createRoot } from "solid-js";
 import { api, type Task, type TaskPage, type TaskQuery } from "./api.ts";
+import { celebrate, justClosed } from "./celebration.tsx";
 import { pushToast } from "./toast.ts";
 import { setViewLoading } from "./view.ts";
 
@@ -76,9 +77,19 @@ export const tasks = createRoot(() =>
     onUpdate: async ({ transaction }) => {
       try {
         for (const mutation of transaction.mutations) {
-          const patch = toApiPatch(mutation.changes as Partial<Task>);
+          const changes = mutation.changes as Partial<Task>;
+          const patch = toApiPatch(changes);
           if (Object.keys(patch).length === 0) continue;
           await api.patchTask(String(mutation.key), patch);
+          /*
+           * Here and not in the four places that flip a status, because this
+           * is the one door every local status change walks through — menu,
+           * board drop, detail panel alike. SSE merges bypass onUpdate, so a
+           * teammate closing a task never rings your bell.
+           */
+          if (justClosed((mutation.original as Task).statusType, changes.statusType)) {
+            celebrate("taskDone");
+          }
         }
       } catch (error) {
         /*

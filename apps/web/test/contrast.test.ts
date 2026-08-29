@@ -39,17 +39,18 @@ describe("the ratio itself", () => {
 });
 
 describe("the stylesheet", () => {
-  test("both theme blocks are found, with the tokens the app uses", () => {
+  test("every theme block is found, with the tokens the app uses", () => {
     // If the parse silently returned nothing, every assertion below would pass.
-    for (const tokens of [themes.dark, themes.light]) {
+    for (const tokens of [themes.dark, themes.light, themes.ember]) {
       expect(Object.keys(tokens).length).toBeGreaterThan(10);
       expect(tokens.ink).toMatch(/^#[0-9a-f]{6}$/i);
       expect(tokens.app).toMatch(/^#[0-9a-f]{6}$/i);
     }
   });
 
-  test("dark and light are actually different", () => {
+  test("the themes are actually different", () => {
     expect(themes.dark.app).not.toBe(themes.light.app);
+    expect(themes.ember.app).not.toBe(themes.dark.app);
   });
 
   /*
@@ -62,13 +63,26 @@ describe("the stylesheet", () => {
    * app paints from this file, one theme quietly missing a colour is a bug in
    * two places at once.
    */
-  test("both themes define the same set of tokens", () => {
-    const dark = Object.keys(themes.dark).sort();
-    const light = Object.keys(themes.light).sort();
-    expect(light).toEqual(dark);
+  /*
+   * `parseThemes` names its blocks explicitly, so a stylesheet block it does
+   * not know about ships unaudited — a fourth theme could quietly skip every
+   * AA check. This closes that door: any `html.<name>` block in theme.css
+   * must be a theme the audit returns.
+   */
+  test("every html.<name> block in the stylesheet is audited", () => {
+    const declared = new Set([...css.matchAll(/html\.(\w+)\s*\{/g)].map((match) => match[1]));
+    for (const name of declared) {
+      expect(Object.keys(themes)).toContain(name);
+    }
   });
 
-  test("every token pair clears WCAG AA, in both themes", () => {
+  test("every theme defines the same set of tokens", () => {
+    const dark = Object.keys(themes.dark).sort();
+    expect(Object.keys(themes.light).sort()).toEqual(dark);
+    expect(Object.keys(themes.ember).sort()).toEqual(dark);
+  });
+
+  test("every token pair clears WCAG AA, in every theme", () => {
     const failures = audit(themes)
       .filter((f) => f.ratio < f.min)
       .map((f) => `${f.theme}: ${f.ink} on ${f.surface} = ${f.ratio.toFixed(2)}:1 (min ${f.min})`);

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="60" height="60" viewBox="0 0 60 60">
+  <!-- The panel frame, cut for border-image. Drawn at final size: the slice
+       (18) equals the CSS border-width (18px), so every stroke lands 1:1 on
+       screen instead of being scaled to a smudge. One corner, reused four
+       times; straight edge strips so the middle slices stretch cleanly. -->
+  <defs>
+    <g id="corner">
+      <path d="M2.5 19 V7 Q2.5 2.5 7 2.5 H19" fill="none" stroke="#0b0805" stroke-width="5" stroke-linecap="square"/>
+      <path d="M2.5 19 V7 Q2.5 2.5 7 2.5 H19" fill="none" stroke="#7a5f3c" stroke-width="2"/>
+      <path d="M4 17 V8 Q4 4 8 4 H17" fill="none" stroke="#b2905a" stroke-width="1" opacity="0.9"/>
+      <path d="M7.5 19 V10 Q7.5 7.5 10 7.5 H19" fill="none" stroke="#3f3120" stroke-width="1"/>
+      <rect x="4" y="4" width="7" height="7" transform="rotate(45 7.5 7.5)" fill="#5d4930" stroke="#171008" stroke-width="1.2"/>
+      <rect x="6" y="6" width="3" height="3" transform="rotate(45 7.5 7.5)" fill="#b2905a"/>
+      <path d="M12.5 5 l5.5 2.5 -5.5 2.5 Z" fill="#4a3922" stroke="#171008" stroke-width="0.6"/>
+      <path d="M5 12.5 l2.5 5.5 2.5 -5.5 Z" fill="#4a3922" stroke="#171008" stroke-width="0.6"/>
+    </g>
+    <g id="edge-h">
+      <path d="M18 2.5 H42" stroke="#0b0805" stroke-width="5"/>
+      <path d="M18 2.5 H42" stroke="#7a5f3c" stroke-width="2"/>
+      <path d="M18 4 H42" stroke="#b2905a" stroke-width="1" opacity="0.45"/>
+      <path d="M18 7.5 H42" stroke="#3f3120" stroke-width="1"/>
+    </g>
+    <g id="edge-v">
+      <path d="M2.5 18 V42" stroke="#0b0805" stroke-width="5"/>
+      <path d="M2.5 18 V42" stroke="#7a5f3c" stroke-width="2"/>
+      <path d="M4 18 V42" stroke="#b2905a" stroke-width="1" opacity="0.45"/>
+      <path d="M7.5 18 V42" stroke="#3f3120" stroke-width="1"/>
+    </g>
+  </defs>
+  <use href="#corner"/>
+  <use href="#corner" transform="translate(60 0) scale(-1 1)"/>
+  <use href="#corner" transform="translate(0 60) scale(1 -1)"/>
+  <use href="#corner" transform="translate(60 60) scale(-1 -1)"/>
+  <use href="#edge-h"/>
+  <use href="#edge-h" transform="translate(0 60) scale(1 -1)"/>
+  <use href="#edge-v"/>
+  <use href="#edge-v" transform="translate(60 0) scale(-1 1)"/>
+</svg>

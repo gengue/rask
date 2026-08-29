@@ -444,6 +444,104 @@ test("pastes an image into the description and keeps the link", async ({ page })
 });
 
 /**
+ * The layout toggle.
+ *
+ * `b` flipped `ui.layout` long before anything on screen did, so what this has
+ * to check is that the two agree in both directions: a click has to redraw the
+ * panel, and the shortcut has to move the buttons. A unit test can read the
+ * store and see neither.
+ */
+test("the layout buttons switch list and board, and stay in step with `b`", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1");
+
+  const rows = page.getByRole("listbox", { name: "Tasks" });
+  const asList = page.getByRole("button", { name: "List view" });
+  const asBoard = page.getByRole("button", { name: "Board view" });
+  await expect(rows).toBeVisible();
+  await expect(asList).toHaveAttribute("aria-pressed", "true");
+  await expect(asBoard).toHaveAttribute("aria-pressed", "false");
+
+  await asBoard.click();
+  await expect(rows).toHaveCount(0);
+  await expect(asBoard).toHaveAttribute("aria-pressed", "true");
+  await expect(asList).toHaveAttribute("aria-pressed", "false");
+
+  await page.keyboard.press("b");
+  await expect(rows).toBeVisible();
+  await expect(asList).toHaveAttribute("aria-pressed", "true");
+});
+
+/**
+ * The closed-task toggle, which is the board's Done column.
+ *
+ * End-to-end rather than another unit test for the same reason the quick filter
+ * is: the unit tests can say `ui.showClosed` is true and that `statusShown`
+ * agrees, and neither of them can see a column. The bug was that a reader who
+ * turned Done on lost it by walking to the next list — the preference lived in
+ * a per-tab store and every saved view wrote ClickUp's `show_closed` over it —
+ * so what has to be checked is a rendered board on the far side of a navigation
+ * and a reload.
+ */
+test("the Done column is a setting, and it survives leaving the list", async ({ page }) => {
+  await page.goto("/__dev-login");
+  /*
+   * L3 and L5, which no other spec opens.
+   *
+   * "The column is absent" is only true of a list whose statuses are the ones
+   * the seed gave it. Written against L1 this passed alone and failed in the
+   * suite: a spec above moves a task to "done" through the app, the fixture's
+   * ClickUp is a closed port, so the read-back that would have stamped the row
+   * `closed` never lands and one card sits there typed `custom` — enough to
+   * draw the column with the toggle off. That is the fixture, not the mirror;
+   * in production `ingestTasks` writes ClickUp's own answer back the moment the
+   * outbox drains.
+   */
+  await page.goto("/list/L3");
+  await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
+
+  await page.keyboard.press("b");
+  const done = page.getByRole("listbox", { name: "done" });
+  const toggle = page.getByRole("button", { name: "Show closed tasks" });
+  const count = page.getByTitle("Tasks matching this filter");
+
+  // Off by default: the column is not empty, it is absent. Drawing it while the
+  // same rule removes everything that lands in it is the trap `asStatusColumns`
+  // is written to avoid.
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(done).toHaveCount(0);
+  const hidden = Number(await count.textContent());
+  expect(hidden).toBeGreaterThan(0);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(done).toBeVisible();
+  // The rows are more than they were, which is the part a unit test cannot see:
+  // the route refetched with closed=1 rather than re-filtering the page it had.
+  await expect.poll(async () => Number(await count.textContent())).toBeGreaterThan(hidden);
+  await expect(done.getByRole("option").first()).toBeVisible();
+
+  // The next list, and then a reload: neither is allowed to take it back.
+  await page.goto("/list/L5");
+  await expect(page.getByRole("button", { name: "Show closed tasks" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show closed tasks" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  // And back off, which has to put the column away again — the toggle is one
+  // control, not a door that only opens.
+  await page.getByRole("button", { name: "Show closed tasks" }).click();
+  await page.goto("/list/L3");
+  await expect(page.getByRole("listbox", { name: "done" })).toHaveCount(0);
+});
+
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,

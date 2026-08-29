@@ -292,6 +292,18 @@ export class ClickUpClient {
     ).then((r) => r.folders);
   }
 
+  /**
+   * One List, which is the only place a folderless List's statuses exist.
+   *
+   * `GET /space/{id}/list` answers with `override_statuses` and no `statuses`
+   * at all -- measured against the workspace, and the vendored spec agrees: the
+   * field is not in that response schema and is in this one. Lists inside a
+   * Folder arrive with the set inlined and never need this call.
+   */
+  getList(listId: string): Promise<ClickUpList> {
+    return this.request(clickUpList, "GET", `/v2/list/${listId}`);
+  }
+
   /** Lists that live directly under a Space, with no Folder in between. */
   getFolderlessLists(spaceId: string): Promise<ClickUpList[]> {
     return this.request(

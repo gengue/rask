@@ -297,9 +297,21 @@ export function mapList(
     content: list.content ?? null,
     taskCount: list.task_count ?? null,
     archived: list.archived ?? false,
-    // Only meaningful when the list overrides its Space. Otherwise the Space's
-    // set applies and duplicating it here would be a second thing to keep in sync.
-    statuses: list.override_statuses && list.statuses ? list.statuses.map(mapStatus) : null,
+    /*
+     * The List's usable statuses, whenever the payload carried them.
+     *
+     * Not gated on `override_statuses` any more, because the two things do not
+     * line up: a List inside a Folder arrives with the *effective* set inlined
+     * -- its own, its Folder's, or its Space's -- while `override_statuses`
+     * says only which of the three it is. Gating on the flag threw away the
+     * Folder's set for every List that inherits one, and a Folder that
+     * overrides is exactly the case a Space fallback gets wrong.
+     *
+     * Null when the payload has none, which is `GET /space/{id}/list`: it sends
+     * the flag and never the statuses, so the worker re-reads those Lists (see
+     * `syncHierarchy`) and the ones that inherit fall back to their Space.
+     */
+    statuses: list.statuses?.length ? list.statuses.map(mapStatus) : null,
   };
 }
 

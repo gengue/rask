@@ -55,15 +55,18 @@ function parseHex(hex: string): [number, number, number] {
 export type Tokens = Record<string, string>;
 
 /**
- * The two token blocks: `@theme { … }` is dark, `html.light { … }` is light.
+ * The token blocks: `@theme { … }` is dark, and each `html.<name>` block
+ * re-points the same names. A theme added to the stylesheet has to be added
+ * here too, or it ships unaudited.
  *
  * Only opaque hex values are collected. `--color-hover` and `--color-scrim` are
  * deliberately translucent overlays and have no fixed ratio to measure.
  */
-export function parseThemes(css: string): { dark: Tokens; light: Tokens } {
+export function parseThemes(css: string): { dark: Tokens; light: Tokens; ember: Tokens } {
   return {
     dark: parseBlock(css, "@theme"),
     light: parseBlock(css, "html.light"),
+    ember: parseBlock(css, "html.ember"),
   };
 }
 
@@ -113,7 +116,7 @@ export interface Finding {
   min: number;
 }
 
-export function audit(themes: { dark: Tokens; light: Tokens }): Finding[] {
+export function audit(themes: Record<string, Tokens>): Finding[] {
   const findings: Finding[] = [];
   for (const [theme, tokens] of Object.entries(themes)) {
     for (const { ink, on, min } of CHECKS) {

@@ -14,6 +14,7 @@ import {
   comments,
   type Db,
   outbox,
+  type StatusDef,
   taskAssignees,
   taskChecklists,
   taskCustomValues,
@@ -21,6 +22,7 @@ import {
 } from "@rask/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { statusesForList } from "./queries.ts";
 
 /**
  * The write path.
@@ -86,17 +88,62 @@ export const commentPatchInput = z
   });
 export type CommentPatchInput = z.infer<typeof commentPatchInput>;
 
+/**
+ * The colour and the coarse type that belong with a status name.
+ *
+ * A status is a name in `tasks.status` and a name plus a colour plus a type
+ * everywhere it is drawn, so a write that moves the name alone leaves the row
+ * painted as the status it just left. That is not a cosmetic gap: the change
+ * feed hands the row back to every open browser within the second, which
+ * overwrites the optimistic colour the picker already applied, and it stays
+ * wrong until ClickUp's read-back lands seconds later. The row lands in its new
+ * group wearing the old group's colour, and it looks like the write half
+ * worked.
+ *
+ * Read from the same set the picker offered, so a name the List does not have
+ * leaves both alone rather than blanking them -- the read-back is what corrects
+ * that case, and it is the one that already knows better.
+ */
+async function statusPaint(
+  db: Db,
+  listId: string,
+  status: string | null | undefined,
+): Promise<StatusDef | undefined> {
+  if (!status) return undefined;
+  const defs = await statusesForList(db, listId);
+  return defs.find((def) => def.status.toLowerCase() === status.toLowerCase());
+}
+
+/** The List a task belongs to, or "" when the task is not mirrored. */
+async function listOf(db: Db, taskId: string): Promise<string> {
+  const [row] = await db
+    .select({ listId: tasks.listId })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+  return row?.listId ?? "";
+}
+
 export async function applyTaskPatch(
   db: Db,
   input: { taskId: string; userId: string; patch: TaskPatchInput },
 ): Promise<void> {
   const { taskId, userId, patch } = input;
+  // Outside the transaction: reads of rows this write does not touch, and
+  // `statusesForList` wants the pool rather than the transaction handle.
+  const paint = patch.status
+    ? await statusPaint(db, await listOf(db, taskId), patch.status)
+    : undefined;
 
   await db.transaction(async (tx) => {
     const local: Record<string, unknown> = { syncedAt: new Date() };
     if (patch.name !== undefined) local.name = patch.name;
     if (patch.description !== undefined) local.description = patch.description;
     if (patch.status !== undefined) local.status = patch.status;
+    if (paint) {
+      local.statusColor = paint.color ?? null;
+      local.statusType = paint.type ?? null;
+    }
     if (patch.priority !== undefined) local.priority = patch.priority;
     if (patch.dueDate !== undefined) {
       local.dueDate = patch.dueDate === null ? null : new Date(patch.dueDate);
@@ -143,6 +190,10 @@ export async function createTask(
 ): Promise<string> {
   const { userId, task } = input;
   const id = placeholderId(task.clientId);
+  // Same reason as the patch above: the change feed hands this placeholder back
+  // to the browser that created it, and a status with no colour repaints the
+  // row it just drew as an unstyled one until ClickUp's reply lands.
+  const paint = await statusPaint(db, task.listId, task.status);
 
   await db.transaction(async (tx) => {
     await tx
@@ -153,6 +204,8 @@ export async function createTask(
         name: task.name,
         description: task.description ?? null,
         status: task.status ?? null,
+        statusColor: paint?.color ?? null,
+        statusType: paint?.type ?? null,
         priority: task.priority ?? null,
         dueDate: task.dueDate ? new Date(task.dueDate) : null,
         parentId: task.parentId ?? null,

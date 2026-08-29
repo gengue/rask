@@ -265,3 +265,241 @@
   color: var(--color-ink);
   font-weight: 500;
 }
+
+/*
+ * Ember's set dressing.
+ *
+ * The tokens in theme.css make Ember a colour scheme; this makes it a place.
+ * The materials live as SVGs in public/ember/ — procedural turbulence relief,
+ * no binary assets — and every texture is a *translucent* overlay: the token
+ * underneath still owns the base colour, so the AA audit keeps meaning
+ * something. `::before` on body is the vignette and a film of fine grain;
+ * `::after` is the sidebar's iron rail. Both are pointer-events: none and
+ * ride above static content by paint order alone, so anything positioned
+ * (menus, the palette, the scrim at z-50) still covers them.
+ *
+ * Web-only on purpose: theme.css is shared with the landing page, and the
+ * landing page never applies `html.ember`.
+ */
+html.ember body {
+  background-image: url("/ember/stone.svg");
+  background-size: 640px 640px;
+}
+
+html.ember body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(135% 100% at 50% 26%, transparent 55%, rgb(6 3 0 / 0.45) 100%),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 0.75 0 0 0 0 0.4 0 0 0 0.045 0'/></filter><rect width='140' height='140' filter='url(%23g)'/></svg>");
+}
+
+/*
+ * The rail: twin iron columns running down the sidebar's right edge, the
+ * reference's structural border between the sidebar and the content.
+ */
+html.ember body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("/ember/rail.svg");
+  background-repeat: repeat-y;
+  background-position: left 218px top 0;
+  background-size: 36px auto;
+}
+
+/* Below the dock breakpoint the sidebar is a drawer and every pixel is
+   contested: everything ornamental that occupies space — rail, frames,
+   finials, the sidebar's inner frame — gets out of the way. The flat
+   textures stay; they cost no room.
+   `width < 1090px` is --breakpoint-dock (theme.css); a media query cannot
+   read the token, so the number is repeated here — keep them in step. */
+@media (width < 1090px) {
+  html.ember body::before,
+  html.ember body::after,
+  html.ember main::before,
+  html.ember main::after,
+  html.ember aside[aria-label="Task detail"]::before,
+  html.ember aside[aria-label="Task detail"]::after,
+  html.ember aside[aria-label="Workspace"]::after {
+    display: none;
+  }
+}
+
+/* Panel surfaces wear their materials: leather on every panel and floating
+   menu, stone already on the wall behind. The utility class is the hook. */
+html.ember .bg-panel,
+html.ember .floating {
+  background-image: url("/ember/panel.svg");
+  background-size: 480px 480px;
+}
+
+/* The carved frame, laid over the two big panels as a border-image overlay.
+   Pseudo-element rather than a real border so the layout never moves; under
+   the drag overlay (z-30) and every fixed menu (z-50). */
+html.ember main {
+  position: relative;
+}
+
+html.ember main::after,
+html.ember aside[aria-label="Task detail"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  border: 18px solid transparent;
+  border-image: url("/ember/frame.svg") 18 / 18px stretch;
+}
+
+/* The finial riding the frame's top rail, centred. */
+html.ember main::before,
+html.ember aside[aria-label="Task detail"]::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 26;
+  pointer-events: none;
+  width: 88px;
+  height: 18px;
+  background: url("/ember/finial.svg");
+}
+
+/*
+ * The victory banner (src/lib/celebration.tsx). The webp is a transparent
+ * 1920x1080 frame with the banner band across the middle, so covering the
+ * viewport is the whole layout. Above the palette's z-50 on purpose — it is a
+ * moment, not chrome — and pointer-events: none so it never eats a click.
+ * Timing mirrors elden-all: a second in, three and a half held, a second out.
+ */
+.ember-banner {
+  position: fixed;
+  /* Both offsets pinned on each axis is what sizes the image — no 100vh,
+     which overflows dynamic mobile viewports. */
+  inset: 0;
+  z-index: 60;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+  animation: ember-banner 5.5s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+@keyframes ember-banner {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/*
+ * Look and feel of the panels under Ember, beyond what tokens can say.
+ *
+ * Tokens re-colour; they cannot recess an input or open the tracking on a
+ * carved label. These are the three structural notes from the reference that
+ * CSS can reach without touching a component: element and utility selectors
+ * only, all of them unlayered so they beat Tailwind's layered rules.
+ */
+
+/* Long-form inputs sit recessed, like ink wells: the comment box and every
+   inline editor. Element-level because the composer is a plain textarea. */
+html.ember textarea {
+  background-image:
+    url("/ember/paper.svg"),
+    linear-gradient(180deg, rgb(0 0 0 / 0.22), rgb(0 0 0 / 0.08) 40%, rgb(255 190 110 / 0.03));
+  background-size:
+    400px 400px,
+    auto;
+  border-radius: 7px;
+  box-shadow:
+    inset 0 1px 8px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(82 64 42 / 0.4);
+}
+
+/* Every section label is already uppercase; carved lettering is mostly wider
+   tracking. Overrides the tracking utility because this rule is unlayered. */
+html.ember .uppercase {
+  letter-spacing: 0.14em;
+}
+
+/* The task detail panel reads as an aged page: a warm double hairline inside
+   its edge and a faint inner shadow pooling in the corners. */
+html.ember aside[aria-label="Task detail"] {
+  box-shadow:
+    inset 0 0 0 1px rgb(82 64 42 / 0.45),
+    inset 0 0 48px rgb(0 0 0 / 0.4);
+}
+
+/* The reference marks every section break with a small lozenge on the rule.
+   `section.border-t` is the stable hook: every titled section in the panel
+   draws that border, and the empty ones drop the class along with the line. */
+html.ember aside[aria-label="Task detail"] section.border-t {
+  position: relative;
+}
+
+html.ember aside[aria-label="Task detail"] section.border-t::before {
+  content: "";
+  position: absolute;
+  top: -3.5px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--color-app);
+  border: 1px solid var(--color-line-strong);
+}
+
+html.ember textarea::placeholder {
+  font-style: italic;
+}
+
+/* The reference's buttons are cut stone, not amber: scoped to the solid
+   accent button (Comment, and its siblings) so links and chips keep the
+   ember accent. Surface and border are the audited tokens — ink on elevated
+   is a pair the contrast suite already rates — with only translucent light
+   layered on top, which no audit can lose. */
+html.ember button.bg-accent {
+  background-color: var(--color-elevated);
+  background-image: linear-gradient(180deg, rgb(255 220 160 / 0.07), rgb(0 0 0 / 0.25));
+  color: var(--color-ink);
+  border: 1px solid var(--color-line-strong);
+  box-shadow:
+    inset 0 1px 0 rgb(255 220 160 / 0.12),
+    0 1px 3px rgb(0 0 0 / 0.5);
+}
+
+/* The sidebar wears the reference's chrome: a thin bronze inner frame with
+   shadow pooling behind it. The aria-label doubles as the styling hook, same
+   as the detail panel. */
+html.ember aside[aria-label="Workspace"] {
+  position: relative;
+}
+
+html.ember aside[aria-label="Workspace"]::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  z-index: 24;
+  border: 1px solid rgb(140 110 70 / 0.5);
+  border-radius: 8px;
+  box-shadow: inset 0 0 34px rgb(0 0 0 / 0.5);
+}
+
+/* The current row carries the reference's outlined-chip look everywhere the
+   cursor lands: nav item, task row, palette command. */
+html.ember .row-selected {
+  box-shadow: inset 0 0 0 1px rgb(140 110 70 / 0.55);
+}

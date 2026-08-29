@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import { api, type ListView, type View } from "./api.ts";
 import { pushToast } from "./toast.ts";
-import { type GroupBy, setUi } from "./ui.ts";
+import { type GroupBy, readShowClosed, setUi } from "./ui.ts";
 import { resetCursor } from "./view.ts";
 
 /**
@@ -112,14 +112,21 @@ export function groupByForField(field: string | null | undefined): GroupBy {
 /**
  * Puts a view's grouping and its closed-task setting on screen.
  *
- * `showClosed` is not a preference here but a description: ClickUp already
- * decided whether the rows it sent include closed ones, and leaving Rask's own
- * toggle to filter them again would show fewer tasks than the view has.
+ * `showClosed` is a default, not an instruction. It was read as one — the
+ * view's `show_closed` written straight over the toggle — on the theory that
+ * ClickUp had already decided which rows it sent. It has not: `show_closed` is
+ * a display setting, and `GET /view/{id}/task` returns the closed tasks either
+ * way. So the value only decided whether Rask drew the Done column, and it
+ * decided it again on every view opened, which is how a reader who turned the
+ * column on lost it by clicking the next tab.
+ *
+ * Now it seeds the toggle only while nobody has an opinion. Once the reader
+ * picks, `readShowClosed` answers with their choice and the view stops arguing.
  */
 export function applyView(view: View): void {
   setUi({
     groupBy: groupByForField(view.groupField),
-    showClosed: view.showClosed,
+    showClosed: readShowClosed() ?? view.showClosed,
     /*
      * A board tab draws a board.
      *

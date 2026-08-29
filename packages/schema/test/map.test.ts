@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clickUpComment, clickUpTask, clickUpView } from "@rask/clickup-client";
+import { clickUpComment, clickUpList, clickUpTask, clickUpView } from "@rask/clickup-client";
 import checklistFixture from "../../clickup-client/test/fixtures/checklist.json" with {
   type: "json",
 };
@@ -7,7 +7,7 @@ import commentFixture from "../../clickup-client/test/fixtures/comment-with-imag
   type: "json",
 };
 import taskFixture from "../../clickup-client/test/fixtures/task.json" with { type: "json" };
-import { mapComment, mapTask, viewListId } from "../src/map.ts";
+import { mapComment, mapList, mapTask, viewListId } from "../src/map.ts";
 
 const parse = (overrides: Record<string, unknown> = {}) =>
   clickUpTask.parse({ ...taskFixture, ...overrides });
@@ -269,5 +269,46 @@ describe("viewListId", () => {
     // task in the view under whatever id happened to be in hand.
     expect(viewListId(view(null))).toBeNull();
     expect(viewListId(view({ id: "5345534", type: null }))).toBeNull();
+  });
+});
+
+/**
+ * Which statuses a List is stored with, and it is not what the flag says.
+ *
+ * `override_statuses` answers "whose set is this", and the picker needs "what
+ * is in it". The two payloads that carry Lists disagree about the second one:
+ * a List inside a Folder arrives with its effective set inlined whatever the
+ * flag says, and `GET /space/{id}/list` sends the flag with no set at all.
+ * Reading the flag instead of the field meant every folderless List that
+ * overrode its Space was stored with no statuses and drew its Space's.
+ */
+describe("mapList", () => {
+  const list = (over: Record<string, unknown>) =>
+    mapList(clickUpList.parse({ id: "L", name: "List", ...over }), { spaceId: "S" });
+
+  const STATUSES = [
+    { status: "review", color: "#ab4aba", type: "custom", orderindex: 0 },
+    { status: "complete", color: "#008844", type: "closed", orderindex: 1 },
+  ];
+
+  test("keeps the set the payload carried, whatever the flag says", () => {
+    expect(list({ override_statuses: true, statuses: STATUSES })?.statuses).toHaveLength(2);
+    // The Folder's set, inherited: the flag is false and the names are still
+    // the only ones this List has.
+    expect(list({ override_statuses: false, statuses: STATUSES })?.statuses).toHaveLength(2);
+  });
+
+  test("null when the payload carried none, flag or no flag", () => {
+    // `GET /space/{id}/list`, which is what `syncHierarchy` re-reads.
+    expect(list({ override_statuses: true })?.statuses).toBeNull();
+    expect(list({ override_statuses: false })?.statuses).toBeNull();
+  });
+
+  test("flattens each status the way the task rows are flattened", () => {
+    expect(list({ statuses: STATUSES })?.statuses?.[0]).toMatchObject({
+      status: "review",
+      color: "#ab4aba",
+      type: "custom",
+    });
   });
 });

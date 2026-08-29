@@ -100,6 +100,36 @@ test("`m` opens the menu on the row under the cursor", async ({ page }) => {
   await expect(page.locator(`#${rowId}`)).toHaveCount(0);
 });
 
+test("`m` acts on the expanded task, not the row the cursor left behind", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/__dev-login");
+  await page.goto("/list/L4");
+
+  const list = page.getByRole("listbox", { name: "Tasks" });
+  await expect(list.getByRole("option").first()).toBeVisible();
+  const secondId = (await list.getByRole("option").nth(1).getAttribute("id"))?.replace("task-", "");
+  expect(secondId).toBeTruthy();
+
+  // Open the second task full width. The cursor resets to the first row on a
+  // view load, so the row it names and the task on screen now disagree — and
+  // the list is display:none, so only one of them is something you can see.
+  await page.goto(`/list/L4?task=${secondId}&expanded=1`);
+  await expect(page.getByRole("complementary", { name: "Task detail" })).toBeVisible();
+  await expect(page.locator(`#task-${secondId}`)).toBeAttached();
+  await expect(list).toBeHidden();
+
+  await page.keyboard.press("m");
+  await page.getByPlaceholder("Task actions…").waitFor();
+  await page.locator("[data-menu]").getByRole("option", { name: "Copy ClickUp URL" }).click();
+
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    `https://app.clickup.com/t/${secondId}`,
+  );
+});
+
 test("the open panel reaches the same menu through its own button", async ({ page }) => {
   await page.goto("/__dev-login");
   await page.goto("/list/L4");

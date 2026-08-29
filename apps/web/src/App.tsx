@@ -26,6 +26,7 @@ import { RunningTimer } from "./components/Time.tsx";
 import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
+import { CelebrationBanner } from "./lib/celebration.tsx";
 import { PRIORITY_LABELS } from "./lib/format.ts";
 import {
   INBOX_WINDOW_DAYS,
@@ -48,7 +49,16 @@ import { clickUpTaskUrl, raskTaskUrl, type TaskAction, taskMenuItems } from "./l
 import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
 import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
-import { clearFilters, closeOverlays, expandGroups, setUi, toggleGroup, ui } from "./lib/ui.ts";
+import {
+  clearFilters,
+  closeOverlays,
+  expandGroups,
+  type Layout,
+  setShowClosed,
+  setUi,
+  toggleGroup,
+  ui,
+} from "./lib/ui.ts";
 import {
   boardLayout,
   cursorGroup,
@@ -141,6 +151,13 @@ export function AppShell(): JSX.Element {
   const openTaskId = () => (search() as { task?: string }).task ?? null;
   const [expanded, setExpanded] = useExpanded();
 
+  // What `s`, `p`, `m`, `t` and their palette twins act on. While the panel is
+  // expanded the list is display:none, so the cursor names a row nobody can
+  // see — the task on screen is the open one, and acting on anything else is
+  // editing blind.
+  const actionTask = (): Task | null =>
+    (expanded() && tasks.get(openTaskId() ?? "")) || cursorTask();
+
   onCleanup(connect());
 
   const openTask = (task: Task) =>
@@ -181,9 +198,11 @@ export function AppShell(): JSX.Element {
    * already anchors this way.
    */
   const anchorForCursor = (): { x: number; y: number } => {
-    const task = cursorTask();
+    const task = actionTask();
     const rect = task ? document.getElementById(`task-${task.id}`)?.getBoundingClientRect() : null;
-    if (!rect) return { x: window.innerWidth / 2 - 120, y: 180 };
+    // A zero rect is the row still in the DOM behind an expanded panel; a menu
+    // anchored to it opens in the top-left corner.
+    if (!rect || rect.width === 0) return { x: window.innerWidth / 2 - 120, y: 180 };
     return { x: rect.left + 44, y: rect.bottom + 4 };
   };
 
@@ -392,7 +411,7 @@ export function AppShell(): JSX.Element {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
 
     const key = event.key;
-    const task = cursorTask();
+    const task = actionTask();
     const max = Math.max(0, rowTasks().length - 1);
 
     switch (key) {
@@ -629,7 +648,7 @@ export function AppShell(): JSX.Element {
       id: "view:closed",
       label: ui.showClosed ? "Hide closed tasks" : "Show closed tasks",
       section: "View",
-      run: () => setUi("showClosed", !ui.showClosed),
+      run: () => setShowClosed(!ui.showClosed),
     },
     /*
      * The theme lives here rather than behind a settings page, because there
@@ -656,7 +675,7 @@ export function AppShell(): JSX.Element {
       section: "Task",
       hint: "s",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (target) void openStatusMenu(target, anchorForCursor());
       },
     },
@@ -666,7 +685,7 @@ export function AppShell(): JSX.Element {
       section: "Task",
       hint: "p",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (!target) return;
         setMenu({ kind: "priority", task: target, statuses: [], anchor: anchorForCursor() });
         setUi("menu", "priority");
@@ -674,11 +693,11 @@ export function AppShell(): JSX.Element {
     },
     {
       id: "task:timer",
-      label: isTracking(cursorTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
+      label: isTracking(actionTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
       section: "Task",
       hint: "t",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (target) void toggleTimer(target);
       },
     },
@@ -907,6 +926,8 @@ export function AppShell(): JSX.Element {
                 setting intact the moment you leave. */}
               <Show when={!viewIsFeed()} fallback={<InboxControls />}>
                 <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+                <LayoutToggle />
+                <ClosedToggle />
                 <GroupPicker />
               </Show>
             </header>
@@ -1040,6 +1061,10 @@ export function AppShell(): JSX.Element {
         {/* Last, so it covers everything, and always mounted: it is what makes
           images inside descriptions and comments clickable. */}
         <Lightbox />
+
+        {/* The Ember theme's full-screen victory banner. Renders nothing
+          until `celebrate` fires, which itself is a no-op outside Ember. */}
+        <CelebrationBanner />
       </div>
     </Show>
   );
@@ -1107,6 +1132,109 @@ function InboxControls(): JSX.Element {
         </button>
       </Show>
     </>
+  );
+}
+
+/**
+ * Rows or columns, as two buttons.
+ *
+ * `b` and the palette have always flipped `ui.layout`, and nothing on screen
+ * said the board was there — the same gap the closed toggle below had. A saved
+ * view seeds the layout from ClickUp's own view type, so a list-typed view drew
+ * rows with no hint that columns were a keystroke away.
+ *
+ * Two buttons rather than one that flips, because with only two states the
+ * button showing what a click *does* and the button showing where you *are*
+ * look identical and mean opposite things. Both are on screen; the pressed one
+ * is the layout you are in.
+ */
+function LayoutToggle(): JSX.Element {
+  return (
+    <div class="flex shrink-0 items-center gap-0.5">
+      <LayoutButton
+        value="list"
+        label="List view"
+        d="M2.7 4h.01M2.7 8h.01M2.7 12h.01M6 4h7.3M6 8h7.3M6 12h7.3"
+      />
+      {/* Two columns of unequal height: three even ones read as the grouping
+          glyph next door rotated, which is the one thing this must not be. */}
+      <LayoutButton
+        value="board"
+        label="Board view"
+        d="M2.9 3.7h3.4v8.6H2.9zM9.7 3.7h3.4v5.2H9.7z"
+      />
+    </div>
+  );
+}
+
+function LayoutButton(props: { value: Layout; label: string; d: string }): JSX.Element {
+  const current = () => ui.layout === props.value;
+  return (
+    <button
+      type="button"
+      aria-pressed={current()}
+      aria-label={props.label}
+      /* The shortcut is named only on the button that would do what it does.
+         `b` flips the pair, so on the layout you are already in it would take
+         you off it, and a hint that reads as "press b for this" would be
+         pointing the wrong way. */
+      title={current() ? props.label : `${props.label}  b`}
+      onClick={() => setUi("layout", props.value)}
+      class="flex size-[22px] items-center justify-center rounded-[5px] transition-colors"
+      classList={{
+        "bg-accent-soft text-ink": current(),
+        "text-ink-4 hover:bg-hover hover:text-ink-2": !current(),
+      }}
+    >
+      {/* Round joins and caps on one shared path, so the board's corners and
+          the list's dots — zero-length segments — both come out of it. */}
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d={props.d}
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * ClickUp's "show closed tasks", as a button.
+ *
+ * The state is not new — `ui.showClosed` has always decided which statuses get
+ * a group or a column, and the palette has always been able to flip it. What
+ * was missing is that it looks like a setting. A saved view seeds the toggle
+ * from ClickUp's own `show_closed`, which is false on most boards, so the Done
+ * column was absent with nothing on screen saying it was a choice rather than a
+ * gap. `statusShown` in lib/view.ts is the rule this drives, on both layouts.
+ */
+function ClosedToggle(): JSX.Element {
+  return (
+    <button
+      type="button"
+      /* One name, whatever the state. A toggle that renames itself to "Hide
+         closed tasks" while `aria-pressed` also says it is on is read out as
+         both at once; the pressed state is the screen reader's to announce. */
+      aria-pressed={ui.showClosed}
+      aria-label="Show closed tasks"
+      title="Show closed tasks"
+      onClick={() => setShowClosed(!ui.showClosed)}
+      class="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-xs transition-colors"
+      classList={{
+        "bg-accent-soft text-ink": ui.showClosed,
+        "text-ink-4 hover:bg-hover hover:text-ink-2": !ui.showClosed,
+      }}
+    >
+      {/* The glyph does not change with the state, the chip does. Tinting it
+          with the accent read as a status that exists: 2.99:1 against the
+          check `StatusIcon` draws on top, in the light theme, which is under
+          every real status in the workspace. */}
+      <StatusIcon type="closed" color="var(--color-low)" size={12} />
+      <span>Closed</span>
+    </button>
   );
 }
 
