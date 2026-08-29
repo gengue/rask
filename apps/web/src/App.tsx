@@ -577,11 +577,11 @@ export function AppShell(): JSX.Element {
     window.removeEventListener("drop", swallowDrop);
   });
 
-  // Reset per-view state when the view changes; row 4 of the old list means
-  // nothing in the new one, and picking a list is the drawer's whole job.
+  // Picking a list is the drawer's whole job, so it closes behind the choice.
+  // The cursor resets with it, in `lib/view.ts`, next to what it points at.
   createEffect(() => {
     viewTitle();
-    setUi({ cursor: 0, sidebarOpen: false });
+    setUi("sidebarOpen", false);
   });
 
   const commands = (): Command[] => [
