@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * The easter-egg skins (Ember, Brutal) hang off selectors they do not own:
+ * The easter-egg skins (Ember, Brutal, Aqua) hang off selectors they do not own:
  * aria-labels and utility classes that live in component markup. A rename over
  * there — the detail panel's label, `bg-panel` becoming `bg-panel/95`, the
  * section border class — sheds the skin with no error anywhere, which is
@@ -54,6 +54,28 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     selector: '[role="option"]',
     provider: "../src/components/TaskRow.tsx",
     markup: 'role="option"',
+  },
+  // Aqua only, from here down. The three headers it turns into toolbars have
+  // to stay direct children of the landmarks they hang off, which is what the
+  // `>` in each selector is asserting.
+  {
+    selector: 'aside[aria-label="Workspace"] > header',
+    provider: "../src/components/Sidebar.tsx",
+    markup: "<header",
+  },
+  {
+    selector: 'aside[aria-label="Task detail"] > header',
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "<header",
+  },
+  { selector: "main > div > header", provider: "../src/App.tsx", markup: "<header" },
+  // The workspace search field. `bg-hover` as a base class is unique to it in
+  // the sidebar — every other control there spells it `hover:bg-hover` — so
+  // the class run is the hook, not the bare token.
+  {
+    selector: "button.bg-hover",
+    provider: "../src/components/Sidebar.tsx",
+    markup: "bg-hover px-2",
   },
 ];
 

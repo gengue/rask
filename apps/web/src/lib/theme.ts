@@ -1,12 +1,12 @@
 import { createSignal } from "solid-js";
 
-export type ThemeChoice = "system" | "light" | "dark" | "ember" | "brutal";
+export type ThemeChoice = "system" | "light" | "dark" | "ember" | "brutal" | "aqua";
 
 /**
- * Ordered so "System", the default, comes first. "Ember" and "Brutalist" are
- * the easter eggs — extra themes rather than extra modes, which is what turned
- * the cycling button into a menu: five states behind one blind press is a slot
- * machine.
+ * Ordered so "System", the default, comes first. "Ember", "Brutalist" and
+ * "Aqua" are the easter eggs — extra themes rather than extra modes, which is
+ * what turned the cycling button into a menu: six states behind one blind
+ * press is a slot machine.
  */
 export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
   ["system", "System"],
@@ -14,6 +14,7 @@ export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
   ["dark", "Dark"],
   ["ember", "Ember"],
   ["brutal", "Brutalist"],
+  ["aqua", "Aqua"],
 ];
 
 export function themeLabel(choice: ThemeChoice): string {
@@ -50,10 +51,16 @@ const media =
 
 function read(): ThemeChoice {
   try {
-    const value = localStorage.getItem(KEY);
-    return value === "light" || value === "dark" || value === "ember" || value === "brutal"
-      ? value
-      : "system";
+    const stored = localStorage.getItem(KEY);
+    /*
+     * Matched against THEMES rather than against a second copy of the names.
+     * The copy was five `||`s that had to grow by one every time a theme was
+     * added, in a function whose failure mode is silent: an unrecognised value
+     * falls through to "system", so a theme left out here is one that simply
+     * does not survive a reload. "system" is stored as the absence of the key
+     * and so never matches, which is the same answer as the fallback.
+     */
+    return THEMES.find(([value]) => value === stored)?.[0] ?? "system";
   } catch {
     return "system";
   }
@@ -64,7 +71,7 @@ const [systemDark, setSystemDark] = createSignal(media?.matches ?? false);
 
 export const themeChoice = choice;
 
-export function resolvedTheme(): "light" | "dark" | "ember" | "brutal" {
+export function resolvedTheme(): Exclude<ThemeChoice, "system"> {
   const value = choice();
   if (value !== "system") return value;
   return systemDark() ? "dark" : "light";
@@ -78,13 +85,13 @@ function apply(): void {
   if (!media) return;
   const theme = resolvedTheme();
   const root = document.documentElement;
-  root.classList.toggle("dark", theme === "dark");
-  root.classList.toggle("light", theme === "light");
-  root.classList.toggle("ember", theme === "ember");
-  root.classList.toggle("brutal", theme === "brutal");
-  // Ember is a dark theme as far as native controls and scrollbars go;
-  // Brutal paints on cream, so it sides with light.
-  root.style.colorScheme = theme === "light" || theme === "brutal" ? "light" : "dark";
+  // One class per theme, off the same list, so the only two things a new theme
+  // needs from this module are its row in THEMES and a side below.
+  for (const [value] of THEMES) root.classList.toggle(value, value === theme);
+  // Which side each theme takes for native controls and scrollbars. Ember is
+  // dark despite not being named "dark"; Brutal paints on cream and Aqua on
+  // white metal, so both side with light.
+  root.style.colorScheme = theme === "dark" || theme === "ember" ? "dark" : "light";
 }
 
 media?.addEventListener("change", (event) => {

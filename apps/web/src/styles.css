@@ -955,3 +955,249 @@ html.brutal .prose-rask img {
     border-right-width: 2px;
   }
 }
+
+/*
+ * Aqua's set dressing.
+ *
+ * The tokens in theme.css make Aqua a colour scheme; this makes it Mac OS X.
+ * Same contract as the other two skins: the materials are SVGs in
+ * public/aqua/, every texture is a translucent overlay so the audited token
+ * underneath still owns the base colour, and everything hangs off selector
+ * hooks that `skin-hooks.test.ts` pins — a rename in a component sheds the
+ * skin loudly rather than silently.
+ *
+ * The shell already has the shape of the reference: a frame with a source list
+ * down the left and a document area inset from it. So the frame becomes
+ * brushed metal, the document becomes the pinstriped white page, and the two
+ * h-12 headers become toolbars. Nothing structural moves.
+ *
+ * Aqua is gloss, and gloss is one gradient: bright across the top half, a hard
+ * step at the waist, a lit rim at the bottom. `--aqua-gloss` is that gradient,
+ * laid over a solid colour wherever a control should look pressed out of gel —
+ * button, scrollbar thumb, traffic light. Layering *light* over a colour is
+ * also what keeps this honest: the base colour is what a ratio is quoted
+ * against, and the ratios in here are hand-checked, because contrast.ts reads
+ * theme.css and cannot see this file.
+ *
+ * The one place the reference loses: white lettering on Aqua's own selection
+ * blue (#3875d7) is 4.1:1. The blues below are a step darker so white clears
+ * 4.5 — the same bargain light mode documents for its due-date amber.
+ */
+html.aqua {
+  /* The 1px line around every metal edge, and the lit line just inside it. */
+  --aqua-rim: #868d97;
+  /* Under the gloss of a default button. White on it is 6.4:1 bare, 4.7:1
+     through the 14% gloss the lettering actually sits in. */
+  --aqua-gel: #255cb4;
+  /* The selected row, top and bottom stop. White on the top stop is 5.8:1. */
+  --aqua-select: #2a63bd;
+  --aqua-select-2: #17498f;
+  --aqua-gloss: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.34) 0%,
+    rgb(255 255 255 / 0.14) 47%,
+    rgb(255 255 255 / 0.02) 48%,
+    rgb(255 255 255 / 0.22) 100%
+  );
+}
+
+/* The frame: horizontal grain, lit from the top the way a metal window is.
+   Font smoothing goes back to the browser's for the same reason light mode
+   documents — near-black on near-white thins under the greyscale pass. */
+html.aqua body {
+  background-image:
+    url("/aqua/metal.svg"),
+    linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.45) 0,
+      rgb(255 255 255 / 0) 180px,
+      rgb(0 0 0 / 0.05) 100%
+    );
+  background-size:
+    256px 256px,
+    auto;
+  background-repeat: repeat, no-repeat;
+  -webkit-font-smoothing: auto;
+}
+
+/* The document area is pinstriped paper. Menus are not: in the reference a
+   window is striped and a menu is plain, which is why `.floating` is left
+   alone here — it already gets white, a grey rim and a real shadow from the
+   tokens. */
+html.aqua .bg-panel {
+  background-image: url("/aqua/pinstripe.svg");
+  background-size: 4px 4px;
+}
+
+/* The window: a hairline rim, a lit inner edge, and the drop shadow that was
+   the era's one concession to depth. */
+html.aqua main {
+  border-color: var(--aqua-rim);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    0 0 0 1px rgb(255 255 255 / 0.5),
+    0 3px 8px rgb(0 0 0 / 0.22),
+    0 14px 32px -8px rgb(0 0 0 / 0.4);
+}
+
+/* The source list, a shade lighter than the metal it sits on. */
+html.aqua aside[aria-label="Workspace"] {
+  background-image: linear-gradient(90deg, rgb(255 255 255 / 0.12), rgb(0 0 0 / 0.02));
+}
+
+/*
+ * The traffic lights, top left, where they have always been.
+ *
+ * The sidebar header is the shell's top-left corner, so it is the title bar
+ * whether or not it is labelled one. Drawn as a pseudo-element and paid for
+ * with padding, so the logo and the new-task button keep their own layout.
+ */
+html.aqua aside[aria-label="Workspace"] > header {
+  position: relative;
+  padding-left: 74px;
+  /* The title bar is already metal; it only wants the embossed lettering. */
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+html.aqua aside[aria-label="Workspace"] > header::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  margin-top: -7px;
+  width: 56px;
+  height: 14px;
+  pointer-events: none;
+  background: url("/aqua/lights.svg") no-repeat;
+}
+
+/* Toolbars: the two h-12 headers inside the window, and the list's group
+   bands, all struck from the same grey gradient. The lit top line and the
+   embossed lettering are what make it metal rather than a grey box. */
+html.aqua main > div > header,
+html.aqua aside[aria-label="Task detail"] > header,
+html.aqua button.bg-wash {
+  background-color: transparent;
+  background-image: linear-gradient(180deg, #fbfcfd, #e4e7ec 52%, #d7dbe1);
+  border-bottom: 1px solid var(--aqua-rim);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9);
+  /* Chrome lettering was embossed, not painted. Inherits, so one declaration
+     per band covers everything written on it. */
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+/* Toolbar controls are capsules pressed out of the same metal. In the
+   reference every clickable thing in a toolbar has an edge; flat chrome is a
+   later decade. */
+html.aqua main > div > header button,
+html.aqua aside[aria-label="Task detail"] > header button {
+  background-image: linear-gradient(180deg, #fdfdfe, #e6e9ee);
+  border: 1px solid #a3aab3;
+  border-radius: 5px;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 1px 1px rgb(0 0 0 / 0.08);
+}
+
+/* The workspace search field: a capsule with the light coming from inside the
+   window, which is what an inset field looked like. `.bg-hover` is the hook
+   and it is unique in the sidebar — every other control there spells it
+   `hover:bg-hover`, a different class token. */
+html.aqua aside[aria-label="Workspace"] button.bg-hover {
+  background-color: var(--color-overlay);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.18),
+    inset 0 0 0 1px #9aa3ad;
+}
+
+/* Long-form inputs are sunken wells with a hard rim. */
+html.aqua textarea {
+  background-color: var(--color-overlay);
+  border-radius: 3px;
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.2),
+    inset 0 0 0 1px #9aa3ad;
+}
+
+/*
+ * The selected row — list cursor, highlighted command, the open list in the
+ * source list — is the reference's blue gradient with white lettering, so the
+ * whole ink ladder is re-pointed inside the scope. Ratios on the top stop
+ * #2a63bd, which is the lighter of the two: ink (white) 5.8, ink-2 5.0,
+ * ink-3 4.7, ink-4 4.6, accent 5.0; the status tints are all above 3.4.
+ */
+html.aqua .row-selected {
+  background-color: var(--aqua-select);
+  background-image: linear-gradient(180deg, var(--aqua-select), var(--aqua-select-2));
+  --color-ink: #ffffff;
+  --color-ink-2: #e8effb;
+  --color-ink-3: #dde7f8;
+  --color-ink-4: #dbe6f8;
+  --color-ink-prose: #ffffff;
+  --color-accent: #e8effb;
+  --color-on-accent: var(--aqua-select-2);
+  --color-urgent: #ffb3ba;
+  --color-high: #ffd28f;
+  --color-ok: #a5f0b8;
+  --color-low: #cbd8ee;
+}
+
+/* The default button, in gel. The lettering sits across the middle of the
+   gloss, where white on the base blue is 4.7:1; only the top rim, which holds
+   no glyph, is brighter than that. */
+html.aqua button.bg-accent {
+  background-color: var(--aqua-gel);
+  background-image: var(--aqua-gloss);
+  color: #ffffff;
+  border: 1px solid #1c4a92;
+  /* A lozenge, which is what a push button was at this height. */
+  border-radius: 999px;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    0 1px 2px rgb(0 0 0 / 0.22);
+}
+
+/*
+ * Scrollbars are the other blue gel in the reference: a wider channel with a
+ * ruled edge and a glossy capsule in it. The base rules draw the thumb as a
+ * padding-box inset with a transparent border, which is what gives the other
+ * themes their inset track; here the border is the thumb's own rim, so the
+ * clip goes back to the default.
+ */
+html.aqua ::-webkit-scrollbar {
+  width: 15px;
+  height: 15px;
+}
+
+html.aqua ::-webkit-scrollbar-track {
+  background: #eef0f3;
+  box-shadow: inset 1px 0 0 #c3c7cd;
+}
+
+html.aqua ::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar);
+  background-image: var(--aqua-gloss);
+  background-clip: border-box;
+  border: 1px solid #6f8fbe;
+  border-radius: 999px;
+}
+
+html.aqua ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-hover);
+  background-clip: border-box;
+}
+
+/* Source-list headings are small, bold and spaced out. Already uppercase. */
+html.aqua .uppercase {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* ponytail: the reference alternates row tints down a list, and these rows do
+   not. TaskList windows its rows into absolutely positioned wrappers whose
+   DOM order slides as you scroll, so `:nth-child` stripes the viewport rather
+   than the list and crawls under the cursor. Ceiling: flat rows. Upgrade
+   path: a parity class from `index()` in TaskList.tsx, pinned in the hooks
+   test like every other hook here. */

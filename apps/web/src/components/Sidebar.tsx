@@ -561,6 +561,16 @@ function ThemeButton(): JSX.Element {
               stroke-linejoin="miter"
             />
           </Show>
+          <Show when={themeChoice() === "aqua"}>
+            {/* A window with its three lights, for the theme that is one. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+              <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2" />
+              <path d="M1.6 6.2h12.8" />
+              <circle cx="4" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+              <circle cx="6.2" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+              <circle cx="8.4" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+            </g>
+          </Show>
         </svg>
       </button>
       <Menu

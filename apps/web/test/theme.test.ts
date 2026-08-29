@@ -7,9 +7,9 @@ import { THEMES, themeLabel } from "../src/lib/theme.ts";
  *
  * Only the pure half is here. Everything else in the module reads
  * `localStorage`, `matchMedia` and `document`, none of which exist under
- * `bun test`; the round trip that matters is covered by the theme surviving a
- * reload in the browser, and by the inline script in index.html which is what
- * actually paints the first frame.
+ * `bun test`. The round trip that matters — pick a theme, and have it still be
+ * on after a reload, painted by the inline script in index.html rather than by
+ * this module — is `e2e/theme-switch.spec.ts`.
  */
 describe("the list", () => {
   test("system comes first, since it is the default and the menu reads top-down", () => {
@@ -20,6 +20,7 @@ describe("the list", () => {
     const values = THEMES.map(([value]) => value);
     expect(values).toContain("ember");
     expect(values).toContain("brutal");
+    expect(values).toContain("aqua");
   });
 });
 

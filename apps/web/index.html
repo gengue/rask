@@ -18,9 +18,9 @@
        * covers the window before the stylesheet itself arrives, when there is
        * no CSS to paint from at all.
        *
-       * The six lines are duplicated from src/lib/theme.ts on purpose: the
+       * The theme names are duplicated from src/lib/theme.ts on purpose: the
        * module cannot run early enough, and a second <script src> would be a
-       * blocking request to save a duplicated string key.
+       * blocking request to save one duplicated array.
        */
       (() => {
         let stored = null;
@@ -29,17 +29,18 @@
         } catch {
           // Private mode, or storage blocked. Follow the system and move on.
         }
-        const theme =
-          stored === "ember" || stored === "brutal"
-            ? stored
-            : stored === "dark" ||
-                (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches)
-              ? "dark"
-              : "light";
+        // Any theme that names itself is honoured as stored; anything else —
+        // absent, unreadable, a name this build no longer has — follows the OS.
+        const theme = ["light", "dark", "ember", "brutal", "aqua"].includes(stored)
+          ? stored
+          : window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
         document.documentElement.classList.add(theme);
-        // Ember is a dark theme as far as native controls go; Brutal is light.
+        // Ember is a dark theme as far as native controls go; Brutal and Aqua
+        // are light.
         document.documentElement.style.colorScheme =
-          theme === "light" || theme === "brutal" ? "light" : "dark";
+          theme === "dark" || theme === "ember" ? "dark" : "light";
       })();
     </script>
   </head>

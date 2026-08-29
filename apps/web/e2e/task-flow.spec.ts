@@ -658,7 +658,8 @@ test("the Done column is a setting, and it survives leaving the list", async ({ 
  * deletes the session row, and `/__dev-login` only replays the fixed token in
  * `.dev-session` — it does not mint a new one. With `workers: 1` Playwright
  * runs spec files in alphabetical order, so any new file needing a session has
- * to sort before `task-flow`. `keyboard-timer.spec.ts` is named for that.
+ * to sort before `task-flow`. `keyboard-timer.spec.ts` and
+ * `appearance.spec.ts` are both named for that.
  */
 test("signs out, and a signed-out visit gets a way back in", async ({ page }) => {
   await page.goto("/__dev-login");
