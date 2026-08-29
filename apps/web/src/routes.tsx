@@ -45,6 +45,7 @@ import {
   resetFeedOrder,
 } from "./lib/inbox.ts";
 import { useLiveTasks } from "./lib/live.ts";
+import { readyValue } from "./lib/resource.ts";
 import { listName, me } from "./lib/session.ts";
 import { viewRefresh } from "./lib/sse.ts";
 import { load, loadViewTasks, type TaskPageResult } from "./lib/store.ts";
@@ -530,10 +531,16 @@ function SavedView(): JSX.Element {
 function ContainerView(): JSX.Element {
   const params = useParams({ from: viewRoute.id });
 
-  const [view] = createResource(
+  const [viewResource] = createResource(
     () => params().viewId,
     (viewId) => api.view(viewId).catch(() => null),
   );
+  // `readyValue`, so a fetch in flight reads as the documented "not yet"
+  // (`undefined`) instead of suspending the route to the router's boundary —
+  // which is what blanked the pane on every view-to-view navigation. Ready
+  // only, not held: mid-navigation the previous view's definition is the
+  // wrong answer, and `undefined` is what keeps the skeleton up instead.
+  const view = () => readyValue(viewResource);
 
   createEffect(() => {
     // Nothing here belongs to one list, so the shell must not claim one: the
@@ -587,11 +594,16 @@ function ClickUpView(): JSX.Element {
     return splat ? `/${splat}` : null;
   };
 
-  const [target] = createResource<Target, string>(path, async (input) => {
+  const [targetResource] = createResource<Target, string>(path, async (input) => {
     const parsed = parseClickUpPath(input);
     if (parsed.kind !== "lookup") return parsed;
     return api.resolve(parsed.ids, parsed.remote).catch(() => ({ kind: "unknown" }) as const);
   });
+  // `readyValue`, or the lookup in flight suspends this route to the router's
+  // boundary and the "Opening…" fallback below never paints; it also keeps a
+  // `parseClickUpPath` throw out of the redirect effect, where it had no
+  // boundary to land in.
+  const target = () => readyValue(targetResource);
 
   createEffect(() => {
     // This route renders no list, so the header must stop claiming the previous
