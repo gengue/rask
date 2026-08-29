@@ -551,6 +551,13 @@ function ThemeButton(): JSX.Element {
               stroke-linejoin="round"
             />
           </Show>
+          <Show when={themeChoice() === "xp"}>
+            {/* A window with a caption bar, for the theme that draws one. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" />
+              <path d="M2 6.4h12" />
+            </g>
+          </Show>
           <Show when={themeChoice() === "brutal"}>
             {/* A Memphis zigzag, for the theme drawn in marker. */}
             <path

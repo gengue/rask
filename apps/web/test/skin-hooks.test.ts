@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * The easter-egg skins (Ember, Brutal) hang off selectors they do not own:
+ * The easter-egg skins (Ember, Brutal, XP) hang off selectors they do not own:
  * aria-labels and utility classes that live in component markup. A rename over
  * there — the detail panel's label, `bg-panel` becoming `bg-panel/95`, the
  * section border class — sheds the skin with no error anywhere, which is
@@ -35,6 +35,19 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     selector: "button.bg-accent",
     provider: "../src/components/TaskDetail.tsx",
     markup: "bg-accent",
+  },
+  // XP only, from here down.
+  // The Explorer task pane's blue caption, and the treeview's dotted rules.
+  {
+    selector: 'aside[aria-label="Workspace"] > header',
+    provider: "../src/components/Sidebar.tsx",
+    markup: "<header",
+  },
+  { selector: ".border-l", provider: "../src/components/Sidebar.tsx", markup: "border-l" },
+  {
+    selector: "button.bg-hover",
+    provider: "../src/components/Sidebar.tsx",
+    markup: "bg-hover",
   },
   // Brutal only, from here down.
   // The group-header band. Board's washes are divs and spans, not buttons.

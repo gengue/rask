@@ -1,0 +1,21 @@
+<!-- The window's own icon, in the title bar and nowhere else: the Rask mark
+     knocked out of a red tile, which is what the reference shows. Its own file
+     rather than /favicon.svg because that one paints itself near-black on a
+     light system and would vanish into the caption. -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f26a4b"/>
+      <stop offset="1" stop-color="#c02b0d"/>
+    </linearGradient>
+  </defs>
+  <rect x=".5" y=".5" width="15" height="15" rx="2.5" fill="url(#tile)" stroke="#8f2409"/>
+  <g transform="translate(2.4,1.6) scale(0.115)" fill="none" stroke="#ffffff">
+    <rect x="17" y="26" width="9" height="48" rx="4.5" fill="#ffffff" stroke="none"/>
+    <g stroke-width="17" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 36 24 L 36 76"/>
+      <path d="M 36 24 H 54 A 16 16 0 0 1 54 56 H 36"/>
+      <path d="M 49 56 L 72 76"/>
+    </g>
+  </g>
+</svg>

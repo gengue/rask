@@ -955,3 +955,364 @@ html.brutal .prose-rask img {
     border-right-width: 2px;
   }
 }
+
+/*
+ * XP's set dressing.
+ *
+ * The tokens in theme.css make XP a colour scheme; this makes it a window.
+ * Same contract as the other two skins: element and utility selectors only,
+ * every hook pinned by `skin-hooks.test.ts`, and the materials procedural —
+ * two small SVGs in public/xp/ and a pile of gradients, because Luna is
+ * gradients all the way down.
+ *
+ * The one thing this skin does that the others do not is invent chrome. Rask
+ * has no title bar and no menu bar, and an XP theme without them is just a
+ * blue colour scheme — so the two of them are drawn as fixed strips at the top
+ * of the viewport and the app is pushed down past them. They are decoration
+ * and behave like it: pointer-events: none, and under every fixed menu.
+ */
+html.xp {
+  /* Luna's five, named once. */
+  --xp-face: #ece9d8;
+  --xp-frame: #0c4fd2;
+  --xp-field: #7f9db9;
+  --xp-highlight: #316ac5;
+  --xp-groove: #c8cfdd;
+}
+
+/*
+ * The window frame, and the room the chrome needs.
+ *
+ * The border goes on <html> rather than on a fourth overlay: it is the only
+ * box that already spans the viewport on every axis, and with border-box (the
+ * preflight puts it on `*`) the three pixels come out of the page rather than
+ * scrolling it. No top border — the caption is the top edge.
+ *
+ * body's padding is what the strips stand in. Percentage heights below it
+ * resolve against the content box, so #root and the whole flex shell shrink by
+ * exactly the 49px without a single calc().
+ */
+html.xp {
+  border: 3px solid var(--xp-frame);
+  border-top: 0;
+}
+
+html.xp body {
+  padding-top: 49px;
+  /* Tahoma at 11px is a hinted bitmap-era face; smoothing tuned for light
+     text on near-black thins it into mush. Same call light mode makes. */
+  -webkit-font-smoothing: auto;
+  /* The tracking the rest of the app uses is for a humanist sans at 16px. */
+  letter-spacing: 0;
+}
+
+/* The caption: Luna's sixteen-stop blue, the app icon, and the three buttons.
+   z-40 keeps it under the palette and every menu (z-50) and over everything
+   inside #root, which cannot reach up here anyway. */
+html.xp body::before {
+  content: "Rask - AI Task Manager";
+  position: fixed;
+  top: 0;
+  right: 3px;
+  left: 3px;
+  z-index: 40;
+  display: flex;
+  height: 28px;
+  align-items: center;
+  overflow: hidden;
+  padding-right: 84px;
+  padding-left: 26px;
+  border-radius: 7px 7px 0 0;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-shadow: 1px 1px 1px rgb(0 0 0 / 0.55);
+  pointer-events: none;
+  background:
+    url("/xp/app-icon.svg") no-repeat left 6px center / 16px 16px,
+    url("/xp/caption-buttons.svg") no-repeat right 4px center / 72px 21px,
+    linear-gradient(
+      180deg,
+      #0058ee 0%,
+      #3593ff 4%,
+      #288eff 6%,
+      #127dff 8%,
+      #036ffc 10%,
+      #0262ee 14%,
+      #0057e5 20%,
+      #0054e3 24%,
+      #0055eb 56%,
+      #005bf5 66%,
+      #005dfa 76%,
+      #0262ff 86%,
+      #0470ff 92%,
+      #0068ff 96%,
+      #005bff 100%
+    );
+}
+
+/* The menu bar. Six words that do nothing, which is the joke and also the
+   reference: the row is what tells you which decade the window is from. */
+html.xp body::after {
+  content: "File   Edit   View   Tools   Actions   Help";
+  position: fixed;
+  top: 28px;
+  right: 3px;
+  left: 3px;
+  z-index: 40;
+  display: flex;
+  height: 21px;
+  align-items: center;
+  padding-left: 6px;
+  background: var(--xp-face);
+  box-shadow: inset 0 -1px 0 #d5d2c2;
+  color: #000000;
+  font-size: 11px;
+  white-space: nowrap;
+  word-spacing: 10px;
+  pointer-events: none;
+}
+
+/*
+ * The Explorer task pane. A white card with a sunken border and a glossy blue
+ * caption, which is the shape the reference's left column has.
+ *
+ * Only the caption flips polarity, and nothing that opens a menu lives in it —
+ * the theme and sign-out buttons are down in the footer, which stays light. So
+ * the ink re-point here needs no counterpart in `.floating`, unlike Brutal's
+ * black sidebar, and there is no second copy of the palette to keep in step.
+ */
+html.xp aside[aria-label="Workspace"] {
+  margin: 4px 0 4px 4px;
+  border: 1px solid var(--xp-field);
+  border-radius: 4px;
+  background: var(--color-panel);
+  overflow: hidden;
+}
+
+html.xp aside[aria-label="Workspace"] > header {
+  background: linear-gradient(180deg, #6f96e0 0%, #4a70c8 40%, #3d61b8 60%, #35539f 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    0 1px 0 #2c4784;
+  color: #ffffff;
+  /* White on the middle of that gradient is 4.8:1; the icon button rides the
+     same band. Both tokens go white rather than to a tint for that reason. */
+  --color-ink: #ffffff;
+  --color-ink-4: #ffffff;
+  --color-hover: rgb(255 255 255 / 0.22);
+}
+
+html.xp aside[aria-label="Workspace"] > header > span {
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.35);
+}
+
+/* The tree's connector lines are dotted, the way every XP treeview's are. */
+html.xp aside[aria-label="Workspace"] .border-l {
+  border-left-style: dotted;
+  border-left-color: #8ea3c0;
+}
+
+/* The palette opener is drawn as a dormant input, so under XP it becomes an
+   actual one: white, sunken, square. `button.bg-hover` is the hook — it is the
+   only control in the tree wearing the hover tint as its resting state. */
+html.xp aside[aria-label="Workspace"] button.bg-hover {
+  background-color: #ffffff;
+  border: 1px solid var(--xp-field);
+  border-radius: 0;
+}
+
+/* Section headings are bold blue. XP carries hierarchy with weight and hue,
+   not with grey — its own grey label is 2.9:1 on the window face. */
+html.xp h3.uppercase,
+html.xp aside[aria-label="Workspace"] .uppercase {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* The client area: square, sunken, sitting on the window face. */
+html.xp main {
+  margin: 4px;
+  border: 1px solid var(--xp-field);
+  border-radius: 0;
+  background-color: var(--color-panel);
+}
+
+/* The list header becomes the toolbar band, and its controls become flat
+   toolbar buttons that only draw an edge under the pointer. */
+html.xp main > div > header {
+  background: linear-gradient(180deg, #fdfdfb 0%, #f4f2e9 55%, var(--xp-face) 100%);
+  border-bottom: 1px solid #d0ccb8;
+}
+
+html.xp main > div > header button {
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+html.xp main > div > header button:hover {
+  border-color: #97b4dd;
+  background-image: linear-gradient(180deg, #ffffff, #dbe8fb);
+}
+
+html.xp main header h1 {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* The count beside it: an outlined blue badge, 7.5:1. */
+html.xp main header h1 + .bg-chip {
+  background: #d8e4f8;
+  border: 1px solid #9db6da;
+  color: var(--color-accent);
+}
+
+/* The Filter control is the one the reference draws with a border of its own
+   even at rest, because it holds state. */
+html.xp [aria-label="Add a filter"] {
+  border-color: #97b4dd;
+  background-image: linear-gradient(180deg, #ffffff, #e6eefa);
+}
+
+/*
+ * Group headers stop being a tinted band and become a bold blue caption over
+ * a hairline, which is how XP's own grouped list views separate them.
+ */
+html.xp button.bg-wash {
+  background-color: transparent;
+  border-bottom-color: #c3cfe2;
+}
+
+html.xp button.bg-wash > span.capitalize {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+html.xp button.bg-wash > span.bg-chip {
+  background: var(--color-elevated);
+  border: 1px solid #b8c8e0;
+  color: var(--color-accent);
+}
+
+/*
+ * The cursor is the Explorer highlight: a solid blue slab with white ink and
+ * the dotted focus rectangle inside it. Ratios on #316ac5 — ink (white) 7.1,
+ * ink-2 6.8, ink-3 6.7, ink-4 6.5, accent (white) 7.1 — all past the floor the
+ * audit enforces on the tokens it can see.
+ */
+html.xp .row-selected {
+  background: var(--xp-highlight);
+  border-radius: 0;
+  outline: 1px dotted rgb(255 255 255 / 0.6);
+  outline-offset: -3px;
+  --color-ink: #ffffff;
+  --color-ink-2: #f4f7fe;
+  --color-ink-3: #eef3fd;
+  --color-ink-4: #eaf0fc;
+  --color-ink-prose: #ffffff;
+  --color-accent: #ffffff;
+  --color-urgent: #ffb3ba;
+  --color-high: #ffd28f;
+  --color-ok: #a5f0b8;
+  --color-low: #dbe4f8;
+}
+
+/* Rows are ruled the way a list view is: one hairline, no dash, no tint. */
+html.xp [role="option"] {
+  border-bottom-color: #e2e6ef;
+}
+
+/* The task title is the pane's blue headline — the reference's is the loudest
+   thing on screen after the caption. */
+html.xp aside[aria-label="Task detail"] h1,
+html.xp aside[aria-label="Task detail"] textarea.text-lg {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* Section breaks are the etched groove: a dark rule with a white one under it,
+   which is the only 3D XP ever draws on a flat surface. */
+html.xp aside[aria-label="Task detail"] section.border-t {
+  border-top-color: var(--xp-groove);
+  box-shadow: inset 0 1px 0 #ffffff;
+}
+
+/* Text boxes are sunken white fields with the field border, everywhere —
+   including the inline editors, which is what XP's edit-in-place looks like. */
+html.xp textarea {
+  background: #ffffff;
+  border: 1px solid var(--xp-field);
+  border-radius: 0;
+}
+
+/* The solid accent button is a Luna push button: black lettering on the window
+   face, a navy edge and a white inner bevel. */
+html.xp button.bg-accent {
+  background-color: var(--xp-face);
+  background-image: linear-gradient(180deg, #ffffff 0%, #f6f4ec 45%, #e9e5d5 55%, #dedac6 100%);
+  border: 1px solid #003c74;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #ffffff;
+  color: #000000;
+  font-weight: 400;
+}
+
+/* Menus and the palette: square, one grey hairline, a hard drop shadow. The
+   shadow itself is --floating-shadow, set in theme.css. */
+html.xp .floating {
+  border: 1px solid #a0a0a0;
+  border-radius: 0;
+}
+
+/* Luna's scrollbar: a wide glossy blue thumb in a pale channel, no rounding.
+   The base rule inset the thumb with a transparent border and padding-box
+   clipping, both of which have to go for the gradient to reach the edge. */
+html.xp ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+html.xp ::-webkit-scrollbar-track {
+  background: #f1f4fb;
+  box-shadow: inset 1px 0 0 #d5dcea;
+}
+
+html.xp ::-webkit-scrollbar-thumb {
+  border: 1px solid #6c8fca;
+  border-radius: 0;
+  background: linear-gradient(90deg, #fbfcfe 0%, #d5e2f6 35%, #b3caee 65%, #93b3e4 100%);
+  background-clip: border-box;
+}
+
+html.xp ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #ffffff 0%, #e2ecfb 35%, #c6d9f4 65%, #a6c2ea 100%);
+  background-clip: border-box;
+}
+
+/* XP rounds by three pixels and never by ten. --radius-panel already says so;
+   this catches the ad-hoc radii spelled as utilities. Circles stay circles. */
+html.xp
+:is([class*="rounded-["], .rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl):not(
+  .rounded-full
+) {
+  border-radius: 3px;
+}
+
+/*
+ * Below the dock breakpoint the sidebar stops being a column and becomes an
+ * absolutely positioned drawer, where a margin fights `inset-y-0` and a
+ * rounded card floating over the list reads as a bug. It goes back to being a
+ * plain panel with one edge. The chrome stays: the strips cost height, not the
+ * width that is contested down here. `width < 1090px` is --breakpoint-dock
+ * (theme.css); a media query cannot read the token, so the number is repeated
+ * here — keep them in step.
+ */
+@media (width < 1090px) {
+  html.xp aside[aria-label="Workspace"] {
+    margin: 0;
+    border-width: 0 1px 0 0;
+    border-radius: 0;
+  }
+}

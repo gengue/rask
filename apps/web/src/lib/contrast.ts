@@ -67,12 +67,14 @@ export function parseThemes(css: string): {
   light: Tokens;
   ember: Tokens;
   brutal: Tokens;
+  xp: Tokens;
 } {
   return {
     dark: parseBlock(css, "@theme"),
     light: parseBlock(css, "html.light"),
     ember: parseBlock(css, "html.ember"),
     brutal: parseBlock(css, "html.brutal"),
+    xp: parseBlock(css, "html.xp"),
   };
 }
 

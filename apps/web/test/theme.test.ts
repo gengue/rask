@@ -20,6 +20,7 @@ describe("the list", () => {
     const values = THEMES.map(([value]) => value);
     expect(values).toContain("ember");
     expect(values).toContain("brutal");
+    expect(values).toContain("xp");
   });
 });
 
