@@ -1,26 +1,46 @@
 import { createSignal } from "solid-js";
 
-export type ThemeChoice = "system" | "light" | "dark" | "ember" | "brutal" | "cyber";
+export type ThemeChoice =
+  | "system"
+  | "light"
+  | "dark"
+  | "ember"
+  | "brutal"
+  | "xp"
+  | "aqua"
+  | "cyber";
 
 /**
- * Ordered so "System", the default, comes first. Ember, Brutalist and
- * Cyberpunk are the easter eggs — extra themes rather than extra modes, which
- * is what turned the cycling button into a menu: six states behind one blind
- * press is a slot machine.
+ * Ordered so "System", the default, comes first. Everything below "Dark" is an
+ * easter egg — extra themes rather than extra modes, which is what turned the
+ * cycling button into a menu: eight states behind one blind press is a slot
+ * machine.
  *
- * This list is the only place a theme is named. `read` validates against it,
- * `apply` toggles a class per entry, and the menu and the palette render it —
- * so a sixth theme is one row here, one token block in theme.css and one line
- * in the inline script in index.html, which `theme.test.ts` pins.
+ * The third column is which way round the theme paints, and it is here rather
+ * than in a predicate because it was becoming a list of its own: `apply` below,
+ * the inline script in index.html, and `e2e/appearance.spec.ts` each carried
+ * their own `theme === "dark" || theme === "ember"`, and every light theme
+ * added made all three longer. Getting it wrong is quiet — native scrollbars
+ * and date pickers painted the wrong way round, nothing else.
+ *
+ * "system" is nominally light here and never used: it resolves to one of the
+ * other two before anything reads this.
  */
-export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
-  ["system", "System"],
-  ["light", "Light"],
-  ["dark", "Dark"],
-  ["ember", "Ember"],
-  ["brutal", "Brutalist"],
-  ["cyber", "Cyberpunk"],
+export const THEMES: ReadonlyArray<readonly [ThemeChoice, string, "light" | "dark"]> = [
+  ["system", "System", "light"],
+  ["light", "Light", "light"],
+  ["dark", "Dark", "dark"],
+  ["ember", "Ember", "dark"],
+  ["brutal", "Brutalist", "light"],
+  ["xp", "Windows XP", "light"],
+  ["aqua", "Aqua", "light"],
+  ["cyber", "Cyberpunk", "dark"],
 ];
+
+/** Which way round a theme paints, for the two copies that cannot import it. */
+export function themePolarity(choice: Exclude<ThemeChoice, "system">): "light" | "dark" {
+  return THEMES.find(([value]) => value === choice)?.[2] ?? "light";
+}
 
 export function themeLabel(choice: ThemeChoice): string {
   return THEMES.find(([value]) => value === choice)?.[1] ?? "System";
@@ -56,10 +76,11 @@ const media =
 
 function read(): ThemeChoice {
   try {
-    const value = localStorage.getItem(KEY);
-    // Against the list rather than a second copy of it: "system" is stored as
-    // the absence of a key, so a stored "system" is as bogus as a stored typo.
-    return THEMES.find(([choice]) => choice === value && choice !== "system")?.[0] ?? "system";
+    // Off the list rather than a chain of equality checks: this was the third
+    // place a theme's name had to be spelled, and the one where getting it
+    // wrong is silent — an unrecognised name is not an error, it is System.
+    const stored = localStorage.getItem(KEY);
+    return THEMES.find(([value]) => value === stored)?.[0] ?? "system";
   } catch {
     return "system";
   }
@@ -84,12 +105,10 @@ function apply(): void {
   if (!media) return;
   const theme = resolvedTheme();
   const root = document.documentElement;
-  for (const [choice] of THEMES) {
-    if (choice !== "system") root.classList.toggle(choice, theme === choice);
-  }
-  // Ember and Cyberpunk are dark themes as far as native controls and
-  // scrollbars go; Brutal paints on cream, so it sides with light.
-  root.style.colorScheme = theme === "light" || theme === "brutal" ? "light" : "dark";
+  // Also off the list. "system" is on it and is never what resolves, so its
+  // class is toggled off on every pass and never on.
+  for (const [value] of THEMES) root.classList.toggle(value, value === theme);
+  root.style.colorScheme = themePolarity(theme);
 }
 
 media?.addEventListener("change", (event) => {

@@ -436,7 +436,10 @@ export function Chevron(props: { open: boolean; muted?: boolean }): JSX.Element 
       height="12"
       viewBox="0 0 16 16"
       fill="none"
-      class="shrink-0 transition-transform duration-100"
+      /* `chevron` is a styling hook, not a utility: the XP skin turns this
+         glyph into a treeview's +/- box and needs a name to reach it by.
+         Pinned in skin-hooks.test.ts. */
+      class="chevron shrink-0 transition-transform duration-100"
       classList={{ "rotate-90": props.open, "opacity-35": props.muted }}
       aria-hidden="true"
     >
@@ -551,6 +554,13 @@ function ThemeButton(): JSX.Element {
               stroke-linejoin="round"
             />
           </Show>
+          <Show when={themeChoice() === "xp"}>
+            {/* A window with a caption bar, for the theme that draws one. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" />
+              <path d="M2 6.4h12" />
+            </g>
+          </Show>
           <Show when={themeChoice() === "brutal"}>
             {/* A Memphis zigzag, for the theme drawn in marker. */}
             <path
@@ -560,6 +570,16 @@ function ThemeButton(): JSX.Element {
               stroke-linecap="square"
               stroke-linejoin="miter"
             />
+          </Show>
+          <Show when={themeChoice() === "aqua"}>
+            {/* A window with its three lights, for the theme that is one. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+              <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2" />
+              <path d="M1.6 6.2h12.8" />
+              <circle cx="4" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+              <circle cx="6.2" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+              <circle cx="8.4" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+            </g>
           </Show>
           <Show when={themeChoice() === "cyber"}>
             {/* A chipped shard, for the theme with one in its head. */}

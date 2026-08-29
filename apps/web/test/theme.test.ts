@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { THEMES, themeLabel } from "../src/lib/theme.ts";
+import { THEMES, themeLabel, themePolarity } from "../src/lib/theme.ts";
 
 /**
  * The list is the interface: the theme menu and the command palette both render
@@ -7,9 +7,9 @@ import { THEMES, themeLabel } from "../src/lib/theme.ts";
  *
  * Only the pure half is here. Everything else in the module reads
  * `localStorage`, `matchMedia` and `document`, none of which exist under
- * `bun test`; the round trip that matters is covered by the theme surviving a
- * reload in the browser, and by the inline script in index.html which is what
- * actually paints the first frame.
+ * `bun test`. The round trip that matters — pick a theme, and have it still be
+ * on after a reload, painted by the inline script in index.html rather than by
+ * this module — is `e2e/theme-switch.spec.ts`.
  */
 describe("the list", () => {
   test("system comes first, since it is the default and the menu reads top-down", () => {
@@ -20,39 +20,49 @@ describe("the list", () => {
     const values = THEMES.map(([value]) => value);
     expect(values).toContain("ember");
     expect(values).toContain("brutal");
+    expect(values).toContain("xp");
+    expect(values).toContain("aqua");
     expect(values).toContain("cyber");
-  });
-});
-
-/**
- * The one duplicate the module cannot avoid.
- *
- * index.html carries its own copy of the theme names, because it has to paint
- * the first frame before any bundle loads. A theme added here and not there
- * loads as light or dark, repaints once the module runs, and does that on
- * every single visit — but only for the people who picked it, which is nobody
- * on the machine where it was added.
- */
-const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
-
-describe("the inline script in index.html", () => {
-  test("names exactly the themes the menu does, in order", () => {
-    /*
-     * One assertion rather than one per theme, and `toEqual` rather than
-     * `toContain`, because the list can be wrong in two directions: a theme
-     * missing here paints light or dark and repaints on every visit, and a
-     * theme left behind after a rename is a class the stylesheet no longer
-     * has. A failed match yields `null`, which fails too — no guard needed.
-     */
-    const known = html.match(/const KNOWN = (\[[^\]]*\]);/)?.[1];
-    expect(JSON.parse(known ?? "null")).toEqual(
-      THEMES.map(([value]) => value).filter((value) => value !== "system"),
-    );
   });
 });
 
 describe("labels", () => {
   test("every choice has one, since the menu row is the only place it is named", () => {
     for (const [value, label] of THEMES) expect(themeLabel(value)).toBe(label);
+  });
+});
+
+/**
+ * The one duplicate the module cannot remove.
+ *
+ * index.html carries its own copy of the theme names and of which ones paint
+ * dark, because it has to paint the first frame before any bundle loads. A
+ * theme missing from the first list loads as light or dark and repaints once
+ * the module runs; a theme missing from the second gets native scrollbars and
+ * date pickers the wrong way round. Both happen on every visit, and only for
+ * the people who picked that theme — which is nobody on the machine where it
+ * was added.
+ *
+ * `e2e/appearance.spec.ts` drives the same script for real, one theme at a
+ * time. This is the half that notices a theme nobody thought to add there.
+ */
+const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
+
+/** A `const NAME = [...]` array out of the inline script, parsed. */
+function arrayNamed(name: string): unknown {
+  const source = html.match(new RegExp(`const ${name} = (\\[[^\\]]*\\]);`))?.[1];
+  // A failed match yields null, which fails the comparison — no guard needed.
+  return JSON.parse(source ?? "null");
+}
+
+const offered = THEMES.map(([value]) => value).filter((value) => value !== "system");
+
+describe("the inline script in index.html", () => {
+  test("KNOWN names exactly the themes the menu offers, in order", () => {
+    expect(arrayNamed("KNOWN")).toEqual(offered);
+  });
+
+  test("DARK names exactly the themes that paint dark", () => {
+    expect(arrayNamed("DARK")).toEqual(offered.filter((value) => themePolarity(value) === "dark"));
   });
 });

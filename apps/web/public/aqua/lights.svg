@@ -1,0 +1,36 @@
+<!-- Close, minimise, zoom. Gel discs: a radial fill lit from the upper left, a
+     darker rim of the same hue, and the white lozenge of gloss across the top
+     half that is the whole trick of the era. -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="56" height="14" viewBox="0 0 56 14">
+  <defs>
+    <radialGradient id="red" cx="42%" cy="26%" r="80%">
+      <stop offset="0" stop-color="#ffa79a" />
+      <stop offset="0.55" stop-color="#ff5f52" />
+      <stop offset="1" stop-color="#d8402f" />
+    </radialGradient>
+    <radialGradient id="amber" cx="42%" cy="26%" r="80%">
+      <stop offset="0" stop-color="#ffe3a0" />
+      <stop offset="0.55" stop-color="#ffbd2e" />
+      <stop offset="1" stop-color="#dc9412" />
+    </radialGradient>
+    <radialGradient id="green" cx="42%" cy="26%" r="80%">
+      <stop offset="0" stop-color="#a8f0a6" />
+      <stop offset="0.55" stop-color="#2fc93f" />
+      <stop offset="1" stop-color="#17a02a" />
+    </radialGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.92" />
+      <stop offset="1" stop-color="#fff" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <g stroke-width="1">
+    <circle cx="7" cy="7" r="6" fill="url(#red)" stroke="#a72f24" />
+    <circle cx="27" cy="7" r="6" fill="url(#amber)" stroke="#a3711a" />
+    <circle cx="47" cy="7" r="6" fill="url(#green)" stroke="#187a26" />
+  </g>
+  <g fill="url(#gloss)">
+    <ellipse cx="7" cy="4.2" rx="4.1" ry="2.5" />
+    <ellipse cx="27" cy="4.2" rx="4.1" ry="2.5" />
+    <ellipse cx="47" cy="4.2" rx="4.1" ry="2.5" />
+  </g>
+</svg>

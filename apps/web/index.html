@@ -18,30 +18,33 @@
        * covers the window before the stylesheet itself arrives, when there is
        * no CSS to paint from at all.
        *
-       * The list is duplicated from THEMES in src/lib/theme.ts on purpose: the
-       * module cannot run early enough, and a second <script src> would be a
-       * blocking request to save a duplicated string key. `theme.test.ts`
-       * asserts the two stay in step — a theme missing here is a flash of the
-       * wrong colours on every load, and only for the people who picked it.
+       * The two arrays are duplicated from THEMES in src/lib/theme.ts on
+       * purpose: the module cannot run early enough, and a second <script src>
+       * would be a blocking request to save them. `theme.test.ts` asserts both
+       * stay in step — a theme missing from KNOWN repaints on every visit, and
+       * one missing from DARK gets native scrollbars the wrong way round, both
+       * only for the people who picked it.
        */
       (() => {
-        const KNOWN = ["light", "dark", "ember", "brutal", "cyber"];
         let stored = null;
         try {
           stored = localStorage.getItem("rask.theme");
         } catch {
           // Private mode, or storage blocked. Follow the system and move on.
         }
+        // Any theme that names itself is honoured as stored; anything else —
+        // absent, unreadable, a name this build no longer has — follows the OS.
+        const KNOWN = ["light", "dark", "ember", "brutal", "xp", "aqua", "cyber"];
+        // The ones that paint near-black, so native controls take the right
+        // side before the stylesheet exists.
+        const DARK = ["dark", "ember", "cyber"];
         const theme = KNOWN.includes(stored)
           ? stored
           : window.matchMedia("(prefers-color-scheme: dark)").matches
             ? "dark"
             : "light";
         document.documentElement.classList.add(theme);
-        // Ember and Cyberpunk are dark themes as far as native controls go;
-        // Brutal is light.
-        document.documentElement.style.colorScheme =
-          theme === "light" || theme === "brutal" ? "light" : "dark";
+        document.documentElement.style.colorScheme = DARK.includes(theme) ? "dark" : "light";
       })();
     </script>
   </head>

@@ -1,0 +1,6 @@
+<!-- The window pinstripe: one faint rule every four pixels. Drawn as black at
+     7.5% rather than as a grey, so the token underneath keeps owning the base
+     colour and the AA audit keeps meaning something. -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="4" height="4" shape-rendering="crispEdges">
+  <rect width="4" height="1" fill="#000" opacity="0.075" />
+</svg>

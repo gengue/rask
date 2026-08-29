@@ -49,6 +49,7 @@ describe("the ratio itself", () => {
 describe("the stylesheet", () => {
   test("every theme block is found, with the tokens the app uses", () => {
     // If the parse silently returned nothing, every assertion below would pass.
+    // Every theme the parser returns, not a list of them kept in step by hand.
     for (const tokens of Object.values(themes)) {
       expect(Object.keys(tokens).length).toBeGreaterThan(10);
       expect(tokens.ink).toMatch(/^#[0-9a-f]{6}$/i);
@@ -57,6 +58,8 @@ describe("the stylesheet", () => {
   });
 
   test("the themes are actually different", () => {
+    // Every wall distinct, rather than a hand-picked pair per theme — the same
+    // list-kept-in-step-by-hand this file exists to catch elsewhere.
     const walls = Object.values(themes).map((tokens) => tokens.app);
     expect(new Set(walls).size).toBe(walls.length);
   });
@@ -74,12 +77,12 @@ describe("the stylesheet", () => {
   /*
    * The seam between the menu and the palette.
    *
-   * `parseThemes` finds the blocks by scanning, so a theme cannot ship
-   * unaudited by being left off a list — but it can still ship with no block
-   * at all, which is a theme the menu offers and the stylesheet has never
-   * heard of: every colour falls through to dark and nothing errors. This
-   * fails in both directions, which also retires the audited-block check that
-   * scanning made tautological.
+   * `parseThemes` finds the blocks by scanning, so a theme can no longer ship
+   * unaudited by being left off a list — which also made the old
+   * every-block-is-audited check tautological. What it cannot see is a theme
+   * that ships with no block at all: one the menu offers and the stylesheet
+   * has never heard of, where every colour falls through to dark and nothing
+   * errors. This fails in both directions instead.
    */
   test("the audited themes are exactly the ones the menu offers", () => {
     const menu = THEMES.map(([value]) => value).filter((value) => value !== "system");
@@ -87,10 +90,15 @@ describe("the stylesheet", () => {
   });
 
   test("every theme defines the same set of tokens", () => {
-    const dark = Object.keys(tokensFor("dark")).sort();
-    for (const [name, tokens] of Object.entries(themes)) {
-      expect([name, Object.keys(tokens).sort()]).toEqual([name, dark]);
-    }
+    const dark = Object.keys(tokensFor("dark")).sort().join();
+    // Named rather than asserted one theme per line: the per-line form was a
+    // list of theme names kept in step by hand, which is the thing this test
+    // exists to catch happening in the stylesheet.
+    const drifted = Object.entries(themes)
+      .filter(([, tokens]) => Object.keys(tokens).sort().join() !== dark)
+      .map(([name]) => name);
+
+    expect(drifted).toEqual([]);
   });
 
   test("every token pair clears WCAG AA, in every theme", () => {

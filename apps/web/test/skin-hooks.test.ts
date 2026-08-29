@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * The easter-egg skins (Ember, Brutal, Cyberpunk) hang off selectors they do
- * not own:
+ * The easter-egg skins (Ember, Brutal, XP, Aqua) hang off selectors they do not
+ * own:
  * aria-labels and utility classes that live in component markup. A rename over
  * there — the detail panel's label, `bg-panel` becoming `bg-panel/95`, the
  * section border class — sheds the skin with no error anywhere, which is
@@ -37,6 +37,28 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskDetail.tsx",
     markup: "bg-accent",
   },
+  // Shared by more than one skin, so filed under none of them: XP's blue
+  // caption bar and Aqua's title bar are the same header, and both of them
+  // dress the workspace search field.
+  {
+    selector: 'aside[aria-label="Workspace"] > header',
+    provider: "../src/components/Sidebar.tsx",
+    markup: "<header",
+  },
+  // `bg-hover` as a base class is unique to the search field in the sidebar —
+  // every other control there spells it `hover:bg-hover`, a different class
+  // token — so the class run is the hook rather than the bare name.
+  {
+    selector: "button.bg-hover",
+    provider: "../src/components/Sidebar.tsx",
+    markup: "bg-hover px-2",
+  },
+  // XP only, from here down. The treeview's dotted rules.
+  { selector: ".border-l", provider: "../src/components/Sidebar.tsx", markup: "border-l" },
+  // The tree's +/- boxes are drawn out of this glyph, path and all.
+  { selector: ".chevron", provider: "../src/components/Sidebar.tsx", markup: "chevron" },
+  // The stop error's own class, which only exists to be styled.
+  { selector: ".xp-bsod", provider: "../src/components/RouteError.tsx", markup: "xp-bsod" },
   // Brutal only, from here down.
   // The group-header band. Board's washes are divs and spans, not buttons.
   {
@@ -56,38 +78,26 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskRow.tsx",
     markup: 'role="option"',
   },
-  // The view's name, which both skins repaint as a plate.
-  { selector: "main header h1", provider: "../src/App.tsx", markup: "<h1" },
-  // Cyberpunk only, from here down.
-  // The HUD strips hang off #root, which is in the page, not in a component.
-  { selector: "#root", provider: "../index.html", markup: 'id="root"' },
-  // The detail panel's own title bar, where "TASK DETAILS" is injected.
+  // Aqua only, from here down. The headers it turns into toolbars have to stay
+  // direct children of the landmarks they hang off, which is what the `>` in
+  // each selector is asserting.
   {
-    selector: 'aside[aria-label="Task detail"] header',
+    selector: 'aside[aria-label="Task detail"] > header',
     provider: "../src/components/TaskDetail.tsx",
     markup: "<header",
   },
-  // The task title, which is a textarea while it is being edited.
-  {
-    selector: "textarea.text-lg",
-    provider: "../src/components/TaskDetail.tsx",
-    markup: "text-lg",
-  },
-  // The property rail's label, which exists only to be repainted.
-  {
-    selector: ".field-label",
-    provider: "../src/components/TaskDetail.tsx",
-    markup: "field-label",
-  },
-  // The list header band, which both skins repaint. A marker class rather than
-  // `main > div > header`: that middle div only carries `hidden`, so unwrapping
-  // it is a change nobody would think twice about.
+  // Shared by every skin that repaints the list header band. A marker class
+  // rather than `main > div > header`, which was how all of them reached it:
+  // that middle div exists only to carry `hidden` when a task is expanded, so
+  // unwrapping it is a change nobody would think twice about and every skin
+  // would shed the band with nothing red.
   { selector: ".view-header", provider: "../src/App.tsx", markup: "view-header" },
-  // The four labels the app title-cases from data. Both skins read the
-  // presentational utility as the marker, the way they read `.uppercase`.
-  { selector: ".capitalize", provider: "../src/components/TaskList.tsx", markup: "capitalize" },
-  // The count beside the view's name, which both skins turn into a plate.
+  // The view's name and its count, which three skins turn into a plate.
+  { selector: "main header h1", provider: "../src/App.tsx", markup: "<h1" },
   { selector: ".bg-chip", provider: "../src/App.tsx", markup: "bg-chip" },
+  // The four labels the app title-cases from data. Read as a marker the same
+  // way `.uppercase` is.
+  { selector: ".capitalize", provider: "../src/components/TaskList.tsx", markup: "capitalize" },
   // Tag chips on a row: outlined by Brutal, shouted by Cyberpunk.
   {
     selector: '[role="option"] .border',
@@ -100,6 +110,25 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/Menu.tsx",
     markup: 'role="listbox"',
   },
+  // Cyberpunk only, from here down.
+  // The HUD strips hang off #root, which is in the page, not in a component.
+  { selector: "#root", provider: "../index.html", markup: 'id="root"' },
+  // The detail panel's title bar, where "TASK DETAILS" is injected. The loose
+  // form, unlike Aqua's above: nothing here depends on the header staying a
+  // direct child, and TaskDetail has exactly one.
+  {
+    selector: 'aside[aria-label="Task detail"] header',
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "<header",
+  },
+  // The property rail's label, which exists only to be repainted.
+  {
+    selector: ".field-label",
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "field-label",
+  },
+  // The task title, which is a textarea while it is being edited.
+  { selector: "textarea.text-lg", provider: "../src/components/TaskDetail.tsx", markup: "text-lg" },
   // The cursor's left hairline, which becomes the lit tab.
   {
     selector: '[role="option"] > span.bg-accent',
@@ -178,5 +207,36 @@ describe("brutal's floating restore", () => {
     const missing = Object.keys(sidebar).filter((name) => !(name in restored));
 
     expect(missing).toEqual([]);
+  });
+});
+
+/**
+ * The other thing the skins hang off and do not own: the dock breakpoint.
+ *
+ * Everything ornamental gets out of the way below it, because down there the
+ * sidebar is a drawer and every pixel is contested. Each of those blocks used
+ * to hand-copy --breakpoint-dock, one per skin, under a comment explaining
+ * that a media query cannot read a custom property — and moving the token left
+ * every copy behind, quietly and one-sidedly: the layout switches at the new
+ * width while the ornaments keep hiding at the old one, so for the band
+ * between them the drawer is drawn with a rail through it. Nothing throws.
+ *
+ * `theme()` reads the token at build time, which is what retired the copies.
+ * This is the same invariant from the other end — a literal creeping back in
+ * is a copy nobody will remember to move.
+ */
+describe("the dock breakpoint the skins hang off", () => {
+  // Lazy up to `) {`, not `[^)]+`: the value is itself a call with a paren in
+  // it, and a greedy-free character class stops halfway through `theme(…)`.
+  const dockQueries = [...stylesheet.matchAll(/@media \(width < (.+?)\) \{/g)].map((m) => m[1]);
+
+  test("the queries were actually found", () => {
+    // Without this the assertion below passes on an empty set.
+    expect(dockQueries.length).toBeGreaterThan(2);
+    expect(palette).toMatch(/--breakpoint-dock:\s*\d+px/);
+  });
+
+  test("every width query reads the token rather than repeating its value", () => {
+    expect([...new Set(dockQueries)]).toEqual(["theme(--breakpoint-dock)"]);
   });
 });
