@@ -41,7 +41,8 @@ describe("the ratio itself", () => {
 describe("the stylesheet", () => {
   test("every theme block is found, with the tokens the app uses", () => {
     // If the parse silently returned nothing, every assertion below would pass.
-    for (const tokens of [themes.dark, themes.light, themes.ember, themes.brutal, themes.xp]) {
+    // Every theme the parser returns, not a list of them kept in step by hand.
+    for (const tokens of Object.values(themes)) {
       expect(Object.keys(tokens).length).toBeGreaterThan(10);
       expect(tokens.ink).toMatch(/^#[0-9a-f]{6}$/i);
       expect(tokens.app).toMatch(/^#[0-9a-f]{6}$/i);
@@ -53,6 +54,7 @@ describe("the stylesheet", () => {
     expect(themes.ember.app).not.toBe(themes.dark.app);
     expect(themes.brutal.app).not.toBe(themes.light.app);
     expect(themes.xp.app).not.toBe(themes.light.app);
+    expect(themes.aqua.app).not.toBe(themes.light.app);
   });
 
   /*
@@ -79,11 +81,15 @@ describe("the stylesheet", () => {
   });
 
   test("every theme defines the same set of tokens", () => {
-    const dark = Object.keys(themes.dark).sort();
-    expect(Object.keys(themes.light).sort()).toEqual(dark);
-    expect(Object.keys(themes.ember).sort()).toEqual(dark);
-    expect(Object.keys(themes.brutal).sort()).toEqual(dark);
-    expect(Object.keys(themes.xp).sort()).toEqual(dark);
+    const dark = Object.keys(themes.dark).sort().join();
+    // Named rather than asserted one theme per line: the per-line form was a
+    // list of theme names kept in step by hand, which is the thing this test
+    // exists to catch happening in the stylesheet.
+    const drifted = Object.entries(themes)
+      .filter(([, tokens]) => Object.keys(tokens).sort().join() !== dark)
+      .map(([name]) => name);
+
+    expect(drifted).toEqual([]);
   });
 
   test("every token pair clears WCAG AA, in every theme", () => {

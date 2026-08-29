@@ -68,6 +68,7 @@ export function parseThemes(css: string): {
   ember: Tokens;
   brutal: Tokens;
   xp: Tokens;
+  aqua: Tokens;
 } {
   return {
     dark: parseBlock(css, "@theme"),
@@ -75,6 +76,7 @@ export function parseThemes(css: string): {
     ember: parseBlock(css, "html.ember"),
     brutal: parseBlock(css, "html.brutal"),
     xp: parseBlock(css, "html.xp"),
+    aqua: parseBlock(css, "html.aqua"),
   };
 }
 

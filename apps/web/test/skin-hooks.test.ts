@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * The easter-egg skins (Ember, Brutal, XP) hang off selectors they do not own:
+ * The easter-egg skins (Ember, Brutal, XP, Aqua) hang off selectors they do not
+ * own:
  * aria-labels and utility classes that live in component markup. A rename over
  * there — the detail panel's label, `bg-panel` becoming `bg-panel/95`, the
  * section border class — sheds the skin with no error anywhere, which is
@@ -36,19 +37,24 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskDetail.tsx",
     markup: "bg-accent",
   },
-  // XP only, from here down.
-  // The Explorer task pane's blue caption, and the treeview's dotted rules.
+  // Shared by more than one skin, so filed under none of them: XP's blue
+  // caption bar and Aqua's title bar are the same header, and both of them
+  // dress the workspace search field.
   {
     selector: 'aside[aria-label="Workspace"] > header',
     provider: "../src/components/Sidebar.tsx",
     markup: "<header",
   },
-  { selector: ".border-l", provider: "../src/components/Sidebar.tsx", markup: "border-l" },
+  // `bg-hover` as a base class is unique to the search field in the sidebar —
+  // every other control there spells it `hover:bg-hover`, a different class
+  // token — so the class run is the hook rather than the bare name.
   {
     selector: "button.bg-hover",
     provider: "../src/components/Sidebar.tsx",
-    markup: "bg-hover",
+    markup: "bg-hover px-2",
   },
+  // XP only, from here down. The treeview's dotted rules.
+  { selector: ".border-l", provider: "../src/components/Sidebar.tsx", markup: "border-l" },
   // The tree's +/- boxes are drawn out of this glyph, path and all.
   { selector: ".chevron", provider: "../src/components/Sidebar.tsx", markup: "chevron" },
   // The stop error's own class, which only exists to be styled.
@@ -72,6 +78,15 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     provider: "../src/components/TaskRow.tsx",
     markup: 'role="option"',
   },
+  // Aqua only, from here down. The headers it turns into toolbars have to stay
+  // direct children of the landmarks they hang off, which is what the `>` in
+  // each selector is asserting.
+  {
+    selector: 'aside[aria-label="Task detail"] > header',
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "<header",
+  },
+  { selector: "main > div > header", provider: "../src/App.tsx", markup: "<header" },
 ];
 
 describe("every selector hook the easter-egg skins rely on", () => {

@@ -1,11 +1,11 @@
 import { createSignal } from "solid-js";
 
-export type ThemeChoice = "system" | "light" | "dark" | "ember" | "brutal" | "xp";
+export type ThemeChoice = "system" | "light" | "dark" | "ember" | "brutal" | "xp" | "aqua";
 
 /**
  * Ordered so "System", the default, comes first. Everything below "Dark" is an
  * easter egg — extra themes rather than extra modes, which is what turned the
- * cycling button into a menu: six states behind one blind press is a slot
+ * cycling button into a menu: seven states behind one blind press is a slot
  * machine.
  */
 export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
@@ -15,6 +15,7 @@ export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
   ["ember", "Ember"],
   ["brutal", "Brutalist"],
   ["xp", "Windows XP"],
+  ["aqua", "Aqua"],
 ];
 
 export function themeLabel(choice: ThemeChoice): string {
@@ -84,7 +85,8 @@ function apply(): void {
   // class is toggled off on every pass and never on.
   for (const [value] of THEMES) root.classList.toggle(value, value === theme);
   // Ember is a dark theme as far as native controls and scrollbars go; Brutal
-  // paints on cream and XP on Luna beige, so both side with light.
+  // paints on cream, XP on Luna beige and Aqua on white metal, so the three of
+  // them side with light.
   root.style.colorScheme = theme === "dark" || theme === "ember" ? "dark" : "light";
 }
 

@@ -458,6 +458,82 @@ html.xp {
 }
 
 /*
+ * Aqua.
+ *
+ * The fourth easter egg: Mac OS X circa 10.3, the pinstriped white window in a
+ * brushed-metal frame. Same contract as the rest — one token set, audited by
+ * the same script against the same AA floors.
+ *
+ * The metal is what constrains everything. `--color-app` is the window chrome
+ * and it is the darkest surface any text sits on, exactly as in light mode,
+ * but metal is a good deal darker than light mode's #e7e9ed — so the whole ink
+ * ladder drops a step below light's to keep ink-4 above 4.5:1 on it (4.61).
+ * The alternative was a pale metal that is no longer metal.
+ *
+ * The accent is Aqua's darker blue rather than the bright #3d80df of the gel
+ * buttons: #3d80df on metal is 2.9:1, and the accent is link text before it is
+ * anything else. The gel gets its brightness back in styles.css, where a
+ * gradient can be hand-checked stop by stop and this file cannot.
+ *
+ * `--color-selection` is the real thing — #b5d5ff, the default Mac OS X
+ * highlight — which works out here because the only inks drawn over a text
+ * selection are ink (12.5:1) and ink-prose (9.6:1).
+ *
+ * The set dressing — pinstripes, brushed metal, the traffic lights, gel
+ * buttons and scrollbars — lives in the client's styles.css under the same
+ * class, because this file is shared with the landing page and the landing
+ * page stays bare.
+ */
+html.aqua {
+  /* Brushed metal: the window frame, and the sidebar sits directly on it. */
+  --color-app: #d9dce1;
+  /* Pinstriped white: the document body. */
+  --color-panel: #fdfdfe;
+  --color-elevated: #e9ecf1;
+  --color-overlay: #ffffff;
+
+  --color-line: #b7bcc4;
+  --color-line-strong: #8d949e;
+
+  /* A step darker than light mode's, which is what the metal costs. Ratios on
+     the metal: ink 13.7, ink-prose 12.5, ink-2 6.3, ink-3 5.1, ink-4 4.6. */
+  --color-ink: #111318;
+  --color-ink-2: #464c55;
+  --color-ink-3: #545a63;
+  --color-ink-4: #5a6069;
+  --color-ink-prose: #24272d;
+
+  --color-accent: #2a5db0;
+  --color-accent-soft: #2a5db029;
+  --color-on-accent: #ffffff;
+
+  /* Aqua's alert red, caution amber and go green, dragged dark enough to hold
+     3:1 on the metal (4.0, 4.0, 3.9). On the white page they are all above 5. */
+  --color-urgent: #c1352b;
+  --color-high: #9a5a12;
+  --color-low: #5f656e;
+  --color-ok: #1c7a3e;
+
+  --color-hover: rgb(0 0 0 / 0.05);
+  --color-selected: rgb(0 0 0 / 0.075);
+  --color-chip: rgb(0 0 0 / 0.06);
+  --color-wash: rgb(0 0 0 / 0.03);
+  --color-scrim: rgb(0 0 0 / 0.32);
+
+  /* The blue gel thumb. The gloss on it is drawn in styles.css. */
+  --color-scrollbar: #8badd8;
+  --color-scrollbar-hover: #6d94c9;
+
+  --color-code: #1a6152;
+  --color-selection: #b5d5ff;
+
+  /* Lucida Grande is the whole voice of the era, and every Mac still has it.
+     Lucida Sans Unicode covers Windows; Linux resolves it through fontconfig
+     or falls back to DejaVu Sans, which is the same skeleton. */
+  --font-sans: "Lucida Grande", "Lucida Sans Unicode", "Lucida Sans", Geneva, Verdana, sans-serif;
+}
+
+/*
  * Tells the browser which way round everything native goes: form controls, the
  * canvas before our CSS lands, and the scrollbars we do not style. The inline
  * script sets the same thing on the element so it applies on the first paint,
@@ -485,4 +561,11 @@ html.brutal {
 html.xp {
   color-scheme: light;
   --floating-shadow: 0 0 0 1px #a0a0a0, 3px 3px 3px rgb(0 0 0 / 0.28);
+}
+
+/* Aqua's menus are cut out of the window with a real shadow under them — the
+   one place the era was not flat. */
+html.aqua {
+  color-scheme: light;
+  --floating-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.3), 0 14px 34px -6px rgb(0 0 0 / 0.42);
 }
