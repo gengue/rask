@@ -114,7 +114,9 @@ test("the quick filter narrows a list to me, and stays visible where its button 
   await expect(chip).toHaveCount(0);
 });
 
-test("creates a task from the quick add dialog", async ({ page }) => {
+test("creates a task from the quick add dialog, opens it and puts it under the cursor", async ({
+  page,
+}) => {
   await page.goto("/__dev-login");
   await page.goto("/list/L1");
   await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
@@ -129,11 +131,14 @@ test("creates a task from the quick add dialog", async ({ page }) => {
 
   await expect(dialog).toBeHidden();
 
-  // The new task lands in the list's first status group, which may be below the
-  // fold in a 140-row list. Search for it rather than assuming it is on screen.
-  await page.keyboard.press("/");
-  await page.getByPlaceholder(/^Search name/).fill(title);
-  await expect(page.getByText(title)).toBeVisible();
+  // The new task opens on its own — under its placeholder id, since no worker
+  // runs here to ship it — and the row lands under the keyboard cursor, even
+  // when its status group is below the fold in a 140-row list.
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole("heading", { name: title })).toBeVisible();
+  await expect(page).toHaveURL(/task=tmp_/);
+  await expect(page.locator(".row-selected").getByText(title)).toBeVisible();
 });
 
 /**

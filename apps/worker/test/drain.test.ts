@@ -254,6 +254,54 @@ async function removeFailureProbe() {
   await db.execute(sql`drop table if exists drain_test_failure_probe`);
 }
 
+/*
+ * The same vantage point for the create path's other ordering: the browser
+ * follows a placeholder to its real id by reading the outbox row the moment
+ * the change feed says the placeholder died, so `entity_id` has to be
+ * committed before the retirement is. Retired first, that lookup answers
+ * "still pending" — the one wrong answer it can give — and the final rows
+ * look identical with the two statements swapped back.
+ */
+const PROBE_CLIENT_LITERAL = `'${CREATE_CLIENT}'`;
+
+async function installRetireProbe() {
+  await db.execute(sql`
+    create table if not exists drain_test_retire_probe (
+      seq bigserial primary key,
+      entity_id text
+    )`);
+  await db.execute(sql`
+    create or replace function drain_test_retire_probe_fn() returns trigger
+    language plpgsql as $$
+    begin
+      insert into drain_test_retire_probe (entity_id)
+      select o.entity_id from outbox o
+      where o.op = 'create_task' and o.client_id = ${sql.raw(PROBE_CLIENT_LITERAL)};
+      return new;
+    end $$`);
+  await db.execute(sql`drop trigger if exists drain_test_retire_probe_trg on tasks`);
+  await db.execute(sql`
+    create trigger drain_test_retire_probe_trg
+      after update on tasks
+      for each row
+      when (new.deleted_at is not null)
+      execute function drain_test_retire_probe_fn()`);
+}
+
+async function removeRetireProbe() {
+  await db.execute(sql`drop trigger if exists drain_test_retire_probe_trg on tasks`);
+  await db.execute(sql`drop function if exists drain_test_retire_probe_fn()`);
+  await db.execute(sql`drop table if exists drain_test_retire_probe`);
+}
+
+/** What the outbox row's entity_id held each time a retirement committed. */
+async function entityIdAtRetirement(): Promise<Array<string | null>> {
+  const result = await db.execute(sql`
+    select entity_id from drain_test_retire_probe order by seq`);
+  const rows = result as unknown as Array<{ entity_id: string | null }>;
+  return rows.map((row) => row.entity_id);
+}
+
 /** What the mirror held when this row was marked failed. */
 async function mirrorAtFailure(outboxId: number): Promise<Array<string | null>> {
   const result = await db.execute(sql`
@@ -274,10 +322,13 @@ async function cleanup() {
   await db.delete(tasks).where(inArray(tasks.id, OWNED_TASKS));
   await db.delete(users).where(inArray(users.id, [ALICE, BOB]));
   await db.execute(sql`delete from drain_test_failure_probe`);
+  await db.execute(sql`delete from drain_test_retire_probe`);
 }
 
 beforeAll(installFailureProbe);
+beforeAll(installRetireProbe);
 afterAll(removeFailureProbe);
+afterAll(removeRetireProbe);
 beforeEach(cleanup);
 afterEach(cleanup);
 
@@ -754,6 +805,13 @@ describe("a create ClickUp accepted", () => {
     // The API needs this to tell the author which task the failure or the
     // success was about.
     expect((await queued(id))?.entityId).toBe(TASK);
+
+    // And it has to hold the id *by the time the placeholder is retired*: a
+    // panel open on the placeholder resolves it through this row the moment
+    // the change feed says the row died, and retired-first answers "still
+    // pending" — see the retire probe above. The final rows cannot tell the
+    // two orders apart, which is why this reads the trigger's snapshot.
+    expect(await entityIdAtRetirement()).toEqual([TASK]);
   });
 });
 

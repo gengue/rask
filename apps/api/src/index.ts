@@ -74,6 +74,7 @@ import {
   newCommentInput,
   newTaskInput,
   renameChecklist,
+  resolveCreatedTask,
   setCustomField,
   setTaskTags,
   taskPatchInput,
@@ -604,6 +605,17 @@ api.get("/views/:id/tasks", async (c) => {
   c.header("X-Rask-Truncated", page.truncated ? "1" : "0");
   return c.json(rows);
 });
+
+/**
+ * What a placeholder task turned into.
+ *
+ * A browser can be showing `?task=tmp_…` when the outbox drains and the
+ * placeholder dies; this is how it follows the task to its real id instead of
+ * being left holding a snapshot no write can address. See `resolveCreatedTask`.
+ */
+api.get("/tasks/:id/resolved", async (c) =>
+  c.json(await resolveCreatedTask(db, c.req.param("id"))),
+);
 
 api.get("/tasks/:id", async (c) => {
   const detail = await getTaskDetail(db, c.req.param("id"));

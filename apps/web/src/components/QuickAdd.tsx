@@ -15,6 +15,12 @@ export function QuickAdd(props: {
   listId: string | null;
   listName: string | null;
   onClose: () => void;
+  /**
+   * Fires with the new task's placeholder id and a promise that settles when
+   * the API has the row — which is when opening `?task=<id>` stops racing the
+   * POST that creates what it fetches. Rejected means the insert rolled back.
+   */
+  onCreated: (id: string, persisted: Promise<unknown>) => void;
 }): JSX.Element {
   const [name, setName] = createSignal("");
   let input!: HTMLInputElement;
@@ -35,8 +41,9 @@ export function QuickAdd(props: {
 
     const status = initial();
 
-    tasks.insert({
-      id: placeholderId(crypto.randomUUID()),
+    const id = placeholderId(crypto.randomUUID());
+    const tx = tasks.insert({
+      id,
       customId: null,
       name: value,
       status: status?.status ?? null,
@@ -60,6 +67,7 @@ export function QuickAdd(props: {
 
     setName("");
     props.onClose();
+    props.onCreated(id, tx.isPersisted.promise);
   };
 
   return (
