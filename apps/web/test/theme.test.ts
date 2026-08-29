@@ -20,7 +20,32 @@ describe("the list", () => {
     const values = THEMES.map(([value]) => value);
     expect(values).toContain("ember");
     expect(values).toContain("brutal");
+    expect(values).toContain("cyber");
   });
+});
+
+/**
+ * The one duplicate the module cannot avoid.
+ *
+ * index.html carries its own copy of the theme names, because it has to paint
+ * the first frame before any bundle loads. A theme added here and not there
+ * loads as light or dark, repaints once the module runs, and does that on
+ * every single visit — but only for the people who picked it, which is nobody
+ * on the machine where it was added.
+ */
+const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
+const inline = html.slice(html.indexOf("const KNOWN"), html.indexOf("classList.add"));
+
+describe("the inline script in index.html", () => {
+  test("the block was actually found", () => {
+    expect(inline).toContain("localStorage");
+  });
+
+  for (const [value] of THEMES.filter(([value]) => value !== "system")) {
+    test(`knows about "${value}", so its first paint is not a flash of dark`, () => {
+      expect(inline).toContain(`"${value}"`);
+    });
+  }
 });
 
 describe("labels", () => {

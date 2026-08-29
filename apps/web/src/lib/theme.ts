@@ -1,12 +1,17 @@
 import { createSignal } from "solid-js";
 
-export type ThemeChoice = "system" | "light" | "dark" | "ember" | "brutal";
+export type ThemeChoice = "system" | "light" | "dark" | "ember" | "brutal" | "cyber";
 
 /**
- * Ordered so "System", the default, comes first. "Ember" and "Brutalist" are
- * the easter eggs — extra themes rather than extra modes, which is what turned
- * the cycling button into a menu: five states behind one blind press is a slot
- * machine.
+ * Ordered so "System", the default, comes first. Ember, Brutalist and
+ * Cyberpunk are the easter eggs — extra themes rather than extra modes, which
+ * is what turned the cycling button into a menu: six states behind one blind
+ * press is a slot machine.
+ *
+ * This list is the only place a theme is named. `read` validates against it,
+ * `apply` toggles a class per entry, and the menu and the palette render it —
+ * so a sixth theme is one row here, one token block in theme.css and one line
+ * in the inline script in index.html, which `theme.test.ts` pins.
  */
 export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
   ["system", "System"],
@@ -14,6 +19,7 @@ export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
   ["dark", "Dark"],
   ["ember", "Ember"],
   ["brutal", "Brutalist"],
+  ["cyber", "Cyberpunk"],
 ];
 
 export function themeLabel(choice: ThemeChoice): string {
@@ -51,9 +57,9 @@ const media =
 function read(): ThemeChoice {
   try {
     const value = localStorage.getItem(KEY);
-    return value === "light" || value === "dark" || value === "ember" || value === "brutal"
-      ? value
-      : "system";
+    // Against the list rather than a second copy of it: "system" is stored as
+    // the absence of a key, so a stored "system" is as bogus as a stored typo.
+    return THEMES.find(([choice]) => choice === value && choice !== "system")?.[0] ?? "system";
   } catch {
     return "system";
   }
@@ -64,7 +70,7 @@ const [systemDark, setSystemDark] = createSignal(media?.matches ?? false);
 
 export const themeChoice = choice;
 
-export function resolvedTheme(): "light" | "dark" | "ember" | "brutal" {
+export function resolvedTheme(): Exclude<ThemeChoice, "system"> {
   const value = choice();
   if (value !== "system") return value;
   return systemDark() ? "dark" : "light";
@@ -78,12 +84,11 @@ function apply(): void {
   if (!media) return;
   const theme = resolvedTheme();
   const root = document.documentElement;
-  root.classList.toggle("dark", theme === "dark");
-  root.classList.toggle("light", theme === "light");
-  root.classList.toggle("ember", theme === "ember");
-  root.classList.toggle("brutal", theme === "brutal");
-  // Ember is a dark theme as far as native controls and scrollbars go;
-  // Brutal paints on cream, so it sides with light.
+  for (const [choice] of THEMES) {
+    if (choice !== "system") root.classList.toggle(choice, theme === choice);
+  }
+  // Ember and Cyberpunk are dark themes as far as native controls and
+  // scrollbars go; Brutal paints on cream, so it sides with light.
   root.style.colorScheme = theme === "light" || theme === "brutal" ? "light" : "dark";
 }
 

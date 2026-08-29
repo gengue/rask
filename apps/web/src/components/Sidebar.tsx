@@ -561,6 +561,13 @@ function ThemeButton(): JSX.Element {
               stroke-linejoin="miter"
             />
           </Show>
+          <Show when={themeChoice() === "cyber"}>
+            {/* A chipped shard, for the theme with one in its head. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="miter">
+              <path d="M2.5 4.2 4.2 2.5h9.3v9.3l-1.7 1.7H2.5V4.2Z" />
+              <path d="M5.5 5.5h5v5h-5z" fill="currentColor" stroke="none" />
+            </g>
+          </Show>
         </svg>
       </button>
       <Menu

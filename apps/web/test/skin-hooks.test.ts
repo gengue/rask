@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * The easter-egg skins (Ember, Brutal) hang off selectors they do not own:
+ * The easter-egg skins (Ember, Brutal, Cyberpunk) hang off selectors they do
+ * not own:
  * aria-labels and utility classes that live in component markup. A rename over
  * there — the detail panel's label, `bg-panel` becoming `bg-panel/95`, the
  * section border class — sheds the skin with no error anywhere, which is
@@ -54,6 +55,35 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     selector: '[role="option"]',
     provider: "../src/components/TaskRow.tsx",
     markup: 'role="option"',
+  },
+  // The view's name, which both skins repaint as a plate.
+  { selector: "main header h1", provider: "../src/App.tsx", markup: "<h1" },
+  // Cyberpunk only, from here down.
+  // The HUD strips hang off #root, which is in the page, not in a component.
+  { selector: "#root", provider: "../index.html", markup: 'id="root"' },
+  // The detail panel's own title bar, where "TASK DETAILS" is injected.
+  {
+    selector: 'aside[aria-label="Task detail"] > header',
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "<header",
+  },
+  // The task title, which is a textarea while it is being edited.
+  {
+    selector: "textarea.text-lg",
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "text-lg",
+  },
+  // The property rail's label, which exists only to be repainted.
+  {
+    selector: ".field-label",
+    provider: "../src/components/TaskDetail.tsx",
+    markup: "field-label",
+  },
+  // The cursor's left hairline, which becomes the lit tab.
+  {
+    selector: '[role="option"] > span.bg-accent',
+    provider: "../src/components/TaskRow.tsx",
+    markup: "bg-accent",
   },
 ];
 

@@ -380,6 +380,79 @@ html.brutal {
 }
 
 /*
+ * Cyberpunk.
+ *
+ * The third easter egg: a Night City terminal. Near-black with a blue cast,
+ * every label in cyan, and the one hot yellow the game paints its whole HUD
+ * in. Same contract as the other two — the full token set, audited by the same
+ * script against the same AA floors.
+ *
+ * #fcee0a is the game's yellow, and here it is the accent rather than a
+ * decoration: 16.0:1 on the panel, so links, the cursor hairline and the solid
+ * button can all be it without a single hand-checked pairing. The inks are a
+ * cyan ladder rather than a grey one — the reference has no neutral text
+ * anywhere — and the bottom rung still lands at 6.9:1 on the lightest surface,
+ * because a terminal's dimmest line is a line somebody is still reading.
+ *
+ * The interaction tints stop being white overlays, which is the one thing the
+ * dark theme's fallthrough would have got wrong: hover is a cyan wash and the
+ * cursor row is a yellow one, the reference's own two-colour feedback. Both
+ * stay translucent, so the audited surface underneath still owns the contrast
+ * — ink-4 on the cursor row is 6.4:1.
+ *
+ * `--font-sans` points at the mono stack because in the reference there is no
+ * proportional type at all: every string is terminal output. One variable, and
+ * no component knows.
+ *
+ * The set dressing — scanlines, the grid, corner brackets, the HUD strips —
+ * lives in the client's styles.css under the same class, because this file is
+ * shared with the landing page and the landing page stays bare.
+ */
+html.cyber {
+  --color-app: #04070c;
+  --color-panel: #080e15;
+  --color-elevated: #0e1620;
+  --color-overlay: #121c28;
+
+  --color-line: #17313f;
+  --color-line-strong: #2b5568;
+
+  --color-ink: #e6faff;
+  --color-ink-2: #8ec8da;
+  --color-ink-3: #7ab6ca;
+  --color-ink-4: #6fadc2;
+  --color-ink-prose: #b6dfec;
+
+  --color-accent: #fcee0a;
+  --color-accent-soft: #fcee0a1f;
+  --color-on-accent: #0a0a05;
+
+  --color-urgent: #ff3d5e;
+  --color-high: #ffa62b;
+  --color-low: #587786;
+  --color-ok: #23e08a;
+
+  /* Cyan for anything the pointer is doing, yellow for where the cursor is.
+     The two are never the same colour in the reference, and a white overlay
+     would have washed both of them grey. */
+  --color-hover: rgb(45 226 230 / 0.09);
+  --color-selected: rgb(252 238 10 / 0.1);
+  --color-chip: rgb(45 226 230 / 0.1);
+  --color-wash: rgb(45 226 230 / 0.05);
+  --color-scrim: rgb(2 6 12 / 0.72);
+
+  --color-scrollbar: #1c3d4e;
+  --color-scrollbar-hover: #2c5c73;
+
+  --color-code: #7cf0d4;
+  /* Dark enough that the dimmest ink on it is still 4.9:1, light enough to
+     see against the panel. The same two limits the dark theme documents. */
+  --color-selection: #0d3a4a;
+
+  --font-sans: var(--font-mono);
+}
+
+/*
  * Tells the browser which way round everything native goes: form controls, the
  * canvas before our CSS lands, and the scrollbars we do not style. The inline
  * script sets the same thing on the element so it applies on the first paint,
@@ -401,4 +474,12 @@ html.light {
 html.brutal {
   color-scheme: light;
   --floating-shadow: 0 0 0 2px #131316, 5px 5px 0 #131316;
+}
+
+/* Cyberpunk floats on light, not on shadow: a cyan ring with its own bloom,
+   and the near-black drop the dark theme needs to separate two dark surfaces. */
+html.cyber {
+  color-scheme: dark;
+  --floating-shadow:
+    0 0 0 1px #2de2e6, 0 0 22px rgb(45 226 230 / 0.28), 0 18px 44px -10px rgb(0 0 0 / 0.85);
 }

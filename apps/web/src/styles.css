@@ -955,3 +955,415 @@ html.brutal .prose-rask img {
     border-right-width: 2px;
   }
 }
+
+/*
+ * Cyberpunk's set dressing.
+ *
+ * The tokens in theme.css make it a colour scheme; this makes it a terminal in
+ * Night City. Same contract as the other two skins: no binary assets, every
+ * rule hangs off a selector hook `skin-hooks.test.ts` pins, and everything
+ * painted on top of a surface is translucent so the audited token underneath
+ * still owns the contrast.
+ *
+ * Unlike Ember and Brutal there are no SVGs at all. Every texture here — the
+ * grid, the scanlines, the vignette, the corner brackets — is a gradient, and
+ * a gradient is what these shapes actually are. Files would have been four
+ * round trips to draw eight straight lines.
+ *
+ * Three colours do all the work and none of them is a token: cyan is chrome,
+ * yellow is where you are, magenta is the room. The ratios that matter are
+ * annotated inline — `contrast.ts` reads theme.css and cannot see this file.
+ */
+html.cyber {
+  --cyber-cyan: #2de2e6;
+  --cyber-yellow: #fcee0a;
+  --cyber-magenta: #ff2a6d;
+  /* Chrome, at the one weight every hairline in the reference is drawn at. */
+  --cyber-hair: rgb(45 226 230 / 0.5);
+}
+
+/*
+ * The room: a faint survey grid, lit cyan from the top left and magenta from
+ * the bottom right. On the body itself rather than a fixed overlay, so panels
+ * cover it and it shows in the gutters — the same bargain Brutal's wall makes.
+ */
+html.cyber body {
+  background-image:
+    radial-gradient(120% 80% at 10% 0%, rgb(45 226 230 / 0.07), transparent 62%),
+    radial-gradient(90% 70% at 100% 100%, rgb(255 42 109 / 0.06), transparent 60%),
+    repeating-linear-gradient(90deg, rgb(45 226 230 / 0.05) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(0deg, rgb(45 226 230 / 0.05) 0 1px, transparent 1px 34px);
+}
+
+/*
+ * The screen you are reading all this through: scanlines and a vignette, over
+ * everything static. `pointer-events: none`, and it rides above the content by
+ * paint order alone — it is fixed, so it paints in the positioned phase, and
+ * every menu, palette and scrim with a z-index still covers it.
+ *
+ * The lines are 14% black on one row in three, which costs every pairing in
+ * the app about 4% of its ratio. The palette clears AA by 6.9:1 at its
+ * tightest, so there is room for that; a heavier scanline reads better in a
+ * screenshot and worse at 11px, which is the size most of this app is set in.
+ */
+html.cyber body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 0.14) 0 1px, transparent 1px 3px),
+    radial-gradient(130% 100% at 50% 38%, transparent 52%, rgb(0 2 6 / 0.55) 100%);
+}
+
+/*
+ * The HUD frame: three strips of telemetry pinned to the edges of the window.
+ *
+ * `#root` takes the padding, not `body` — box-sizing is border-box and every
+ * layer below is `height: 100%`, so the shell simply gets 30px shorter and
+ * nothing has to know. The strips themselves are fixed, so they cost no room
+ * and take no clicks.
+ *
+ * Two pseudo-elements on one strip is what puts text at both ends of it: the
+ * `::after` is transparent and stacked on the `::before`, right-aligned. It is
+ * a trick, and it is cheaper than the marker elements and the hooks test rows
+ * that a real strip would need in three components.
+ *
+ * The strings are set dressing and say nothing true — this is the one place in
+ * the app where that is the point.
+ */
+html.cyber #root {
+  padding-block: 15px;
+}
+
+html.cyber #root::before,
+html.cyber #root::after,
+html.cyber body::after {
+  position: fixed;
+  left: 0;
+  right: 0;
+  padding-inline: 12px;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 15px;
+  letter-spacing: 0.22em;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--cyber-cyan);
+}
+
+html.cyber #root::before {
+  content: "SYS_STATUS █████░ // LINK ONLINE";
+  top: 0;
+  border-bottom: 1px solid var(--cyber-hair);
+  background: linear-gradient(90deg, rgb(45 226 230 / 0.1), transparent 45%);
+}
+
+html.cyber #root::after {
+  content: "NIGHT CITY // DATA FEED 0x4A7F // REL 2.0.77";
+  top: 0;
+  text-align: right;
+}
+
+html.cyber body::after {
+  content: "ENCRYPTION: AES-256 // CHANNEL SECURE // BUILD 1.7.3_2077";
+  bottom: 0;
+  border-top: 1px solid var(--cyber-hair);
+}
+
+/* Panels are lit from inside their own edge rather than bordered. */
+html.cyber .bg-panel,
+html.cyber aside[aria-label="Task detail"] {
+  border-color: var(--cyber-hair);
+  box-shadow:
+    inset 0 0 0 1px rgb(45 226 230 / 0.1),
+    0 0 34px rgb(45 226 230 / 0.05);
+}
+
+html.cyber .floating {
+  border-color: var(--cyber-cyan);
+}
+
+/*
+ * Corner brackets on both big panels — eight gradients rather than eight
+ * elements, one hard-edged `linear-gradient` reused at four positions in two
+ * orientations. Under the drag overlay (z-30) and every fixed menu (z-50),
+ * exactly where Ember hangs its frame.
+ */
+html.cyber main::after,
+html.cyber aside[aria-label="Task detail"]::after {
+  --cyber-bracket: linear-gradient(var(--cyber-yellow), var(--cyber-yellow));
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  background:
+    var(--cyber-bracket) 0 0 / 16px 2px no-repeat,
+    var(--cyber-bracket) 0 0 / 2px 16px no-repeat,
+    var(--cyber-bracket) 100% 0 / 16px 2px no-repeat,
+    var(--cyber-bracket) 100% 0 / 2px 16px no-repeat,
+    var(--cyber-bracket) 0 100% / 16px 2px no-repeat,
+    var(--cyber-bracket) 0 100% / 2px 16px no-repeat,
+    var(--cyber-bracket) 100% 100% / 16px 2px no-repeat,
+    var(--cyber-bracket) 100% 100% / 2px 16px no-repeat;
+}
+
+/* Nothing in the reference is filleted; it is all chamfer and right angle.
+   --radius-panel is unused, so this is the ad-hoc radii spelled as utilities.
+   Circles (avatars, dots) keep being circles. */
+html.cyber
+:is([class*="rounded-["], .rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl):not(
+  .rounded-full
+) {
+  border-radius: 0;
+}
+
+html.cyber ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+}
+
+/* Every label in the reference is spaced out like a readout, and lit. */
+html.cyber .uppercase {
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 10px rgb(45 226 230 / 0.35);
+}
+
+/*
+ * The sidebar is the terminal's own column: a lit spine down its open edge and
+ * every word in the tree shouted, which is what the reference does with it.
+ * No polarity flip — unlike Brutal it is the same near-black as everything
+ * else — so the ink ladder is the audited one and `.floating` needs no restore.
+ */
+html.cyber aside[aria-label="Workspace"] {
+  border-right: 1px solid var(--cyber-hair);
+  box-shadow: 10px 0 30px -18px rgb(45 226 230 / 0.6);
+}
+
+/*
+ * `:not(.floating *)` because a menu anchored in the sidebar is `position:
+ * fixed` and still a DOM child of it — the same inheritance Brutal's
+ * `.floating` restore exists for, reaching text-transform instead of a custom
+ * property. Without it a menu's filter box shouted whatever was typed into it,
+ * and only the menus opened from down there.
+ */
+html.cyber aside[aria-label="Workspace"] :is(a, .text-md):not(.floating *) {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Menu rows are uppercase wherever they open, which is what makes the one in
+   the sidebar look deliberate rather than inherited. The command palette is
+   not a listbox and keeps its case: it lists task names.
+   On the button and not on the listbox: the UA stylesheet gives form controls
+   their own `text-transform: none`, so an inherited value stops at every
+   button in the app — which is why every other rule in this skin names its
+   element instead of a container. */
+html.cyber .floating [role="listbox"] button {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/*
+ * The cursor, everywhere it lands: nav row, task row, palette command. A
+ * yellow hairline box over the yellow wash the token already paints — 6.4:1
+ * for the dimmest ink on it, which is the pairing this replaces a plain
+ * highlight with. `position: relative` because not every host of this class
+ * is positioned and the bracket below has to hang off this box, not the
+ * nearest one that happens to be.
+ */
+html.cyber .row-selected {
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgb(252 238 10 / 0.55);
+}
+
+/* The list header is the reference's title bar: a lit rule and a plate. */
+html.cyber main > div > header {
+  border-bottom-color: var(--cyber-hair);
+  background-image: linear-gradient(180deg, rgb(45 226 230 / 0.06), transparent);
+}
+
+/* Every header control is a readout too — the grouping picker, the toggles,
+   the inbox's two actions. Named on the button because the UA stylesheet
+   resets text-transform on form controls, so inheriting it never works. */
+html.cyber main > div > header button {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The view's name, in the game's yellow. 16.0:1 on the panel. */
+html.cyber main header h1 {
+  color: var(--cyber-yellow);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 16px rgb(252 238 10 / 0.4);
+}
+
+/* Its count stops being a filled chip and becomes an outlined readout. */
+html.cyber main header h1 + .bg-chip {
+  background: transparent;
+  border: 1px solid var(--cyber-yellow);
+  color: var(--cyber-yellow);
+}
+
+/* Filter is the one header control the reference outlines rather than fills. */
+html.cyber [aria-label="Add a filter"] {
+  border: 1px solid rgb(45 226 230 / 0.45);
+  padding-inline: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Group headers read as section banners cut into the list. */
+html.cyber button.bg-wash {
+  border-bottom-color: var(--cyber-hair);
+}
+
+/*
+ * `capitalize` marks the four labels the app title-cases from data: a list
+ * group, a board column, the grouping picker, and the status on the detail
+ * panel. A status in the reference reads "TO DO", so all four go up — and
+ * naming the span is the only way, since `capitalize` on the element itself
+ * beats any uppercase it would inherit from its button.
+ */
+html.cyber .capitalize {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* Three of the four are section names rather than values — the list group, the
+   board column, the grouping picker — and the reference paints those cyan:
+   12.1:1 on the panel, the one place the chrome colour carries a word. The
+   fourth is the status on the detail panel, which is a value and stays ink. */
+html.cyber :is(button.bg-wash, main header) span.capitalize {
+  color: var(--cyber-cyan);
+}
+
+/* Rows are ruled in the same cyan as everything else the chrome draws. */
+html.cyber [role="option"] {
+  border-bottom-color: rgb(45 226 230 / 0.14);
+}
+
+/* The cursor's left hairline becomes the reference's lit tab. */
+html.cyber [role="option"] > span.bg-accent:first-of-type {
+  width: 3px;
+  box-shadow: 0 0 10px var(--cyber-yellow);
+}
+
+/* Tags keep the fill ClickUp gave them — that is what the row is saying — and
+   lose their corners and their case, which is all the reference does to them.
+   The inline border colour stays; nothing here needs to outrank it. */
+html.cyber [role="option"] .border {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* "TASK DETAILS", where the reference puts it. Generated content rather than a
+   marker element in TaskDetail.tsx: the header is a flex row that already ends
+   in a spacer, so a first child costs nothing and adds no component to keep in
+   step. */
+html.cyber aside[aria-label="Task detail"] > header::before {
+  content: "TASK DETAILS";
+  color: var(--cyber-cyan);
+  font-size: var(--text-xs);
+  letter-spacing: 0.18em;
+}
+
+/* Every section break gets the reference's lit tick on the rule, at the left
+   end rather than Ember's centred lozenge. `section.border-t` is the same
+   stable hook: every titled section draws that border, and the empty ones drop
+   the class along with the line. */
+html.cyber aside[aria-label="Task detail"] section.border-t {
+  position: relative;
+}
+
+html.cyber aside[aria-label="Task detail"] section.border-t::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 26px;
+  height: 2px;
+  background: var(--cyber-yellow);
+  box-shadow: 0 0 10px var(--cyber-yellow);
+}
+
+/* Every property name is a readout label, which is the reference's loudest
+   note in this panel and the one thing no existing hook could reach — hence
+   `field-label` in TaskDetail.tsx. 12.1:1 on the panel. */
+html.cyber .field-label {
+  color: var(--cyber-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: var(--text-xs);
+}
+
+/* Rendered markdown is boxed rather than set loose on the panel — the
+   reference frames the description and every comment the same way. */
+html.cyber aside[aria-label="Task detail"] .prose-rask {
+  border: 1px solid rgb(45 226 230 / 0.22);
+  padding: 10px 12px;
+}
+
+/* Every small action in the panel is shouted, which is what the reference does
+   with all eleven of them — the one place a selector this broad is right. */
+html.cyber aside[aria-label="Task detail"] button.text-xs {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* The task title is the readout everything else on the panel is about. */
+html.cyber aside[aria-label="Task detail"] h1,
+html.cyber aside[aria-label="Task detail"] textarea.text-lg {
+  color: var(--cyber-yellow);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 18px rgb(252 238 10 / 0.35);
+}
+
+/* Long-form inputs are lit wells: no fill of their own, one cyan rule around
+   them. The title textarea above is excluded rather than overridden back — it
+   is a heading that happens to be editable, and boxing it makes the panel read
+   as a form. */
+html.cyber textarea:not(.text-lg) {
+  background-color: rgb(45 226 230 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(45 226 230 / 0.32);
+}
+
+html.cyber textarea::placeholder {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* The solid accent button is the game's one hot key: chamfered bottom-right,
+   black on yellow at 16.4:1, and glowing. `filter` rather than `box-shadow`
+   because `clip-path` cuts a shadow off with the corner it removes. */
+html.cyber button.bg-accent {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+  filter: drop-shadow(0 0 8px rgb(252 238 10 / 0.45));
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+/*
+ * Below the dock breakpoint the sidebar is a drawer over the list and every
+ * pixel is contested, so the two HUD strips and the corner brackets go and
+ * give back their 30px. The flat textures stay; they cost no room.
+ * `width < 1090px` is --breakpoint-dock (theme.css); a media query cannot read
+ * the token, so the number is repeated here — keep them in step.
+ */
+@media (width < 1090px) {
+  html.cyber #root {
+    padding-block: 0;
+  }
+
+  html.cyber #root::before,
+  html.cyber #root::after,
+  html.cyber body::after,
+  html.cyber main::after,
+  html.cyber aside[aria-label="Task detail"]::after {
+    display: none;
+  }
+}
