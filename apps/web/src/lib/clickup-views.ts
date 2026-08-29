@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { api, type ListView, type View } from "./api.ts";
 import { pushToast } from "./toast.ts";
 import { type GroupBy, setUi } from "./ui.ts";
+import { resetCursor } from "./view.ts";
 
 /**
  * The tabs above a list, and what Rask can do with each of them.
@@ -131,11 +132,13 @@ export function applyView(view: View): void {
      * a list tab returns to a list instead of leaving the board behind.
      */
     layout: view.type === "board" ? "board" : "list",
-    // Row 12 of the previous tab is a different task in this one. The shell
-    // resets the cursor when the title changes, and switching tabs within a
-    // list does not change the title.
-    cursor: 0,
   });
+  // Row 12 of the previous tab is a different task in this one. The cursor
+  // resets itself on a change of title and a tab keeps its list's, so this is
+  // the one place that has to say so — and `resetCursor` rather than `cursor: 0`
+  // because the row under it would otherwise be carried into the tab arriving,
+  // whose rows are still a fetch away.
+  resetCursor();
 }
 
 /**
