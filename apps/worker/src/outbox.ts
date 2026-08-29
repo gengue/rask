@@ -163,8 +163,11 @@ async function execute(
        * reports deleted. A sweep of placeholders older than a day is worth
        * writing the day their count is worth counting.
        */
-      if (row.client_id) await markTaskDeleted(db, placeholderId(row.client_id));
+      // entity_id first: a browser resolves the placeholder to its real id
+      // through this row the moment the change feed says the placeholder died,
+      // so the answer has to be committed before the retirement is.
       await db.update(outbox).set({ entityId: created.id }).where(eq(outbox.id, row.id));
+      if (row.client_id) await markTaskDeleted(db, placeholderId(row.client_id));
       return;
     }
 

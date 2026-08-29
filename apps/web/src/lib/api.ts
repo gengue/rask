@@ -632,6 +632,15 @@ export const api = {
     request<TaskDetail>("/api/tasks", { method: "POST", body: JSON.stringify(input) }),
 
   /**
+   * What a `tmp_` placeholder turned into once the outbox shipped its create.
+   *
+   * `id` is the real ClickUp id, `pending` means the create is still queued.
+   * Both null/false for a create that was rejected or never existed.
+   */
+  resolveCreated: (taskId: string) =>
+    request<{ id: string | null; pending: boolean }>(`/api/tasks/${taskId}/resolved`),
+
+  /**
    * Deletes a task, and its subtasks with it.
    *
    * Answers with a flag rather than the detail every other write returns: there

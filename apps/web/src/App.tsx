@@ -1,3 +1,4 @@
+import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import { Outlet, useNavigate, useSearch } from "@tanstack/solid-router";
 import {
   createEffect,
@@ -38,7 +39,7 @@ import {
   setInboxScope,
 } from "./lib/inbox.ts";
 import { lightboxOpen } from "./lib/lightbox.ts";
-import { useLiveTasks } from "./lib/live.ts";
+import { useLiveTask, useLiveTasks } from "./lib/live.ts";
 import { useExpanded } from "./lib/nav.tsx";
 import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
 import { signInError } from "./lib/sign-in-error.ts";
@@ -160,8 +161,14 @@ export function AppShell(): JSX.Element {
 
   onCleanup(connect());
 
-  const openTask = (task: Task) =>
-    navigate({ to: ".", search: (prev: Record<string, unknown>) => ({ ...prev, task: task.id }) });
+  const openTaskById = (taskId: string, opts: { replace?: boolean } = {}) =>
+    navigate({
+      to: ".",
+      replace: opts.replace,
+      search: (prev: Record<string, unknown>) => ({ ...prev, task: taskId }),
+    });
+
+  const openTask = (task: Task) => openTaskById(task.id);
 
   // `expanded` goes with it: it describes the open task, and a URL that says
   // a task is full width with no task open is a link nobody can act on.
@@ -174,6 +181,91 @@ export function AppShell(): JSX.Element {
         expanded: undefined,
       }),
     });
+
+  /**
+   * A just-created task opens and lands under the cursor, so Enter, j/k and
+   * the status keys act on it immediately.
+   *
+   * The cursor waits for the row: the insert reaches the collection
+   * synchronously, but the route mirrors it into `viewTasks` in an effect, so
+   * the row's index does not exist yet when QuickAdd closes. The panel waits
+   * for `persisted` instead — opening `?task=tmp_…` any earlier races the POST
+   * that writes the row this fetch reads, and loses on a fast GET.
+   */
+  const [pendingFocus, setPendingFocus] = createSignal<string | null>(null);
+  const pendingRow = useLiveTask(() => pendingFocus() ?? "");
+
+  const focusNewTask = (id: string, persisted: Promise<unknown>) => {
+    setPendingFocus(id);
+    persisted.then(
+      () => openTaskById(id),
+      // Rolled back: the placeholder is gone and the toast already said why.
+      () => {},
+    );
+  };
+
+  createEffect(() => {
+    const id = pendingFocus();
+    if (!id) return;
+    const index = rowTasks().findIndex((task) => task.id === id);
+    if (index >= 0) setUi("cursor", index);
+    // Done once the row is under the cursor — or gone: rolled back, or swapped
+    // for its real id (the resolver below re-aims at the real row, since the
+    // same task can land at a different index once ClickUp's own dates and
+    // order arrive). A row a filter hides keeps waiting until then.
+    if (index >= 0 || !pendingRow()) setPendingFocus(null);
+  });
+
+  /*
+   * The panel can be open on a `tmp_` placeholder. When the outbox ships the
+   * create, the worker retires that row and the real one arrives under
+   * ClickUp's id — with nothing here linking the two. The outbox remembers the
+   * mapping, so when the placeholder under the panel dies, ask and follow.
+   * `replace`, because the placeholder was never an address worth Backing into.
+   * A create that was rejected resolves to nothing and the panel closes; the
+   * `write-failed` toast says why.
+   *
+   * `pending` re-polls rather than giving up: it is the answer while the create
+   * is still queued (a tmp_ URL in a fresh tab, whose row may never reach this
+   * tab's collection) and for the instant between a rejected create's tombstone
+   * and its outbox row turning `failed` — on both paths the row-death this
+   * effect waits on may never arrive. A fetch that failed outright re-polls
+   * too: offline is a reason to ask again, not to guess. The timer dies with
+   * the effect, so navigating away stops the polling.
+   */
+  const openRow = useLiveTask(() => openTaskId() ?? "");
+  const [resolveRetry, setResolveRetry] = createSignal(0);
+  createEffect(() => {
+    resolveRetry();
+    const id = openTaskId();
+    if (!id || !isPlaceholder(id) || openRow()) return;
+
+    let stale = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    onCleanup(() => {
+      stale = true;
+      clearTimeout(timer);
+    });
+    const again = (ms: number) => {
+      timer = setTimeout(() => !stale && setResolveRetry((n) => n + 1), ms);
+    };
+
+    api.resolveCreated(id).then(
+      (resolved) => {
+        if (stale || openTaskId() !== id) return;
+        const realId = resolved.id;
+        if (realId) {
+          openTaskById(realId, { replace: true });
+          setPendingFocus(realId);
+        } else if (resolved.pending) {
+          again(2_000);
+        } else {
+          closeTask();
+        }
+      },
+      () => again(5_000),
+    );
+  });
 
   const openStatusMenu = async (task: Task, anchor: { x: number; y: number }) => {
     const statuses = await api.statuses(task.listId).catch(() => []);
@@ -1010,6 +1102,7 @@ export function AppShell(): JSX.Element {
             listId={viewListId()}
             listName={viewListId() ? viewTitle() : null}
             onClose={() => setUi("quickAdd", false)}
+            onCreated={focusNewTask}
           />
         </Show>
 
