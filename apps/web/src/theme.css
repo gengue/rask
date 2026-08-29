@@ -437,9 +437,11 @@ html.xp {
   --color-wash: rgb(10 36 106 / 0.035);
   --color-scrim: rgb(0 0 0 / 0.35);
 
-  /* Recoloured again in styles.css, where the whole scrollbar becomes the
-     glossy blue one. These are the flat fallback for anything that reads the
-     token directly. */
+  /* Nothing paints from these under XP: styles.css rebuilds the whole
+     scrollbar, gradient and arrow buttons included. They are here because
+     every theme defines the same set of tokens — the parity test in
+     contrast.test.ts is what says so — and they are what the thumb would fall
+     back to if that rule ever went away. */
   --color-scrollbar: #a8c2e8;
   --color-scrollbar-hover: #7ba3d9;
 

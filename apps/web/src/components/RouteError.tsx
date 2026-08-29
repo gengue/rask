@@ -43,7 +43,11 @@ function Plain(props: { message: string; onRetry: () => void }): JSX.Element {
   );
 }
 
-/** A press that a 2001 machine would have counted as "any key". */
+/**
+ * Presses that are not "any key". Tab is among them because focus still has to
+ * reach the two real controls below — without that the hint is the only way
+ * out, for exactly the people it does not serve.
+ */
 const NOT_A_KEY = new Set(["Tab", "Shift", "Control", "Alt", "Meta", "CapsLock", "ContextMenu"]);
 
 /**
@@ -62,9 +66,7 @@ const NOT_A_KEY = new Set(["Tab", "Shift", "Control", "Alt", "Meta", "CapsLock",
 function BlueScreen(props: { message: string; onRetry: () => void }): JSX.Element {
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
-      // Tab has to keep moving focus, or the two real controls below become
-      // unreachable for exactly the people the hint does not serve.
-      if (event.key === "Tab" || NOT_A_KEY.has(event.key)) return;
+      if (NOT_A_KEY.has(event.key)) return;
       event.preventDefault();
       props.onRetry();
     };

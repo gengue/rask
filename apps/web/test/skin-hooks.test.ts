@@ -146,3 +146,31 @@ describe("brutal's floating restore", () => {
     expect(missing).toEqual([]);
   });
 });
+
+/**
+ * The other thing the skins hang off and do not own: the dock breakpoint.
+ *
+ * Everything ornamental gets out of the way below it, because down there the
+ * sidebar is a drawer and every pixel is contested. A media query cannot read
+ * a custom property, so each of those blocks is a hand-copy of
+ * --breakpoint-dock — three of them now, one per skin.
+ *
+ * Moving the token leaves all three behind, and the failure is quiet and
+ * one-sided: the layout switches at the new width while the ornaments keep
+ * hiding at the old one, so for the band between them the drawer is drawn with
+ * a rail through it, or the wall margins fight `inset-y-0`. Nothing throws.
+ */
+describe("the dock breakpoint the skins repeat", () => {
+  const token = palette.match(/--breakpoint-dock:\s*(\d+)px/)?.[1];
+  const copies = [...stylesheet.matchAll(/@media \(width < (\d+)px\)/g)].map((match) => match[1]);
+
+  test("the token and the copies were actually found", () => {
+    // Without this the assertion below passes on two empty sets.
+    expect(token).toMatch(/^\d+$/);
+    expect(copies.length).toBeGreaterThan(2);
+  });
+
+  test("every width query in the stylesheet is that number", () => {
+    expect([...new Set(copies)]).toEqual([token]);
+  });
+});

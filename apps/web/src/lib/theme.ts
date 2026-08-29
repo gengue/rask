@@ -51,14 +51,11 @@ const media =
 
 function read(): ThemeChoice {
   try {
-    const value = localStorage.getItem(KEY);
-    return value === "light" ||
-      value === "dark" ||
-      value === "ember" ||
-      value === "brutal" ||
-      value === "xp"
-      ? value
-      : "system";
+    // Off the list rather than a chain of equality checks: this was the third
+    // place a theme's name had to be spelled, and the one where getting it
+    // wrong is silent — an unrecognised name is not an error, it is System.
+    const stored = localStorage.getItem(KEY);
+    return THEMES.find(([value]) => value === stored)?.[0] ?? "system";
   } catch {
     return "system";
   }
@@ -69,7 +66,7 @@ const [systemDark, setSystemDark] = createSignal(media?.matches ?? false);
 
 export const themeChoice = choice;
 
-export function resolvedTheme(): "light" | "dark" | "ember" | "brutal" | "xp" {
+export function resolvedTheme(): Exclude<ThemeChoice, "system"> {
   const value = choice();
   if (value !== "system") return value;
   return systemDark() ? "dark" : "light";
@@ -83,11 +80,9 @@ function apply(): void {
   if (!media) return;
   const theme = resolvedTheme();
   const root = document.documentElement;
-  root.classList.toggle("dark", theme === "dark");
-  root.classList.toggle("light", theme === "light");
-  root.classList.toggle("ember", theme === "ember");
-  root.classList.toggle("brutal", theme === "brutal");
-  root.classList.toggle("xp", theme === "xp");
+  // Also off the list. "system" is on it and is never what resolves, so its
+  // class is toggled off on every pass and never on.
+  for (const [value] of THEMES) root.classList.toggle(value, value === theme);
   // Ember is a dark theme as far as native controls and scrollbars go; Brutal
   // paints on cream and XP on Luna beige, so both side with light.
   root.style.colorScheme = theme === "dark" || theme === "ember" ? "dark" : "light";

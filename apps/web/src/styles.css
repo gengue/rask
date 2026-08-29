@@ -971,32 +971,28 @@ html.brutal .prose-rask img {
  * of the viewport and the app is pushed down past them. They are decoration
  * and behave like it: pointer-events: none, and under every fixed menu.
  */
-html.xp {
-  /* Luna's five, named once. */
-  --xp-face: #ece9d8;
-  --xp-frame: #0c4fd2;
-  --xp-field: #7f9db9;
-  --xp-highlight: #316ac5;
-  --xp-groove: #c8cfdd;
-}
-
 /*
- * The window frame, and the room the chrome needs.
+ * Luna's five colours, named once, and the window frame.
  *
  * The border goes on <html> rather than on a fourth overlay: it is the only
  * box that already spans the viewport on every axis, and with border-box (the
  * preflight puts it on `*`) the three pixels come out of the page rather than
  * scrolling it. No top border — the caption is the top edge.
- *
- * body's padding is what the strips stand in. Percentage heights below it
- * resolve against the content box, so #root and the whole flex shell shrink by
- * exactly the 49px without a single calc().
  */
 html.xp {
+  --xp-face: #ece9d8;
+  --xp-frame: #0c4fd2;
+  --xp-field: #7f9db9;
+  --xp-highlight: #316ac5;
+  --xp-groove: #c8cfdd;
+
   border: 3px solid var(--xp-frame);
   border-top: 0;
 }
 
+/* The padding is the room the two strips stand in. Percentage heights below
+   it resolve against the content box, so #root and the whole flex shell shrink
+   by exactly the 49px without a single calc(). */
 html.xp body {
   padding-top: 49px;
   /* Tahoma at 11px is a hinted bitmap-era face; smoothing tuned for light
@@ -1134,12 +1130,10 @@ html.xp aside[aria-label="Workspace"] .chevron {
   background-size:
     5px 1px,
     1px 5px;
-  /* The open state turns the chevron a quarter, and Tailwind spells that with
-     the standalone `rotate` property rather than a transform — so `transform:
-     none` cancels nothing and the minus comes out standing up. A box has no
-     business turning either way. */
+  /* The open state turns the chevron a quarter, and Tailwind writes that as
+     `rotate: 90deg` rather than a transform — so cancelling `transform` does
+     nothing and the minus comes out standing up. A box does not turn. */
   rotate: none;
-  transform: none;
 }
 
 html.xp aside[aria-label="Workspace"] .chevron.rotate-90 {
@@ -1159,6 +1153,7 @@ html.xp aside[aria-label="Workspace"] button.bg-hover {
   background-color: #ffffff;
   border: 1px solid var(--xp-field);
   border-radius: 0;
+  box-shadow: inset 1px 1px 0 #ccd6e3;
 }
 
 /* Section headings are bold blue. XP carries hierarchy with weight and hue,
@@ -1282,6 +1277,9 @@ html.xp textarea {
   background: #ffffff;
   border: 1px solid var(--xp-field);
   border-radius: 0;
+  /* The shadow pools in the top-left corner, the way a sunken box does under a
+     light coming from there. */
+  box-shadow: inset 1px 1px 0 #ccd6e3;
 }
 
 /* The solid accent button is a Luna push button: black lettering on the window
@@ -1414,13 +1412,6 @@ html.xp aside[aria-label="Task detail"] button.text-xs:hover {
 html.xp main,
 html.xp aside[aria-label="Workspace"] {
   box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7);
-}
-
-/* Fields pool their shadow in the top-left corner, the way a sunken box does
-   under a light coming from there. */
-html.xp textarea,
-html.xp aside[aria-label="Workspace"] button.bg-hover {
-  box-shadow: inset 1px 1px 0 #ccd6e3;
 }
 
 /*
