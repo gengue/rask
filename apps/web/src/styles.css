@@ -550,14 +550,11 @@ html.brutal body {
  * `main` stops being a surface: it keeps the flex layout and gives up its
  * background, border and clipping, so the list and the detail panel each
  * become a pasted card with the wall showing between and around them. The
- * margin is 18px rather than the 8px gutters the other themes use — the wall,
+ * margin is 22px rather than the 8px gutters the other themes use — the wall,
  * its grid and its confetti are the theme, and at 8px they read as a
  * rendering artefact rather than a place.
- *
- * `main.bg-panel` and not `main`: the paper rule below is a class selector and
- * would otherwise outrank a bare element one.
  */
-html.brutal main.bg-panel {
+html.brutal main {
   margin: 22px;
   gap: 20px;
   background: none;
@@ -576,10 +573,20 @@ html.brutal aside[aria-label="Task detail"] {
   overflow: hidden;
 }
 
-/* Floating menus are cream paper wherever they open — including anchored
-   inside the black sidebar, whose scope below re-points the whole ink ladder
-   light. Custom properties inherit through the anchor, so a menu opened there
-   painted pale grey on cream. Restore the theme-block values explicitly. */
+/*
+ * Floating menus are cream paper wherever they open — including anchored
+ * inside the black sidebar, whose scope below re-points the whole ink ladder
+ * light. The menu is `position: fixed` but still a DOM child of the sidebar,
+ * and custom properties inherit through the anchor, so a menu opened there
+ * painted pale grey on cream.
+ *
+ * Restoring the theme-block values explicitly is the only fix CSS has: there
+ * is no "inherit from :root" for a custom property. That makes this a second
+ * copy of the `html.brutal` block in theme.css, so it has to match token for
+ * token with what the sidebar re-points — `skin-hooks.test.ts` pins both
+ * halves, because a drifted copy is wrong only inside menus opened from the
+ * sidebar, which is the last place anyone looks.
+ */
 html.brutal .floating {
   background-image: url("/brutal/paper.svg");
   background-size: 360px 360px;
@@ -600,6 +607,8 @@ html.brutal .floating {
   --color-selected: rgb(0 0 0 / 0.09);
   --color-chip: rgb(0 0 0 / 0.07);
   --color-wash: rgb(0 0 0 / 0.035);
+  --color-scrollbar: #131316;
+  --color-scrollbar-hover: #000000;
 }
 
 /*
@@ -623,7 +632,7 @@ html.brutal aside[aria-label="Workspace"] {
   --color-line-strong: #52525f;
   --color-accent: #ffd93d;
   --color-accent-soft: #ffd93d29;
-  --color-on-accent: #131316;
+  --color-on-accent: var(--brutal-ink);
   --color-urgent: #f2606a;
   --color-high: #f2994a;
   --color-ok: #2ecd6f;
@@ -649,11 +658,11 @@ html.brutal aside[aria-label="Workspace"] .text-md {
 html.brutal aside[aria-label="Workspace"] .row-selected {
   background: var(--brutal-teal);
   box-shadow: inset 0 0 0 2px var(--brutal-ink);
-  --color-ink: #131316;
-  --color-ink-2: #131316;
+  --color-ink: var(--brutal-ink);
+  --color-ink-2: var(--brutal-ink);
   --color-ink-3: #1f1f26;
   --color-ink-4: #1f1f26;
-  --color-accent: #131316;
+  --color-accent: var(--brutal-ink);
 }
 
 /* My Tasks is the reference's one standing button rather than a nav row:
@@ -666,8 +675,8 @@ html.brutal aside[aria-label="Workspace"] a[href="/"] {
     inset 0 0 0 2px var(--brutal-ink),
     var(--brutal-lift);
   margin-bottom: 5px;
-  --color-ink: #131316;
-  --color-ink-2: #131316;
+  --color-ink: var(--brutal-ink);
+  --color-ink-2: var(--brutal-ink);
 }
 
 /* Section labels in the tree are pasted tags, not quiet captions. */
@@ -932,7 +941,7 @@ html.brutal .prose-rask img {
  * step.
  */
 @media (width < 1090px) {
-  html.brutal main.bg-panel {
+  html.brutal main {
     margin: 8px;
     gap: 0;
   }
