@@ -28,6 +28,14 @@
       "preset": "recommended",
       "suspicious": {
         "noExplicitAny": "error"
+      },
+      "correctness": {
+        "noUnknownFunction": {
+          "level": "error",
+          "options": {
+            "ignore": ["theme"]
+          }
+        }
       }
     }
   },

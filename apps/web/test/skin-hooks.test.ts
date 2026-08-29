@@ -63,7 +63,7 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
   { selector: "#root", provider: "../index.html", markup: 'id="root"' },
   // The detail panel's own title bar, where "TASK DETAILS" is injected.
   {
-    selector: 'aside[aria-label="Task detail"] > header',
+    selector: 'aside[aria-label="Task detail"] header',
     provider: "../src/components/TaskDetail.tsx",
     markup: "<header",
   },
@@ -78,6 +78,27 @@ const HOOKS: ReadonlyArray<{ selector: string; provider: string; markup: string 
     selector: ".field-label",
     provider: "../src/components/TaskDetail.tsx",
     markup: "field-label",
+  },
+  // The list header band, which both skins repaint. A marker class rather than
+  // `main > div > header`: that middle div only carries `hidden`, so unwrapping
+  // it is a change nobody would think twice about.
+  { selector: ".view-header", provider: "../src/App.tsx", markup: "view-header" },
+  // The four labels the app title-cases from data. Both skins read the
+  // presentational utility as the marker, the way they read `.uppercase`.
+  { selector: ".capitalize", provider: "../src/components/TaskList.tsx", markup: "capitalize" },
+  // The count beside the view's name, which both skins turn into a plate.
+  { selector: ".bg-chip", provider: "../src/App.tsx", markup: "bg-chip" },
+  // Tag chips on a row: outlined by Brutal, shouted by Cyberpunk.
+  {
+    selector: '[role="option"] .border',
+    provider: "../src/components/TaskRow.tsx",
+    markup: "border",
+  },
+  // Menu rows, which Cyberpunk shouts wherever the menu opens.
+  {
+    selector: '[role="listbox"]',
+    provider: "../src/components/Menu.tsx",
+    markup: 'role="listbox"',
   },
   // The cursor's left hairline, which becomes the lit tab.
   {

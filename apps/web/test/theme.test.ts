@@ -34,18 +34,21 @@ describe("the list", () => {
  * on the machine where it was added.
  */
 const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
-const inline = html.slice(html.indexOf("const KNOWN"), html.indexOf("classList.add"));
 
 describe("the inline script in index.html", () => {
-  test("the block was actually found", () => {
-    expect(inline).toContain("localStorage");
+  test("names exactly the themes the menu does, in order", () => {
+    /*
+     * One assertion rather than one per theme, and `toEqual` rather than
+     * `toContain`, because the list can be wrong in two directions: a theme
+     * missing here paints light or dark and repaints on every visit, and a
+     * theme left behind after a rename is a class the stylesheet no longer
+     * has. A failed match yields `null`, which fails too — no guard needed.
+     */
+    const known = html.match(/const KNOWN = (\[[^\]]*\]);/)?.[1];
+    expect(JSON.parse(known ?? "null")).toEqual(
+      THEMES.map(([value]) => value).filter((value) => value !== "system"),
+    );
   });
-
-  for (const [value] of THEMES.filter(([value]) => value !== "system")) {
-    test(`knows about "${value}", so its first paint is not a flash of dark`, () => {
-      expect(inline).toContain(`"${value}"`);
-    });
-  }
 });
 
 describe("labels", () => {
