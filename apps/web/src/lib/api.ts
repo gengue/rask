@@ -355,7 +355,11 @@ export interface ListView {
   /** The tab ClickUp opens the list on. */
   isDefault: boolean;
   groupField: string | null;
-  /** Whether the rows ClickUp returns for this view already include closed ones. */
+  /**
+   * ClickUp's own "show closed tasks" for this view — a display setting, not a
+   * filter. `GET /view/{id}/task` returns the closed rows either way, so this
+   * only ever seeds Rask's toggle; see `applyView` in lib/clickup-views.ts.
+   */
   showClosed: boolean;
   /** Forms only, and the only address at which one can be filled in. */
   publicUrl: string | null;
