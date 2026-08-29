@@ -32,6 +32,15 @@ export default defineConfig({
   globalSetup: "./e2e/seed.ts",
   fullyParallel: false,
   workers: 1,
+  /*
+   * 15s, not Playwright's 5s default. Green assertions resolve the moment the
+   * element appears, so this costs nothing on a healthy run — it only buys the
+   * suite room on a loaded box. On 2026-08-29 a run sharing the machine with a
+   * ~110MB file-deletion burst lost two specs to first-paint waits that landed
+   * a beat past 5s, with the API healthy and every request answered. Same
+   * class as the CLICKUP_API_BASE incident: the assertion budget, not the code.
+   */
+  expect: { timeout: 15_000 },
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
