@@ -300,6 +300,66 @@ describe("appendToDocPage", () => {
   });
 });
 
+describe("getDocPage and replaceDocPage", () => {
+  /*
+   * The single-page read exists for the compare the route makes before a
+   * replace, so the format it asks for matters as much as it does on the list
+   * read: a body read as HTML compared against one written as markdown is two
+   * different reads of the same page.
+   */
+  test("reads one page back in markdown", async () => {
+    const { client, calls } = makeClient([
+      { body: { id: "p1", name: "November 7", content: "# One", date_updated: 1_787_833_798_853 } },
+    ]);
+
+    const page = await client.getDocPage("529", "gh-96615", "p1");
+
+    const url = new URL(calls[0] ?? "");
+    expect(url.pathname).toBe("/api/v3/workspaces/529/docs/gh-96615/pages/p1");
+    expect(url.searchParams.get("content_format")).toBe("text/md");
+    // The timestamp the conflict check is made of, parsed rather than passed
+    // through as an epoch.
+    expect(page.date_updated?.toISOString()).toBe("2026-08-27T12:29:58.853Z");
+  });
+
+  /*
+   * The mirror image of the append's assertion. This one is *meant* to say
+   * `replace`, and the thing that would quietly break it is the two methods
+   * being edited together and swapping modes — which is exactly what happened
+   * once while this pair was being written.
+   */
+  test("sends the whole body as a replace, in markdown", async () => {
+    const { client, calls, sent } = makeClient([{ body: {} }]);
+
+    await client.replaceDocPage("529", "gh-96615", "p1", "# Rewritten");
+
+    expect(new URL(calls[0] ?? "").pathname).toBe("/api/v3/workspaces/529/docs/gh-96615/pages/p1");
+    expect(sent[0]?.method).toBe("PUT");
+    expect(sent[0]?.body).toEqual({
+      content: "# Rewritten",
+      content_edit_mode: "replace",
+      content_format: "text/md",
+    });
+  });
+
+  /* `name` and `sub_title` default to "" upstream: an edit must not blank the
+     page's title as a side effect of rewriting its body. */
+  test("touches nothing but the content", async () => {
+    const { client, sent } = makeClient([{ body: {} }]);
+
+    await client.replaceDocPage("529", "d1", "p1", "text");
+
+    const body = sent[0]?.body as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["content", "content_edit_mode", "content_format"]);
+  });
+
+  test("throws on a refusal rather than reporting a write that did not happen", async () => {
+    const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
+
+    await expect(client.replaceDocPage("529", "d1", "p1", "text")).rejects.toThrow();
+  });
+});
+
 describe("createDocPage", () => {
   const CREATED = { id: "p9", doc_id: "gh-96615", name: "November 21 - 2025", content: "" };
 

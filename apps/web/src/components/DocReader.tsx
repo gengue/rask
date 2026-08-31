@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { ApiError, type Assignee, api, type DocPage } from "../lib/api.ts";
+import { draftWriter } from "../lib/doc-draft.ts";
 import { isFolded, toggleFold } from "../lib/doc-fold.ts";
 import { type DocSection, hiddenSections, splitSections } from "../lib/doc-sections.ts";
 import { formatRelative } from "../lib/format.ts";
@@ -289,6 +290,12 @@ export function DocReader(props: {
 
         <div class="min-w-0 flex-1 overflow-y-auto">
           <Show
+            /* Keyed, so the page being read is the page the components below
+               were built from. `Page` holds whether its body is open in the
+               editor, and `MarkdownEditor` takes its document once on mount;
+               without this, switching page mid-edit would leave one page's
+               draft sitting over another page's id. */
+            keyed
             when={loaded() && current()}
             fallback={
               /* Three states, not two. A Doc that has loaded and holds no pages
@@ -305,7 +312,7 @@ export function DocReader(props: {
               </p>
             }
           >
-            {(page) => <Page page={page()} docId={props.docId} onAppended={refetch} />}
+            {(page) => <Page page={page} docId={props.docId} onChanged={refetch} />}
           </Show>
         </div>
       </div>
@@ -441,7 +448,15 @@ function PageIcon(props: { page: DocPage }): JSX.Element {
  * reason — a 1200px line of prose is one your eye loses the start of on the way
  * back. Tables and images still take the full width inside it.
  */
-function Page(props: { page: DocPage; docId: string; onAppended: () => void }): JSX.Element {
+function Page(props: { page: DocPage; docId: string; onChanged: () => void }): JSX.Element {
+  /*
+   * Whether the body is open in the editor.
+   *
+   * Safe as a signal on this component only because the parent's `Show` is
+   * keyed: a different page is a different `Page`, so this cannot survive a
+   * page switch with the old text still in the editor.
+   */
+  const [editing, setEditing] = createSignal(false);
   const directory = createMemo(() => new Map(members().map((user) => [user.id, user])));
   const faces = createMemo((): Assignee[] =>
     [...props.page.authors, ...props.page.contributors]
@@ -494,16 +509,57 @@ function Page(props: { page: DocPage; docId: string; onAppended: () => void }): 
           <Show when={props.page.updated}>
             {(updated) => <span>Last updated {formatRelative(updated())}</span>}
           </Show>
+          {/*
+            Only on a page ClickUp gave an update time for. That value is the
+            whole conflict check — it goes back with the write and the server
+            refuses if the page has moved since — so a page without one is a
+            page Rask will not overwrite, and offering the button would be
+            offering a save that always fails.
+          */}
+          <Show when={props.page.updated && !editing()}>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              class="ml-auto h-6 shrink-0 rounded-[5px] px-2 text-ink-3 text-md hover:bg-hover hover:text-ink"
+            >
+              Edit
+            </button>
+          </Show>
         </div>
 
+        {/* `editing() && updated` rather than `editing()` alone: the timestamp is
+            what the write is checked against, so a page without one has no
+            editable form. The "Edit" button is hidden on those for the same
+            reason, and this is what makes the editor unable to exist without
+            the value it has to send. */}
         <Show
-          when={props.page.content}
-          fallback={<p class="text-ink-4 text-md">This page is empty.</p>}
-        >
-          <Body page={props.page} />
-        </Show>
+          when={editing() && props.page.updated}
+          fallback={
+            <>
+              <Show
+                when={props.page.content}
+                fallback={<p class="text-ink-4 text-md">This page is empty.</p>}
+              >
+                <Body page={props.page} />
+              </Show>
 
-        <Append docId={props.docId} pageId={props.page.id} onAppended={props.onAppended} />
+              <Append docId={props.docId} pageId={props.page.id} onAppended={props.onChanged} />
+            </>
+          }
+        >
+          {(readAt) => (
+            <PageEditor
+              docId={props.docId}
+              page={props.page}
+              readAt={readAt()}
+              onClose={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false);
+                props.onChanged();
+              }}
+            />
+          )}
+        </Show>
       </div>
     </article>
   );
@@ -627,65 +683,26 @@ function Section(props: {
  */
 function Append(props: { docId: string; pageId: string; onAppended: () => void }): JSX.Element {
   const [open, setOpen] = createSignal(false);
-  const [sending, setSending] = createSignal(false);
 
-  /*
-   * The text of the attempt in flight, or the one that just failed.
-   *
-   * MarkdownEditor commits on blur *and* on Cmd-Enter, and Cmd-Enter does both:
-   * it calls `onCommit` and then blurs, which calls it again. A description
-   * PATCH does not care — the same value written twice is the same value. The
-   * same paragraph appended twice to somebody's Doc is somebody's Doc with the
-   * paragraph in it twice, and tidying that up means deleting the page and
-   * writing it again. So the send is keyed on the text: one post per distinct
-   * draft, whatever fires it.
-   *
-   * It doubles as the guard against re-sending on the way out of a failure.
-   * Click away from a composer that just failed and blur commits the same text
-   * again; that is a retry nobody asked for, and if the failure was a 502 that
-   * ClickUp had already applied it is a duplicate. Retrying is the button's
-   * job, and the button is what clears this.
-   */
-  let attempted: string | null = null;
-
-  const send = async (text: string): Promise<void> => {
-    const content = text.trim();
-    if (!content || sending() || content === attempted) return;
-
-    attempted = content;
-    setSending(true);
+  const draft = draftWriter(async (content) => {
     try {
       await api.appendDocPage(props.docId, props.pageId, content);
-      attempted = null;
-      setOpen(false);
-      props.onAppended();
     } catch (error) {
       // A toast rather than a line under the editor, as every other
       // write-through failure in the app does it — the detail is ClickUp's own
       // words, and "you do not have edit access to this Doc" is the one people
-      // will hit. The composer stays open with the text still in it.
+      // will hit. The composer stays open with the text still in it, and the
+      // rethrow is what keeps the draft unsent so only the button retries it.
       pushToast({
         tone: "error",
         title: "Could not add that entry",
         detail: error instanceof ApiError ? error.message : undefined,
       });
-    } finally {
-      setSending(false);
+      throw error;
     }
-  };
-
-  /*
-   * Clicking this blurs the editor first, which commits and sends on its own;
-   * by the time the click lands the send is either in flight or deduped. What
-   * is left for the handler is the case blur cannot cover: the same text
-   * failing and the person wanting it tried again without editing it.
-   */
-  const add = (): void => {
-    const text = attempted;
-    if (!text || sending()) return;
-    attempted = null;
-    void send(text);
-  };
+    setOpen(false);
+    props.onAppended();
+  });
 
   return (
     <div class="pt-6">
@@ -711,18 +728,22 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
               value=""
               placeholder="Add to the end of this page…"
               autofocus
-              onCommit={(value) => void send(value)}
+              onCommit={(value) => void draft.commit(value.trim())}
               /* Escape restores the empty document and closes, which is the same
                "never mind" the task panel's editors mean by it. */
               onCancel={() => setOpen(false)}
             />
           </Suspense>
           <div class="flex items-baseline justify-end gap-3 pt-2 text-ink-4 text-xs">
-            <span>{sending() ? "Adding…" : "⌘↵ to add"}</span>
+            <span>{draft.busy() ? "Adding…" : "⌘↵ to add"}</span>
+            {/* Pressing this blurs the editor first, which commits and sends on
+                its own; by the time the click lands the send is in flight or
+                deduped. What is left for the handler is what blur cannot do:
+                send the same text again after it failed. */}
             <button
               type="button"
-              onClick={add}
-              disabled={sending()}
+              onClick={draft.retry}
+              disabled={draft.busy()}
               class="h-6 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50"
             >
               Add
@@ -730,6 +751,123 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
           </div>
         </div>
       </Show>
+    </div>
+  );
+}
+
+/**
+ * Rewriting a page's body in place.
+ *
+ * The one thing in the reader that can overwrite writing that was already
+ * there, and it is offered because the round trip turned out to hold: the
+ * markdown ClickUp exports, sent straight back as a replace, comes back
+ * byte-identical — measured on an 8627-character page of headings, tables and
+ * diagrams. What that measurement cannot see is ClickUp's *render*, and the one
+ * signal of loss it did turn up is that mermaid blocks export as ```plain
+ * fences. A page whose diagrams matter is a page to edit in ClickUp.
+ *
+ * The other half is a check rather than a lock, and it lives in the API: the
+ * page's `updated` goes back with the body, the route re-reads the page and
+ * refuses with a 409 if it moved since. There is no webhook for a Doc, so
+ * without it an edit written against a stale read would take somebody else's
+ * paragraph with it and say nothing. A 409 leaves the draft in the editor —
+ * it is not saveable as it stands, and re-applying it is the person's call.
+ *
+ * No optimistic paint, for the reason the append gives: no Doc body is
+ * mirrored, so a guess here would be the only copy of the text anybody sees.
+ */
+function PageEditor(props: {
+  docId: string;
+  page: DocPage;
+  /**
+   * When the text in the editor was last written, as the page was read.
+   *
+   * Sent back with the body and compared upstream, so it has to be the read
+   * this draft was written against. Taken once, on mount, for that reason.
+   */
+  readAt: string;
+  onSaved: () => void;
+  onClose: () => void;
+}): JSX.Element {
+  const readAt = props.readAt;
+
+  const draft = draftWriter(async (content) => {
+    try {
+      await api.replaceDocPage(props.docId, props.page.id, content, readAt);
+    } catch (error) {
+      // ClickUp's own words, or the server's on a 409 — "somebody edited this
+      // page while you had it open" is the one worth reading. The editor stays
+      // open with the draft in it, and the rethrow is what keeps that draft
+      // unsent so a blur cannot write it a second time.
+      pushToast({
+        tone: "error",
+        title: "Could not save this page",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+      throw error;
+    }
+    props.onSaved();
+  });
+
+  const save = (text: string): void => {
+    const content = text.trim();
+
+    /*
+     * Emptying a page is not an edit anybody means, and the shape they do mean
+     * — the page going away — is the "×" in the index, behind a confirmation.
+     * The API refuses this too; catching it here keeps the draft on screen
+     * instead of spending a request to be told no.
+     */
+    if (!content) {
+      pushToast({
+        tone: "error",
+        title: "A page cannot be emptied from Rask",
+        detail: "Delete it from the page index instead, or leave something on it.",
+      });
+      return;
+    }
+
+    // Nothing to write. Cmd-Enter commits whether or not the document moved.
+    if (content === props.page.content.trim()) {
+      props.onClose();
+      return;
+    }
+
+    void draft.commit(content);
+  };
+
+  return (
+    <div class="rounded-[5px] border border-line/70 px-3 py-2">
+      {/* Its own boundary, as the composer has: a lazy component suspends to
+          the nearest one, and the next one up is the router's — opening the
+          editor would blank the route for the length of the chunk download. */}
+      <Suspense fallback={<div class="py-1 text-ink-4 text-base">Loading editor…</div>}>
+        <MarkdownEditor
+          value={props.page.content}
+          placeholder="Write this page…"
+          autofocus
+          onCommit={save}
+          /* Escape puts the page back as it was and closes, which is what it
+             means everywhere else in the app. Blur commits, so clicking away
+             saves — the same bargain a task description makes. */
+          onCancel={props.onClose}
+        />
+      </Suspense>
+      <div class="flex items-baseline justify-end gap-3 pt-2 text-ink-4 text-xs">
+        <span>{draft.busy() ? "Saving…" : "⌘↵ to save · esc to discard"}</span>
+        {/* Pressing this blurs the editor first, which commits and saves on its
+            own; by the time the click lands the save is in flight or deduped.
+            What is left for the handler is what blur cannot do: send the same
+            text again after it failed. */}
+        <button
+          type="button"
+          onClick={draft.retry}
+          disabled={draft.busy()}
+          class="h-6 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50"
+        >
+          Save
+        </button>
+      </div>
     </div>
   );
 }

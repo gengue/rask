@@ -878,6 +878,25 @@ export const api = {
     }),
 
   /**
+   * Rewrites a page's body with what the editor holds.
+   *
+   * `updated` is the page's own `updated` as it was read, sent back so the
+   * server can refuse the write if the page moved since. A Doc has no webhook,
+   * so this is the only thing standing between an edit written against a
+   * five-minute-old read and somebody else's paragraph disappearing. A 409
+   * carries the reason and means "reopen the page and apply this to what is
+   * there now" — the draft is not lost, but it cannot be saved as it stands.
+   *
+   * Answers nothing worth reading, like its neighbours: the caller refetches
+   * the Doc and repaints from ClickUp's own rendering of what it stored.
+   */
+  replaceDocPage: (docId: string, pageId: string, content: string, updated: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content, updated }),
+    }),
+
+  /**
    * Removes a page and everything on it.
    *
    * The endpoint behind this is missing from ClickUp's vendored v3 spec and

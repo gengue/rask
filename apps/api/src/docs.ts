@@ -22,9 +22,9 @@ import { upstream } from "./upstream.ts";
  * This is also the only place Rask touches ClickUp's v3 API. See
  * `searchDocs` for why that needs no separate client.
  *
- * The writes here — appending to a page, creating one, deleting one — go
- * straight through to ClickUp rather than into the outbox, for a reason that
- * follows from all of the above. The outbox exists so a write can be *shown*
+ * The writes here — appending to a page, creating one, rewriting one, deleting
+ * one — go straight through to ClickUp rather than into the outbox, for a
+ * reason that follows from all of the above. The outbox exists so a write can be *shown*
  * before it lands: the mirror is updated and a row queued in one transaction,
  * and the browser paints from the mirror. No Doc body is mirrored, so there is
  * nothing to paint optimistically and nothing for the worker to repair when
@@ -32,15 +32,15 @@ import { upstream } from "./upstream.ts";
  * twice, which is the argument `time.ts` makes about starting the same timer
  * twice. So they wait for ClickUp, as the attachment upload does.
  *
- * Two of the three are additive, and that is the design rather than a
+ * Two of the four are additive, and that is the design rather than a
  * coincidence. An append carries only the new block and a create addresses a
  * page that does not exist yet, so neither has a stale copy of anything in
  * flight and neither can overwrite what somebody wrote in ClickUp's own editor
  * in the meantime — which matters because there is no webhook for a Doc to tell
- * us they did. Delete is the one that destroys writing, so it is a route of its
- * own with a confirmation in front of it rather than a mode on the edit; what
- * still has no route is whole-body *replace*, which would lose text without
- * anybody asking for it to go. `docs/doc-editing.md` has the rest.
+ * us they did. The other two can destroy writing, so each is a verb of its own
+ * rather than a mode on the edit: delete asks first, and replace re-reads the
+ * page and refuses if it moved since the browser read it. `docs/doc-editing.md`
+ * has the rest.
  */
 
 type Env = { Variables: { user: SessionUser } };
@@ -162,6 +162,26 @@ const appendInput = z.object({ content: z.string().trim().min(1).max(50_000) });
  * An empty name is refused because ClickUp accepts one and stores a page called
  * "" that the index then draws as a blank row.
  */
+/**
+ * What a whole-page rewrite is allowed to carry.
+ *
+ * `updated` is the page's `date_updated` as the browser last read it, and it is
+ * required rather than optional: it is the entire conflict check, and a write
+ * that arrives without one is a write nobody can tell from an overwrite.
+ *
+ * The cap is a page rather than an entry — the Doc this was built against holds
+ * 154 000 characters across its pages — and empty is refused for a different
+ * reason than the append's. ClickUp accepts an empty replace and stores an empty
+ * page, so it would work; emptying a page is just never what somebody meant by
+ * an edit, and the shape that is meant — the page going away — already has a
+ * route with a confirmation in front of it.
+ */
+const replaceInput = z.object({
+  content: z.string().trim().min(1).max(500_000),
+  /** ISO 8601, as `DocPageDto.updated` sends it. */
+  updated: z.string().min(1),
+});
+
 const newPageInput = z.object({
   name: z.string().trim().min(1).max(255),
   /** The page the new one hangs off. Absent makes it a page at the Doc's root. */
@@ -290,10 +310,9 @@ export function docsRoutes(deps: DocsDeps) {
    *
    * A route that can only append, rather than a PUT carrying the mode it wants.
    * The name is the safety property: there is no string a client can send that
-   * turns this into a replace, and replace is the one that loses text — both
-   * somebody's concurrent edit, since a Doc has no webhook to warn us, and
-   * whatever the markdown round trip cannot spell. ClickUp says that second
-   * part itself, in `getPagePublic`'s own description.
+   * turns this into a replace. Replace has a route of its own below, and it
+   * pays for the difference — one extra read of the page and a refusal if it
+   * moved — which is a price an append has no reason to pay.
    *
    * The Doc goes through `writable` first. The page id cannot be checked,
    * because pages are not mirrored — the blast radius is a page inside a Doc
@@ -371,6 +390,79 @@ export function docsRoutes(deps: DocsDeps) {
       const { status, error: message } = upstream(error);
       return c.json({ error: message }, status);
     }
+  });
+
+  /**
+   * Rewrites a page's body.
+   *
+   * The write this module said it did not have, and what changed is not the
+   * endpoint — `editPagePublic` has always taken `content_edit_mode: replace` —
+   * but the check in front of it. A replace carries the whole body, that body
+   * was built by reading the page back, and a Doc has no webhook, so between
+   * the read and the write anybody in ClickUp's collaborative editor can have
+   * written something this request would silently drop.
+   *
+   * So: re-read the page here, compare its `date_updated` against the value the
+   * browser read, and refuse if they differ. That is a compare-and-swap done at
+   * the application layer because v3 offers nothing better — no ETag, no
+   * `If-Match`, no conditional write anywhere in the vendored spec. Be honest
+   * about what it buys: the window between the compare-read and the PUT is
+   * still open, a few hundred milliseconds of it. It turns "your paragraph is
+   * gone and nothing said so" into "please re-apply this against the text that
+   * is actually there", which is worth a request and is not the same as safe.
+   *
+   * **Fail closed on a missing timestamp.** `date_updated` is optional on
+   * `PublicDocsPageV3Dto`. A page that came back without one is a page the
+   * check cannot be made on, and the check is the only thing making this write
+   * offerable — so it refuses rather than writes.
+   *
+   * The refusal is a 409 carrying words the person is meant to read. It shares
+   * that status with "no ClickUp token", which is fine here because both reach
+   * the same toast and neither is a status the browser acts on structurally.
+   */
+  app.put("/docs/:docId/pages/:pageId", async (c) => {
+    const user = c.get("user");
+    const docId = c.req.param("docId");
+    const pageId = c.req.param("pageId");
+
+    const body = replaceInput.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+    if (!(await writable(docId, user.teamId))) return c.json({ error: "not found" }, 404);
+
+    const client = await clientFor(user.id);
+    if (!client) return c.json({ error: "no ClickUp token" }, 409);
+
+    try {
+      const current = await client.getDocPage(user.teamId, docId, pageId);
+      const at = current.date_updated?.toISOString() ?? null;
+
+      if (!at) {
+        return c.json(
+          {
+            error:
+              "ClickUp did not say when this page last changed, so Rask will not overwrite it.",
+          },
+          409,
+        );
+      }
+      if (at !== body.data.updated) {
+        return c.json(
+          {
+            error:
+              "Somebody edited this page in ClickUp while you had it open. Reopen it and apply your change to the text that is there now.",
+          },
+          409,
+        );
+      }
+
+      await client.replaceDocPage(user.teamId, docId, pageId, body.data.content);
+    } catch (error) {
+      const { status, error: message } = upstream(error);
+      return c.json({ error: message }, status);
+    }
+
+    return c.json({ ok: true });
   });
 
   /**
