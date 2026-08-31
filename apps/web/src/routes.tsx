@@ -35,6 +35,7 @@ import {
   listViewsOf,
   loadListViews,
 } from "./lib/clickup-views.ts";
+import { columnsFor } from "./lib/field-prefs.ts";
 import {
   inboxCutoff,
   inboxPredicate,
@@ -64,6 +65,7 @@ import {
   setViewTasks,
   setViewTitle,
   setViewTruncated,
+  viewListId,
 } from "./lib/view.ts";
 
 /**
@@ -330,9 +332,14 @@ function ListView(): JSX.Element {
     // The tabs are loaded here too, so they are already on screen when somebody
     // arrives from the sidebar rather than appearing a round trip later.
     void loadListViews(listId);
-    void load({ list: listId, closed: includeClosed(), filter: serverFilter() }).then(
-      applyPage(serverFilter()),
-    );
+    // `columnsFor` is reactive on purpose: choosing a column refetches, since
+    // the rows in hand carry no values for a field nobody had asked about.
+    void load({
+      list: listId,
+      closed: includeClosed(),
+      filter: serverFilter(),
+      fields: columnsFor(listId),
+    }).then(applyPage(serverFilter()));
   });
 
   const rows = useLiveTasks(
@@ -418,13 +425,19 @@ function viewRows(view: () => View | null | undefined): () => View | null {
       return;
     }
 
-    const key = `${current.id}|${filterFieldIds()}`;
+    // Columns ride on the same key as the filter's fields and for the same
+    // reason: the rows have to be re-read to carry values for a field nobody
+    // asked about before. A remembered membership answers from the mirror, so
+    // this is only ClickUp's 1.8s when the membership itself has gone stale.
+    const listId = viewListId();
+    const columnIds = listId ? columnsFor(listId) : [];
+    const key = `${current.id}|${filterFieldIds()}|${columnIds.join(",")}`;
     if (loadedKey === key) return;
     const first = loadedKey === null || !loadedKey.startsWith(`${current.id}|`);
     loadedKey = key;
     if (first) applyView(current);
 
-    void loadViewTasks(current.id, serverFilter()).then((page) => {
+    void loadViewTasks(current.id, serverFilter(), columnIds).then((page) => {
       // A second view was picked while this one was in flight. `null` is the
       // store saying the same thing; either answer means these rows are stale.
       if (!page || loadedKey !== key) return;

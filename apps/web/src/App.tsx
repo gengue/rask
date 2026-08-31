@@ -28,6 +28,7 @@ import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
 import { CelebrationBanner } from "./lib/celebration.tsx";
+import { columnsFor, toggleColumn } from "./lib/field-prefs.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
 import {
   INBOX_WINDOW_DAYS,
@@ -64,6 +65,8 @@ import {
   boardLayout,
   cursorGroup,
   cursorTask,
+  displayFields,
+  loadDisplayFields,
   mineOnly,
   rowTasks,
   searchScope,
@@ -1027,6 +1030,11 @@ export function AppShell(): JSX.Element {
                 <LayoutToggle />
                 <ClosedToggle />
                 <GroupPicker />
+                {/* Columns are a per-list choice, so the picker only appears
+                    where there is a list to choose for. */}
+                <Show when={viewListId()}>
+                  <FieldsPicker listId={viewListId() ?? ""} />
+                </Show>
               </Show>
             </header>
 
@@ -1377,6 +1385,65 @@ function GroupPicker(): JSX.Element {
             setUi("groupBy", id as (typeof options)[number]);
             setAnchor(null);
           }}
+          onClose={() => setAnchor(null)}
+        />
+      </Show>
+    </>
+  );
+}
+
+/**
+ * Which Custom Fields this list draws as columns.
+ *
+ * The subtask column picker's pattern: selecting toggles and leaves the menu
+ * open, because picking two columns is one trip. The catalogue is read when
+ * the picker opens — the same lazy bargain the filter menu makes — and the
+ * choice lives in `field-prefs`, per list, per browser.
+ */
+function FieldsPicker(props: { listId: string }): JSX.Element {
+  const [anchor, setAnchor] = createSignal<{ x: number; y: number } | null>(null);
+  const chosen = () => columnsFor(props.listId);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Choose field columns"
+        onClick={(event) => {
+          loadDisplayFields();
+          const rect = event.currentTarget.getBoundingClientRect();
+          setAnchor({ x: rect.right - 240, y: rect.bottom + 6 });
+        }}
+        class="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-xs transition-colors"
+        classList={{
+          "bg-accent-soft text-ink": chosen().length > 0,
+          "text-ink-4 hover:bg-hover hover:text-ink-2": chosen().length === 0,
+        }}
+      >
+        {/* Three columns of unequal height: a table's silhouette, not the
+            board glyph next door. */}
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M3 2.8h10M3 6h6M3 9.2h10M3 12.4h4"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span>Fields{chosen().length > 0 ? ` ${chosen().length}` : ""}</span>
+      </button>
+
+      <Show when={anchor()}>
+        <Menu
+          anchor={anchor() ?? { x: 0, y: 0 }}
+          width={240}
+          placeholder="Show field…"
+          items={displayFields().map((field) => ({
+            id: field.id,
+            label: field.name.trim(),
+            hint: chosen().includes(field.id) ? "✓" : undefined,
+          }))}
+          onSelect={(id) => toggleColumn(props.listId, id)}
           onClose={() => setAnchor(null)}
         />
       </Show>

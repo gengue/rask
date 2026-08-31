@@ -1,5 +1,13 @@
-import { createEffect, createRoot, createSignal, onCleanup } from "solid-js";
-import { api, type FilterField, type StatusDef, type Tag, type Task } from "./api.ts";
+import { createEffect, createRoot, createSignal, onCleanup, untrack } from "solid-js";
+import {
+  api,
+  type DisplayField,
+  type FilterField,
+  type StatusDef,
+  type Tag,
+  type Task,
+} from "./api.ts";
+import { columnsFor } from "./field-prefs.ts";
 import {
   assignedToMe,
   type Clause,
@@ -406,6 +414,50 @@ export function loadFilterFields(): void {
     .then((fields) => viewListId() === listId && setFilterFields(fields))
     .catch(() => setFilterFields([]));
 }
+
+/**
+ * The list's whole Custom Field catalogue, for the column picker and the
+ * columns it chose. Same lifecycle as `filterFields` above — read when the
+ * picker opens — plus one eager case: a list somebody already gave columns to
+ * loads it on arrival, or the columns would have names and no way to render.
+ */
+const [displayFields, setDisplayFields] = createSignal<DisplayField[]>([]);
+
+export { displayFields };
+
+let displayFor: string | null = null;
+
+export function loadDisplayFields(): void {
+  const listId = viewListId();
+  if (!listId || displayFor === listId) return;
+  displayFor = listId;
+  void api
+    .displayFields(listId)
+    .then((fields) => viewListId() === listId && setDisplayFields(fields))
+    .catch(() => setDisplayFields([]));
+}
+
+createRoot(() => {
+  createEffect(() => {
+    const listId = viewListId();
+    displayFor = null;
+    setDisplayFields([]);
+    // Untracked: a column toggled from the picker must not clear the
+    // catalogue it is being rendered from.
+    if (listId && untrack(() => columnsFor(listId)).length > 0) loadDisplayFields();
+  });
+});
+
+/** The chosen columns as definitions, in the order they were chosen. */
+export const listColumns = globalMemo(() => {
+  const listId = viewListId();
+  if (!listId) return [] as DisplayField[];
+  const defs = displayFields();
+  return columnsFor(listId).flatMap((id) => {
+    const def = defs.find((candidate) => candidate.id === id);
+    return def ? [def] : [];
+  });
+});
 
 export interface FacetOption {
   value: string;

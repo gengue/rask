@@ -950,6 +950,41 @@ export async function listFilterFields(db: Db, listId: string): Promise<FilterFi
   }));
 }
 
+export interface DisplayField {
+  id: string;
+  name: string;
+  type: string;
+  /** ClickUp's own shape, verbatim — `formatFieldValue` in apps/web reads it. */
+  typeConfig: unknown;
+}
+
+/**
+ * Every Custom Field with a value somewhere in one List, for the column picker.
+ *
+ * `listFilterFields` minus the type restriction: a column only has to render,
+ * not offer choices, so types the filter menu turns away — number, date, text,
+ * formula — all belong here. Same `exists` probe per definition, same reasoning
+ * as the ponytail note above about not keeping a list-scope join table.
+ */
+export async function listDisplayFields(db: Db, listId: string): Promise<DisplayField[]> {
+  return db
+    .select({
+      id: customFieldDefs.id,
+      name: customFieldDefs.name,
+      type: customFieldDefs.type,
+      typeConfig: customFieldDefs.typeConfig,
+    })
+    .from(customFieldDefs)
+    .where(
+      sql`exists (
+        select 1 from ${taskCustomValues} v
+        join ${tasks} t on t.id = v.task_id
+        where v.field_id = ${customFieldDefs.id} and t.list_id = ${listId}
+      )`,
+    )
+    .orderBy(asc(customFieldDefs.name), asc(customFieldDefs.id));
+}
+
 interface RawOption {
   name?: unknown;
   label?: unknown;

@@ -131,6 +131,51 @@ function personRows(field: CustomField): Array<{ id: string; raw: unknown }> {
   return rows;
 }
 
+/**
+ * A list column's cell, from the JSON text a task row carries.
+ *
+ * Rows hold `customValues` as the raw text of the mirror's column — `1` for
+ * the second drop-down option, `"hello"` quotes and all — because that is what
+ * the filter compares. A cell wants the value, so it is decoded here and then
+ * formatted exactly the way the detail panel formats the same field. Absent
+ * and undecodable both read as the em dash: a cell is no place for an error.
+ */
+export function fieldCellText(type: string, config: unknown, rawJson: string | undefined): string {
+  if (rawJson === undefined) return "—";
+  try {
+    return formatFieldValue(type, config, JSON.parse(rawJson));
+  } catch {
+    return "—";
+  }
+}
+
+/**
+ * The detail panel's field order, under the user's pins and hides.
+ *
+ * Pinned fields come first and always, even empty — a pin is a request to see
+ * the gap. Collapsed, the filled fields follow up to the limit and hidden ones
+ * never do. Expanded, everything shows — the blanks because that is the only
+ * way to set one, the hidden ones last because that is the only way to unhide
+ * one; the caller dims them.
+ */
+export function arrangeDetailFields<T extends { id: string; display: string }>(
+  fields: readonly T[],
+  opts: {
+    hidden: ReadonlySet<string>;
+    pinned: ReadonlySet<string>;
+    showAll: boolean;
+    limit: number;
+  },
+): T[] {
+  const pinned = fields.filter((field) => opts.pinned.has(field.id));
+  const rest = fields.filter((field) => !opts.pinned.has(field.id) && !opts.hidden.has(field.id));
+  if (opts.showAll) {
+    return [...pinned, ...rest, ...fields.filter((field) => opts.hidden.has(field.id))];
+  }
+  const filled = rest.filter((field) => field.display !== "—");
+  return [...pinned, ...filled.slice(0, Math.max(0, opts.limit - pinned.length))];
+}
+
 /** Custom field values arrive raw. Only the types worth rendering get special care. */
 export function formatFieldValue(type: string, config: unknown, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";

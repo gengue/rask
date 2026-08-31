@@ -25,6 +25,7 @@ import {
 } from "../lib/api.ts";
 import { attachmentMarkdown, createUploader, filesFrom } from "../lib/attach.ts";
 import {
+  arrangeDetailFields,
   CLEAR,
   customFieldWrite,
   type FieldWrite,
@@ -35,6 +36,12 @@ import {
   peopleIn,
   typedFieldWrite,
 } from "../lib/custom-fields.ts";
+import {
+  hiddenFields,
+  pinnedFields,
+  toggleHiddenField,
+  togglePinnedField,
+} from "../lib/field-prefs.ts";
 import {
   formatDue,
   formatRelative,
@@ -988,9 +995,20 @@ function CustomFields(props: {
       display: formatFieldValue(field.type, field.typeConfig, field.value),
     }));
 
-  const filled = () => decorated().filter((field) => field.display !== "—");
-  const shown = () => (showAll() ? decorated() : filled().slice(0, VISIBLE_FIELDS));
-  const hidden = () => decorated().length - shown().length;
+  /*
+   * The heuristic above, bent by the user's own pins and hides: a pinned field
+   * always shows, even empty; a hidden one only comes back expanded, dimmed,
+   * which is also where it gets unhidden. `arrangeDetailFields` owns the order.
+   */
+  const arranged = (all: boolean) =>
+    arrangeDetailFields(decorated(), {
+      hidden: hiddenFields(),
+      pinned: pinnedFields(),
+      showAll: all,
+      limit: VISIBLE_FIELDS,
+    });
+  const shown = () => arranged(showAll());
+  const more = () => arranged(true).length - arranged(false).length;
 
   /** Sends the value and asks the parent to refetch, since it lives in a resource. */
   const write = async (fieldId: string, next: FieldWrite) => {
@@ -1007,13 +1025,31 @@ function CustomFields(props: {
     <>
       <For each={shown()}>
         {(field) => (
-          <Property label={field.name}>
-            <FieldValue
-              field={field}
-              onPick={(anchor) => setMenu({ field, anchor })}
-              onValue={(next) => void write(field.id, next)}
-            />
-          </Property>
+          <div classList={{ "opacity-55": hiddenFields().has(field.id) }}>
+            <Property label={field.name}>
+              <div class="group/cf flex items-center gap-0.5">
+                <div class="min-w-0 flex-1">
+                  <FieldValue
+                    field={field}
+                    onPick={(anchor) => setMenu({ field, anchor })}
+                    onValue={(next) => void write(field.id, next)}
+                  />
+                </div>
+                <FieldToggle
+                  label={pinnedFields().has(field.id) ? "Unpin" : "Pin — always show"}
+                  pressed={pinnedFields().has(field.id)}
+                  onToggle={() => togglePinnedField(field.id)}
+                  d="M6.2 2.5h3.6v3.8l1.7 2.4H4.5l1.7-2.4zM8 8.7v4.6"
+                />
+                <FieldToggle
+                  label={hiddenFields().has(field.id) ? "Show this field" : "Hide this field"}
+                  pressed={hiddenFields().has(field.id)}
+                  onToggle={() => toggleHiddenField(field.id)}
+                  d="M2.5 8s2.2-3.4 5.5-3.4S13.5 8 13.5 8s-2.2 3.4-5.5 3.4S2.5 8 2.5 8zM9.4 8a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0zM3.5 12.5l9-9"
+                />
+              </div>
+            </Property>
+          </div>
         )}
       </For>
 
@@ -1032,16 +1068,52 @@ function CustomFields(props: {
         )}
       </Show>
 
-      <Show when={hidden() > 0 || showAll()}>
+      <Show when={more() > 0 || showAll()}>
         <button
           type="button"
           onClick={() => setShowAll((value) => !value)}
           class="flex h-6 items-center px-2 text-sm text-ink-3 hover:text-ink-2"
         >
-          {showAll() ? "Show less" : `Show ${hidden()} more`}
+          {showAll() ? "Show less" : `Show ${more()} more`}
         </button>
       </Show>
     </>
+  );
+}
+
+/**
+ * The pin and the eye beside a field, visible on hover — or always, once on,
+ * because a control that changed something should not vanish with the pointer.
+ */
+function FieldToggle(props: {
+  label: string;
+  pressed: boolean;
+  d: string;
+  onToggle: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-pressed={props.pressed}
+      aria-label={props.label}
+      title={props.label}
+      onClick={props.onToggle}
+      class="flex size-5 shrink-0 items-center justify-center rounded-[5px] transition-opacity hover:bg-hover"
+      classList={{
+        "text-accent opacity-100": props.pressed,
+        "text-ink-4 opacity-0 hover:text-ink-2 group-hover/cf:opacity-100": !props.pressed,
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d={props.d}
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
   );
 }
 
