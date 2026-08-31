@@ -1,21 +1,26 @@
-import { createEffect, createMemo, For, type JSX, Show } from "solid-js";
-import type { Me, Space } from "../lib/api.ts";
+import { createEffect, createMemo, createSignal, For, type JSX, Show, untrack } from "solid-js";
+import type { DocRef, ListRef, Me, Space } from "../lib/api.ts";
+import { celebrate } from "../lib/celebration.tsx";
 import { inboxPredicate, inboxSeenAt, inboxTruncated } from "../lib/inbox.ts";
 import { useLiveTasks } from "../lib/live.ts";
 import { A, useParams, useRouterState } from "../lib/nav.tsx";
 import {
+  docsOpen,
   isOpen,
   isPinned,
   pinned,
   revealPath,
+  setDocsOpen,
   toggleOpen,
   togglePinned,
 } from "../lib/sidebar-state.ts";
 import { signOut } from "../lib/signed-out.ts";
 import { connected } from "../lib/sse.ts";
-import { nextTheme, setTheme, themeChoice, themeLabel } from "../lib/theme.ts";
+import { setTheme, THEMES, themeChoice, themeLabel } from "../lib/theme.ts";
+import { pathToDoc, pathToList } from "../lib/tree-path.ts";
 import { Avatar } from "./Avatar.tsx";
 import { LogoCompact } from "./Logo.tsx";
+import { Menu } from "./Menu.tsx";
 
 /**
  * The sidebar.
@@ -40,12 +45,17 @@ import { LogoCompact } from "./Logo.tsx";
 export function Sidebar(props: {
   me: Me | null;
   spaces: Space[];
+  /** Docs that hang off the Workspace rather than any Space. Their own section. */
+  docs: DocRef[];
   /** Drawer state. Ignored above `dock`, where the sidebar is always in flow. */
   open: boolean;
   onSearch: () => void;
   onQuickAdd: () => void;
 }): JSX.Element {
-  useRevealActiveList(() => props.spaces);
+  useRevealActiveList(
+    () => props.spaces,
+    () => props.docs,
+  );
 
   /*
    * Counted from the shared collection rather than from a count endpoint.
@@ -59,8 +69,27 @@ export function Sidebar(props: {
   const unreadRows = useLiveTasks(createMemo(() => inboxPredicate(props.me?.id, inboxSeenAt())));
   const unread = () => unreadRows().length;
 
+  /*
+   * Inbox zero, celebrated. Only the moment it *empties* counts: mounting with
+   * nothing unread is a quiet morning, not a victory, so the first reading
+   * only arms the comparison. `celebrate` is a no-op outside the Ember theme.
+   *
+   * Unlike the task banner, this one is deliberately not limited to local
+   * actions: the count is the badge's own live number, and if a teammate's
+   * change is what emptied it, the inbox is clean either way. In that rare
+   * remote case there is no user gesture, so the chime is refused by autoplay
+   * policy and only the banner shows — which is the right degradation.
+   */
+  let lastUnread: number | undefined;
+  createEffect(() => {
+    const count = unread();
+    if (lastUnread !== undefined && lastUnread > 0 && count === 0) celebrate("inboxCleared");
+    lastUnread = count;
+  });
+
   return (
     <aside
+      aria-label="Workspace"
       class="flex w-[236px] shrink-0 flex-col max-dock:absolute max-dock:inset-y-0 max-dock:left-0 max-dock:z-40 max-dock:border-line max-dock:border-r max-dock:bg-app"
       classList={{ "max-dock:hidden": !props.open }}
     >
@@ -124,6 +153,27 @@ export function Sidebar(props: {
           Workspace
         </div>
         <For each={props.spaces}>{(space) => <SpaceNode space={space} />}</For>
+
+        {/*
+          Below the tree, not inside it. These Docs have no Space to sit under —
+          ClickUp files them at the Workspace — and in the workspace this was
+          built against there are more of them than every Space-level Doc put
+          together. A section of their own is the only place they fit.
+        */}
+        <Show when={props.docs.length > 0}>
+          <button
+            type="button"
+            onClick={() => setDocsOpen(!docsOpen())}
+            aria-expanded={docsOpen()}
+            class="mt-4 flex w-full items-center gap-1.5 px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em] hover:text-ink-2"
+          >
+            <Chevron open={docsOpen()} />
+            Docs
+          </button>
+          <Show when={docsOpen()}>
+            <For each={props.docs}>{(doc) => <DocItem doc={doc} />}</For>
+          </Show>
+        </Show>
       </div>
 
       <Show when={props.me}>
@@ -152,7 +202,10 @@ export function Sidebar(props: {
 }
 
 function SpaceNode(props: { space: Space }): JSX.Element {
-  const empty = () => props.space.folders.length === 0 && props.space.lists.length === 0;
+  const empty = () =>
+    props.space.folders.length === 0 &&
+    props.space.lists.length === 0 &&
+    props.space.docs.length === 0;
 
   return (
     <div>
@@ -168,7 +221,8 @@ function SpaceNode(props: { space: Space }): JSX.Element {
       <Show when={isOpen(props.space.id)}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
           <For each={props.space.folders}>{(folder) => <FolderNode folder={folder} />}</For>
-          <For each={props.space.lists}>{(list) => <ListItem id={list.id} name={list.name} />}</For>
+          <For each={props.space.lists}>{(list) => <ListItem list={list} />}</For>
+          <For each={props.space.docs}>{(doc) => <DocItem doc={doc} />}</For>
         </div>
       </Show>
     </div>
@@ -176,8 +230,10 @@ function SpaceNode(props: { space: Space }): JSX.Element {
 }
 
 function FolderNode(props: {
-  folder: { id: string; name: string; lists: Array<{ id: string; name: string }> };
+  folder: { id: string; name: string; lists: ListRef[]; docs: DocRef[] };
 }): JSX.Element {
+  const empty = () => props.folder.lists.length === 0 && props.folder.docs.length === 0;
+
   return (
     <div>
       <button
@@ -185,21 +241,60 @@ function FolderNode(props: {
         onClick={() => toggleOpen(props.folder.id)}
         class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
-        <Chevron open={isOpen(props.folder.id)} muted={props.folder.lists.length === 0} />
+        <Chevron open={isOpen(props.folder.id)} muted={empty()} />
         <span class="truncate text-md">{props.folder.name}</span>
       </button>
       <Show when={isOpen(props.folder.id)}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
-          <For each={props.folder.lists}>
-            {(list) => <ListItem id={list.id} name={list.name} />}
-          </For>
+          <For each={props.folder.lists}>{(list) => <ListItem list={list} />}</For>
+          <For each={props.folder.docs}>{(doc) => <DocItem doc={doc} />}</For>
         </div>
       </Show>
     </div>
   );
 }
 
-function ListItem(props: { id: string; name: string }): JSX.Element {
+/**
+ * A Doc in the tree.
+ *
+ * No pin and no chevron: a Doc is one thing to open, and the pinned strip is
+ * about lists somebody works out of. The icon is a page rather than the list
+ * glyph so the two kinds of row are told apart without reading them.
+ */
+function DocItem(props: { doc: DocRef }): JSX.Element {
+  const params = useParams({ strict: false });
+  const active = () => (params() as { docId?: string }).docId === props.doc.id;
+
+  return (
+    <A
+      to="/doc/$docId"
+      params={{ docId: props.doc.id }}
+      class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-2 pl-2 text-md ${
+        active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+      }`}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        fill="none"
+        class="shrink-0 text-ink-4"
+        aria-hidden="true"
+      >
+        <path
+          d="M4 2.5h5L12 5.5v8h-8z"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linejoin="round"
+        />
+        <path d="M8.6 2.6v3h3.2" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+      </svg>
+      <span class="truncate">{props.doc.name}</span>
+    </A>
+  );
+}
+
+function ListItem(props: { list: ListRef }): JSX.Element {
   /*
    * The route's own `listId`, not `matchRoute`.
    *
@@ -214,39 +309,40 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
    * same on `/list/$listId` and `/list/$listId/view/$viewId`.
    */
   const params = useParams({ strict: false });
-  const active = () => (params() as { listId?: string }).listId === props.id;
+  const active = () => (params() as { listId?: string }).listId === props.list.id;
 
   return (
-    <div class="group/list relative">
-      <A
-        to="/list/$listId"
-        params={{ listId: props.id }}
-        // One string, not classList: `A` is a component, so Solid hands it
-        // `classList` as an inert prop and nothing ever applies it. Every list
-        // link rendered at full-brightness ink with no hover, active or not.
-        class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-7 pl-2 text-md ${
-          active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
-        }`}
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 16 16"
-          fill="none"
-          class="shrink-0 text-ink-4"
-          aria-hidden="true"
+    <>
+      <div class="group/list relative">
+        <A
+          to="/list/$listId"
+          params={{ listId: props.list.id }}
+          // One string, not classList: `A` is a component, so Solid hands it
+          // `classList` as an inert prop and nothing ever applies it. Every list
+          // link rendered at full-brightness ink with no hover, active or not.
+          class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-7 pl-2 text-md ${
+            active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+          }`}
         >
-          <path
-            d="M3 4.5h10M3 8h10M3 11.5h6"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-          />
-        </svg>
-        <span class="truncate">{props.name}</span>
-      </A>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            class="shrink-0 text-ink-4"
+            aria-hidden="true"
+          >
+            <path
+              d="M3 4.5h10M3 8h10M3 11.5h6"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span class="truncate">{props.list.name}</span>
+        </A>
 
-      {/*
+        {/*
         Outside the link, not inside it: a button nested in an anchor is invalid
         and the click would navigate before the star ever fired.
 
@@ -254,8 +350,22 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
         forty pieces of chrome saying nothing, while an on one is the answer to
         "is this pinned".
       */}
-      <PinButton id={props.id} name={props.name} />
-    </div>
+        <PinButton id={props.list.id} name={props.list.name} />
+      </div>
+
+      {/*
+      A List's Docs, indented under it and always shown rather than behind a
+      chevron of their own. Almost no List has any — 27 across the workspace
+      against 833 tasks in one List alone — so a collapsed row would be a
+      toggle that is empty nearly everywhere it appears, and the whole subtree
+      is already hidden behind the Space's.
+    */}
+      <Show when={props.list.docs.length > 0}>
+        <div class="ml-[13px] border-line/60 border-l pl-1.5">
+          <For each={props.list.docs}>{(doc) => <DocItem doc={doc} />}</For>
+        </div>
+      </Show>
+    </>
   );
 }
 
@@ -323,7 +433,12 @@ function PinnedLists(props: { spaces: Space[] }): JSX.Element {
         <div class="px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em]">
           Pinned
         </div>
-        <For each={all()}>{(list) => <ListItem id={list.id} name={list.name} />}</For>
+        {/* Docs are deliberately not carried into the pinned strip: a pin is
+            about a list somebody works out of, and the Doc is one click away
+            in the tree. */}
+        <For each={all()}>
+          {(list) => <ListItem list={{ id: list.id, name: list.name, docs: [] }} />}
+        </For>
       </div>
     </Show>
   );
@@ -415,7 +530,10 @@ export function Chevron(props: { open: boolean; muted?: boolean }): JSX.Element 
       height="12"
       viewBox="0 0 16 16"
       fill="none"
-      class="shrink-0 transition-transform duration-100"
+      /* `chevron` is a styling hook, not a utility: the XP skin turns this
+         glyph into a treeview's +/- box and needs a name to reach it by.
+         Pinned in skin-hooks.test.ts. */
+      class="chevron shrink-0 transition-transform duration-100"
       classList={{ "rotate-90": props.open, "opacity-35": props.muted }}
       aria-hidden="true"
     >
@@ -443,82 +561,152 @@ export function Chevron(props: { open: boolean; muted?: boolean }): JSX.Element 
  * route happens to be inside it, is the sidebar arguing with the person using
  * it.
  */
-function useRevealActiveList(spaces: () => Space[]): void {
+function useRevealActiveList(spaces: () => Space[], docs: () => DocRef[]): void {
   // `strict: false` because the sidebar renders on every route and most have no
   // listId. `matchRoute` answers whether a route matches, not what its
   // parameters are, which is the question here.
   const params = useParams({ strict: false });
 
   createEffect(() => {
-    const listId = (params() as { listId?: string }).listId;
-    if (!listId) return;
+    const { listId, docId } = params() as { listId?: string; docId?: string };
+    // A Doc as readily as a List: both are rows in this tree, and a link to
+    // either one lands on a sidebar that cannot show where you are without it.
+    const path = listId ? pathToList(spaces(), listId) : docId ? pathToDoc(spaces(), docId) : null;
+    // A workspace Doc has no branch to unfold — `pathToDoc` answers null — and
+    // its own section is the only thing that can be hiding it. Opening that is
+    // the same courtesy the tree gets. A Doc written on a task is not in this
+    // sidebar at all, so the section stays as it was.
+    const inDocsSection = docId !== undefined && docs().some((doc) => doc.id === docId);
 
-    for (const space of spaces()) {
-      if (space.lists.some((list) => list.id === listId)) {
-        revealPath([space.id]);
-        return;
-      }
-      for (const folder of space.folders) {
-        if (folder.lists.some((list) => list.id === listId)) {
-          revealPath([space.id, folder.id]);
-          return;
-        }
-      }
-    }
+    /*
+     * Untracked, or `revealPath` reads the open set it is about to write and
+     * subscribes this effect to it — and then collapsing the Space that holds
+     * the open List re-runs this and unfolds it again, one click later. The
+     * route is what should reveal a row, never somebody else's toggle.
+     */
+    untrack(() => {
+      if (path) revealPath(path);
+      if (inDocsSection) setDocsOpen(true);
+    });
   });
 }
 
 /**
- * The theme, as one button.
+ * The theme, as one button opening a menu.
  *
  * It was only in the command palette, which is where every other action lives
  * — and which nobody finds by looking, because there is nothing to look at.
  * Somebody wanting light mode has no reason to guess that ⌘K holds it.
  *
- * Three states cycling rather than a two-way toggle, because "System" is not
- * the same as whichever of the two the system happens to be right now, and it
- * is the default: a toggle would offer no way back to it. The icon carries the
- * current state and the tooltip names what the next press does, so one button
- * says all three things without a menu.
+ * It used to cycle: three states behind one press, the tooltip naming the
+ * next. Ember made it four, and four is past what a blind press can carry —
+ * getting from Light back to System now meant a tour through the two dark
+ * themes, a flash of near-black each. A menu names all four and costs one
+ * more click only when changing, which is the rare case.
  */
 function ThemeButton(): JSX.Element {
-  const next = () => nextTheme(themeChoice());
+  const [anchor, setAnchor] = createSignal<{ x: number; y: number } | null>(null);
 
   return (
-    <button
-      type="button"
-      onClick={() => setTheme(next())}
-      title={`Theme: ${themeLabel(themeChoice())} — switch to ${themeLabel(next())}`}
-      aria-label={`Theme: ${themeLabel(themeChoice())}. Switch to ${themeLabel(next())}`}
-      class="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
-    >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <Show when={themeChoice() === "system"}>
-          {/* A display: the theme is whatever the machine says. */}
-          <path
-            d="M2.5 3.5h11v7h-11v-7ZM6 13h4M8 10.5V13"
-            stroke="currentColor"
-            stroke-width="1.3"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </Show>
-        <Show when={themeChoice() === "light"}>
-          <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-            <circle cx="8" cy="8" r="3" />
-            <path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" />
-          </g>
-        </Show>
-        <Show when={themeChoice() === "dark"}>
-          <path
-            d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1Z"
-            stroke="currentColor"
-            stroke-width="1.3"
-            stroke-linejoin="round"
-          />
-        </Show>
-      </svg>
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setAnchor({ x: rect.left, y: rect.top - 8 });
+        }}
+        title={`Theme: ${themeLabel(themeChoice())}`}
+        aria-label={`Theme: ${themeLabel(themeChoice())}. Choose a theme`}
+        class="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-4 transition-colors hover:bg-hover hover:text-ink-2"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <Show when={themeChoice() === "system"}>
+            {/* A display: the theme is whatever the machine says. */}
+            <path
+              d="M2.5 3.5h11v7h-11v-7ZM6 13h4M8 10.5V13"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </Show>
+          <Show when={themeChoice() === "light"}>
+            <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+              <circle cx="8" cy="8" r="3" />
+              <path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" />
+            </g>
+          </Show>
+          <Show when={themeChoice() === "dark"}>
+            <path
+              d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1Z"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linejoin="round"
+            />
+          </Show>
+          <Show when={themeChoice() === "ember"}>
+            {/* A flame, for the theme lit by one. */}
+            <path
+              d="M8 1.8c2.2 2.3 4.3 4.3 4.3 6.9a4.3 4.3 0 0 1-8.6 0C3.7 6.1 5.8 4.1 8 1.8Zm0 9.7a2 2 0 0 0 2-2c0-1.1-.9-2-2-3.1-1.1 1.1-2 2-2 3.1a2 2 0 0 0 2 2Z"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linejoin="round"
+            />
+          </Show>
+          <Show when={themeChoice() === "xp"}>
+            {/* A window with a caption bar, for the theme that draws one. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" />
+              <path d="M2 6.4h12" />
+            </g>
+          </Show>
+          <Show when={themeChoice() === "brutal"}>
+            {/* A Memphis zigzag, for the theme drawn in marker. */}
+            <path
+              d="M2 10.5 5 5l3 5.5L11 5l3 5.5"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="square"
+              stroke-linejoin="miter"
+            />
+          </Show>
+          <Show when={themeChoice() === "aqua"}>
+            {/* A window with its three lights, for the theme that is one. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+              <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2" />
+              <path d="M1.6 6.2h12.8" />
+              <circle cx="4" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+              <circle cx="6.2" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+              <circle cx="8.4" cy="4.4" r="0.75" fill="currentColor" stroke="none" />
+            </g>
+          </Show>
+          <Show when={themeChoice() === "cyber"}>
+            {/* A chipped shard, for the theme with one in its head. */}
+            <g stroke="currentColor" stroke-width="1.3" stroke-linejoin="miter">
+              <path d="M2.5 4.2 4.2 2.5h9.3v9.3l-1.7 1.7H2.5V4.2Z" />
+              <path d="M5.5 5.5h5v5h-5z" fill="currentColor" stroke="none" />
+            </g>
+          </Show>
+        </svg>
+      </button>
+      <Menu
+        items={THEMES.map(([value, label]) => ({
+          id: value,
+          label,
+          hint: themeChoice() === value ? "on" : undefined,
+        }))}
+        anchor={anchor()}
+        placeholder="Theme..."
+        width={180}
+        up
+        onSelect={(id) => {
+          const choice = THEMES.find(([value]) => value === id)?.[0];
+          if (choice) setTheme(choice);
+          setAnchor(null);
+        }}
+        onClose={() => setAnchor(null)}
+      />
+    </>
   );
 }
 

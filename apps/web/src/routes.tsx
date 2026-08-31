@@ -20,13 +20,14 @@ import {
 import { Dynamic } from "solid-js/web";
 import { AppShell } from "./App.tsx";
 import { Board } from "./components/Board.tsx";
+import { DocReader } from "./components/DocReader.tsx";
 import { RouteError } from "./components/RouteError.tsx";
 import { TaskList } from "./components/TaskList.tsx";
 import { TimesheetTable } from "./components/TimesheetTable.tsx";
 import { ListPicker, NotFound } from "./components/Unresolved.tsx";
 import { UnsupportedView, ViewTabs } from "./components/ViewTabs.tsx";
 import { api, type ResolvedRef, type Task, type View } from "./lib/api.ts";
-import { parseClickUpPath } from "./lib/clickup-url.ts";
+import { docPageId, parseClickUpPath } from "./lib/clickup-url.ts";
 import {
   applyView,
   clearListViews,
@@ -45,11 +46,14 @@ import {
   resetFeedOrder,
 } from "./lib/inbox.ts";
 import { useLiveTasks } from "./lib/live.ts";
+import { readyValue } from "./lib/resource.ts";
 import { listName, me } from "./lib/session.ts";
 import { viewRefresh } from "./lib/sse.ts";
 import { load, loadViewTasks, type TaskPageResult } from "./lib/store.ts";
 import {
   boardLayout,
+  columnFetchIds,
+  columnFetchKey,
   filterFieldIds,
   includeClosed,
   serverFilter,
@@ -85,6 +89,14 @@ interface AppSearch {
   expanded?: boolean;
   /** Why the OAuth callback refused, when it did. See `components/Login.tsx`. */
   signin?: string;
+  /**
+   * Which page of the open Doc is being read. See `DocView`.
+   *
+   * A search param rather than a second path segment because that is what the
+   * rest of the app already does with "what is open inside this route" — see
+   * `task` above — and it keeps `/doc/$docId` one route instead of two.
+   */
+  page?: string;
 }
 
 /** What `?expanded=` may say for the answer to be yes. */
@@ -93,8 +105,13 @@ const TRUTHY = new Set<unknown>([true, 1, "1", "true"]);
 const rootRoute = createRootRoute({
   component: AppShell,
   // A throw during render otherwise unmounts the entire tree and leaves a white
-  // window until someone reloads.
+  // window until someone reloads. The adapter implements this with Solid's own
+  // <ErrorBoundary> around the root match, so every child route lands here too —
+  // a second boundary inside the shell would only shadow this one.
   errorComponent: (props) => <RouteError error={props.error} reset={props.reset} />,
+  // The boundary swallows what it catches: without this, a production crash
+  // leaves the fallback on screen and nothing in the console to debug it by.
+  onCatch: (error) => console.error(error),
   validateSearch: (search: Record<string, unknown>): AppSearch => ({
     task: typeof search.task === "string" ? search.task : undefined,
     // `1` as readily as `true`, because this one gets typed by hand into a URL
@@ -102,6 +119,7 @@ const rootRoute = createRootRoute({
     // both arrive already coerced and the string forms are for what it cannot.
     expanded: TRUTHY.has(search.expanded) ? true : undefined,
     signin: typeof search.signin === "string" ? search.signin : undefined,
+    page: typeof search.page === "string" ? search.page : undefined,
   }),
 });
 
@@ -155,6 +173,49 @@ const viewRoute = createRoute({
   path: "/view/$viewId",
   component: ContainerView,
 });
+
+/**
+ * One Doc, opened from the sidebar.
+ *
+ * Its own route rather than a panel over a list, because a Doc does not belong
+ * to whatever was on screen — the release notes are read for their own sake and
+ * the URL should say so.
+ */
+const docRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/doc/$docId",
+  component: DocView,
+});
+
+/**
+ * The reader is controlled from the URL rather than from a signal inside it.
+ *
+ * A Doc arrives whole, so paging costs no fetch and a signal was enough to read
+ * one — but it made every page of every Doc share one address. A link to
+ * "November 7 - 2025" opened the Doc at its first page, which is also what a
+ * pasted ClickUp `/v/dc/{doc}/{page}` did, and there was no way to link to a
+ * page at all. `replace`, because walking an index of twenty-five pages should
+ * not bury the view you came from under twenty-five back presses.
+ */
+function DocView(): JSX.Element {
+  const params = useParams({ from: docRoute.id });
+  const search = useSearch({ from: docRoute.id });
+  const navigate = useNavigate();
+  return (
+    <DocReader
+      docId={params().docId}
+      pageId={search().page}
+      onPick={(page) =>
+        navigate({
+          to: "/doc/$docId",
+          params: { docId: params().docId },
+          search: { page },
+          replace: true,
+        })
+      }
+    />
+  );
+}
 
 const clickUpRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -324,9 +385,15 @@ function ListView(): JSX.Element {
     // The tabs are loaded here too, so they are already on screen when somebody
     // arrives from the sidebar rather than appearing a round trip later.
     void loadListViews(listId);
-    void load({ list: listId, closed: includeClosed(), filter: serverFilter() }).then(
-      applyPage(serverFilter()),
-    );
+    // `columnFetchIds` is reactive on purpose: choosing a column the session
+    // has never fetched refetches, since the rows in hand carry no values for
+    // it. Unchoosing one shrinks nothing and refetches nothing.
+    void load({
+      list: listId,
+      closed: includeClosed(),
+      filter: serverFilter(),
+      fields: columnFetchIds(),
+    }).then(applyPage(serverFilter()));
   });
 
   const rows = useLiveTasks(
@@ -412,13 +479,18 @@ function viewRows(view: () => View | null | undefined): () => View | null {
       return;
     }
 
-    const key = `${current.id}|${filterFieldIds()}`;
+    // Columns ride on the same key as the filter's fields and for the same
+    // reason: the rows have to be re-read to carry values for a field nobody
+    // asked about before. A remembered membership answers from the mirror, so
+    // this is only ClickUp's 1.8s when the membership itself has gone stale —
+    // and the key is the session union, so it only ever grows.
+    const key = `${current.id}|${filterFieldIds()}|${columnFetchKey()}`;
     if (loadedKey === key) return;
     const first = loadedKey === null || !loadedKey.startsWith(`${current.id}|`);
     loadedKey = key;
     if (first) applyView(current);
 
-    void loadViewTasks(current.id, serverFilter()).then((page) => {
+    void loadViewTasks(current.id, serverFilter(), columnFetchIds()).then((page) => {
       // A second view was picked while this one was in flight. `null` is the
       // store saying the same thing; either answer means these rows are stale.
       if (!page || loadedKey !== key) return;
@@ -530,10 +602,16 @@ function SavedView(): JSX.Element {
 function ContainerView(): JSX.Element {
   const params = useParams({ from: viewRoute.id });
 
-  const [view] = createResource(
+  const [viewResource] = createResource(
     () => params().viewId,
     (viewId) => api.view(viewId).catch(() => null),
   );
+  // `readyValue`, so a fetch in flight reads as the documented "not yet"
+  // (`undefined`) instead of suspending the route to the router's boundary —
+  // which is what blanked the pane on every view-to-view navigation. Ready
+  // only, not held: mid-navigation the previous view's definition is the
+  // wrong answer, and `undefined` is what keeps the skeleton up instead.
+  const view = () => readyValue(viewResource);
 
   createEffect(() => {
     // Nothing here belongs to one list, so the shell must not claim one: the
@@ -587,11 +665,16 @@ function ClickUpView(): JSX.Element {
     return splat ? `/${splat}` : null;
   };
 
-  const [target] = createResource<Target, string>(path, async (input) => {
+  const [targetResource] = createResource<Target, string>(path, async (input) => {
     const parsed = parseClickUpPath(input);
     if (parsed.kind !== "lookup") return parsed;
     return api.resolve(parsed.ids, parsed.remote).catch(() => ({ kind: "unknown" }) as const);
   });
+  // `readyValue`, or the lookup in flight suspends this route to the router's
+  // boundary and the "Opening…" fallback below never paints; it also keeps a
+  // `parseClickUpPath` throw out of the redirect effect, where it had no
+  // boundary to land in.
+  const target = () => readyValue(targetResource);
 
   createEffect(() => {
     // This route renders no list, so the header must stop claiming the previous
@@ -649,6 +732,20 @@ function ClickUpView(): JSX.Element {
       case "list":
         void navigate({ to: "/list/$listId", params: { listId: found.listId }, replace: true });
         break;
+      case "doc": {
+        // A Doc URL carries the page after the Doc — /v/dc/{doc}/{page} — and
+        // whoever followed one came for that page, not for the Doc's first.
+        // The page id resolves to nothing in the mirror, so it rides along as
+        // the search param the reader reads and lands wherever it lands.
+        const page = docPageId(from, found.docId);
+        void navigate({
+          to: "/doc/$docId",
+          params: { docId: found.docId },
+          search: { page },
+          replace: true,
+        });
+        break;
+      }
       default:
         setViewTitle(found.kind === "unknown" ? "Not found" : found.name);
     }
@@ -714,6 +811,7 @@ const routeTree = rootRoute.addChildren([
   listRoute,
   savedViewRoute,
   viewRoute,
+  docRoute,
   clickUpRoute,
 ]);
 

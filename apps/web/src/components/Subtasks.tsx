@@ -3,7 +3,13 @@ import { createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TaskDetail, type TaskRef } from "../lib/api.ts";
 import { DUE_TONE, formatDue, formatDuration } from "../lib/format.ts";
 import { useNavigate } from "../lib/nav.tsx";
-import { SUBTASK_FIELDS, showsField, toggleSubtaskField } from "../lib/subtask-fields.ts";
+import {
+  hideDoneSubtasks,
+  SUBTASK_FIELDS,
+  showsField,
+  toggleHideDoneSubtasks,
+  toggleSubtaskField,
+} from "../lib/subtask-fields.ts";
 import { pushToast } from "../lib/toast.ts";
 import { AvatarStack } from "./Avatar.tsx";
 import { InlineInput } from "./Checklists.tsx";
@@ -31,14 +37,20 @@ import { StatusIcon } from "./StatusIcon.tsx";
 /** Narrow: four labels and a tick, anchored to its right edge under the button. */
 const PICKER_WIDTH = 200;
 
-/** Navigates to a task, in its own list, with the detail panel open. */
+/**
+ * Navigates to a task, in its own list, with the detail panel open.
+ *
+ * Merging into the search rather than replacing it, because `expanded` lives
+ * there too: the index rail only exists expanded, so a click that dropped the
+ * flag collapsed the panel the reader was navigating from.
+ */
 function useOpenTask(): (task: TaskRef) => void {
   const navigate = useNavigate();
   return (task) => {
     void navigate({
       to: "/list/$listId",
       params: { listId: task.listId },
-      search: { task: task.id },
+      search: (prev: Record<string, unknown>) => ({ ...prev, task: task.id }),
     });
   };
 }
@@ -66,7 +78,7 @@ export function ParentLink(props: { parent: TaskRef | null }): JSX.Element {
           </span>
           <span class="shrink-0 text-xs">Subtask of</span>
           <StatusIcon type={parent().statusType} color={parent().statusColor} size={12} />
-          <span class="truncate text-base">{parent().name}</span>
+          <span class="truncate text-md">{parent().name}</span>
         </button>
       )}
     </Show>
@@ -86,6 +98,7 @@ export function Subtasks(props: {
 
   const empty = () => props.task.subtasks.length === 0;
   const done = () => props.task.subtasks.filter((t) => isClosedType(t.statusType)).length;
+  const rows = () => visibleSubtasks(props.task);
 
   /**
    * Creates a subtask in the parent's own list.
@@ -132,23 +145,36 @@ export function Subtasks(props: {
               {done()}/{props.task.subtasks.length}
             </span>
           </h3>
-          <button
-            type="button"
-            title="Choose what these rows show"
-            aria-label="Choose what these rows show"
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              setPicker({ x: rect.right - PICKER_WIDTH, y: rect.bottom + 6 });
-            }}
-            class="-mx-1 rounded-[5px] px-1 text-ink-4 text-xs leading-4 hover:bg-hover hover:text-ink-2"
-          >
-            &#8943;
-          </button>
+          <div class="-mx-1 flex items-baseline gap-1">
+            <Show when={done() > 0}>
+              {/* The label is the state ("Show done" while hidden), so no
+                  aria-pressed — both together read doubly to a screen reader. */}
+              <button
+                type="button"
+                onClick={toggleHideDoneSubtasks}
+                class="rounded-[5px] px-1 text-ink-4 text-xs leading-4 hover:bg-hover hover:text-ink-2"
+              >
+                {hideDoneSubtasks() ? "Show done" : "Hide done"}
+              </button>
+            </Show>
+            <button
+              type="button"
+              title="Choose what these rows show"
+              aria-label="Choose what these rows show"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setPicker({ x: rect.right - PICKER_WIDTH, y: rect.bottom + 6 });
+              }}
+              class="rounded-[5px] px-1 text-ink-4 text-xs leading-4 hover:bg-hover hover:text-ink-2"
+            >
+              &#8943;
+            </button>
+          </div>
         </div>
       </Show>
 
       <ul>
-        <For each={props.task.subtasks}>
+        <For each={rows()}>
           {(subtask) => {
             const pending = () => isPlaceholder(subtask.id);
             /*
@@ -179,7 +205,7 @@ export function Subtasks(props: {
                     </span>
                   </Show>
                   <span
-                    class="flex-1 truncate text-base"
+                    class="flex-1 truncate text-md"
                     classList={{
                       "text-ink-4 line-through": isClosedType(subtask.statusType),
                       "text-ink": !isClosedType(subtask.statusType),
@@ -268,6 +294,73 @@ export function Subtasks(props: {
         )}
       </Show>
     </section>
+  );
+}
+
+/**
+ * The subtasks the reader asked to see: all of them, or the open ones once
+ * "Hide done" is on. One function so the section and the index rail cannot
+ * disagree about what hidden means.
+ */
+function visibleSubtasks(task: TaskDetail): TaskRef[] {
+  return hideDoneSubtasks()
+    ? task.subtasks.filter((subtask) => !isClosedType(subtask.statusType))
+    : task.subtasks;
+}
+
+/**
+ * The expanded view's left rail: the open task and its subtasks as an index.
+ *
+ * The reference draws a whole tree here. This is the two levels the detail
+ * payload already carries — going deeper, or showing a subtask's siblings from
+ * the subtask's own page, would mean fetching the parent's detail too.
+ */
+export function SubtaskIndex(props: { task: TaskDetail }): JSX.Element {
+  const open = useOpenTask();
+
+  return (
+    <nav
+      aria-label="Subtasks"
+      class="w-60 shrink-0 overflow-y-auto border-line/70 border-r px-3 py-4"
+    >
+      <h3 class="px-1.5 pb-2 font-medium text-ink-4 text-xs uppercase tracking-[0.04em]">
+        Subtasks
+      </h3>
+      {/* The task this panel is showing — the index's root, not a link. */}
+      <div
+        aria-current="true"
+        class="row-selected flex h-8 w-full items-center gap-2 rounded-[5px] px-1.5"
+      >
+        <StatusIcon type={props.task.statusType} color={props.task.statusColor} size={12} />
+        <span class="truncate text-ink text-sm">{props.task.name}</span>
+      </div>
+      <ul>
+        <For each={visibleSubtasks(props.task)}>
+          {(subtask) => (
+            <li>
+              <button
+                type="button"
+                disabled={isPlaceholder(subtask.id)}
+                onClick={() => open(subtask)}
+                class="flex h-8 w-full items-center gap-2 rounded-[5px] py-0 pr-1.5 pl-5 text-left text-sm hover:bg-hover"
+                classList={{ "opacity-55": isPlaceholder(subtask.id) }}
+              >
+                <StatusIcon type={subtask.statusType} color={subtask.statusColor} size={12} />
+                <span
+                  class="truncate"
+                  classList={{
+                    "text-ink-4 line-through": isClosedType(subtask.statusType),
+                    "text-ink-2": !isClosedType(subtask.statusType),
+                  }}
+                >
+                  {subtask.name}
+                </span>
+              </button>
+            </li>
+          )}
+        </For>
+      </ul>
+    </nav>
   );
 }
 

@@ -9,7 +9,7 @@
  *
  *   /t/{task}                 /{team}/v/li/{list}      /{team}/home
  *   /t/{team}/{custom_id}     /{team}/v/l/{view}       /{team}/v/f/{folder}
- *                             /{team}/v/o/s/{space}
+ *                             /{team}/v/o/s/{space}    /{team}/v/dc/{doc}/{page}
  *
  * So: drop the routing words, keep what is left as candidate ids (last segment
  * first, because that is the specific one), and let the mirror say what they
@@ -18,7 +18,7 @@
  */
 
 /** Segments that are ClickUp's routing vocabulary, never an id. */
-const ROUTE_WORDS = new Set(["t", "v", "li", "l", "f", "o", "s"]);
+const ROUTE_WORDS = new Set(["t", "v", "li", "l", "f", "o", "s", "dc"]);
 
 /** Paths that mean "the signed-in user's work", which is Rask's home view. */
 const MY_WORK = new Set(["home", "my-work"]);
@@ -106,4 +106,21 @@ function decodeSegment(segment: string): string {
     // the lookup miss rather than throwing on the way to a "not found" screen.
     return segment;
   }
+}
+
+/**
+ * The page id a Doc URL was opened at, if it carried one.
+ *
+ * `/{team}/v/dc/{doc}/{page}` puts the page behind the Doc, and the resolver
+ * above deliberately throws it away: it looks up ids and a page id is not one
+ * the mirror holds. But the reader can open on a page without knowing anything
+ * about it beyond the id, so the segment is worth keeping — read positionally,
+ * off the Doc id the lookup did match, so no new route shape is assumed.
+ */
+export function docPageId(input: string, docId: string): string | undefined {
+  const segments = pathname(input).split("/").map(decodeSegment);
+  const at = segments.indexOf(docId);
+  // `|| undefined` and not `??`: a trailing slash leaves an empty segment, and
+  // an empty page id would put `?page=` in the bar for a Doc opened at no page.
+  return at < 0 ? undefined : segments[at + 1] || undefined;
 }

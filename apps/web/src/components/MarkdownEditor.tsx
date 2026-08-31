@@ -163,11 +163,6 @@ export function MarkdownEditor(props: {
             ...defaultKeymap,
           ]),
           EditorView.domEventHandlers({
-            // Stop j/k and the rest of the global shortcuts from firing while typing.
-            keydown: (event) => {
-              event.stopPropagation();
-              return false;
-            },
             /*
              * A pasted screenshot becomes an attachment rather than nothing.
              *
@@ -213,5 +208,18 @@ export function MarkdownEditor(props: {
 
   onCleanup(() => view?.destroy());
 
-  return <div ref={host} class="selectable" />;
+  /*
+   * The shield against the shell's shortcuts lives here, on the wrapper, and
+   * not in `domEventHandlers`: CodeMirror runs those after its keymaps — which
+   * consume Escape and Mod-Enter and stop the chain — and defers the whole
+   * list to a microtask when a key lands mid-update, so a stopPropagation in
+   * there is either skipped or too late. The shell then reads the Escape that
+   * promised "esc to cancel" as "close the task". A listener on the wrapper
+   * runs during the native dispatch, every time, whatever CodeMirror is doing.
+   * Same pattern as DateField in TaskDetail.
+   */
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: not interactivity — only keeps keys typed in the editor from reaching the shell
+    <div ref={host} class="selectable" onKeyDown={(event) => event.stopPropagation()} />
+  );
 }

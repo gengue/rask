@@ -7,6 +7,8 @@ import {
   type ClickUpChecklist,
   type ClickUpComment,
   type ClickUpCustomField,
+  type ClickUpDoc,
+  type ClickUpDocPage,
   type ClickUpFolder,
   type ClickUpList,
   type ClickUpSpace,
@@ -21,6 +23,7 @@ import {
   clickUpAttachmentUpload,
   clickUpComment,
   clickUpCustomField,
+  clickUpDocPage,
   clickUpFolder,
   clickUpList,
   clickUpSpace,
@@ -30,6 +33,8 @@ import {
   clickUpUser,
   clickUpWebhook,
   createdComment,
+  docPagesResponse,
+  docsSearchResponse,
   listViewsResponse,
   runningTimeEntryResponse,
   taskPage,
@@ -55,6 +60,32 @@ import {
  * and they are the empty ones that cost ClickUp nothing to answer.
  */
 const VIEW_PAGE_BATCH = 4;
+
+/**
+ * How many Docs one task can hold before this stops asking for the rest.
+ *
+ * The search pages by cursor and `searchDocs` does not follow it. A task with
+ * more than fifty Docs on it is not a shape anyone has, and the endpoint's own
+ * ceiling is a hundred.
+ */
+const DOC_SEARCH_LIMIT = 50;
+
+/** The index walk's page size and its stop, which is 5000 Docs. */
+const DOC_INDEX_PAGE = 100;
+const DOC_INDEX_MAX_PAGES = 50;
+
+/**
+ * Archived and deleted Docs, kept out of both reads.
+ *
+ * Sent rather than assumed. Both are documented as defaulting to false and the
+ * live endpoint does behave that way today — a folder holding one archived Doc
+ * answers empty until `archived=true` asks for it — but this is the same v3
+ * surface whose `parent_type` enum was missing a value the workspace uses, so
+ * its documented defaults are not something to hang the sidebar on. An
+ * archived Doc that slipped through would be indexed as live and stay in the
+ * tree, because `mapDoc` reads an `archived` field the list response omits.
+ */
+const DOC_LIVE_ONLY = { archived: false, deleted: false } as const;
 
 export const CLICKUP_API_BASE = "https://api.clickup.com/api";
 
@@ -209,7 +240,10 @@ export class ClickUpClient {
       this.limiter.syncFromHeaders(response.headers);
 
       if (response.ok) {
-        const json = await response.json();
+        // 204 has no body, and `.json()` on one throws a parse error that reads
+        // like a malformed answer rather than the success it was. v3's page
+        // delete is the only endpoint here that answers that way.
+        const json = response.status === 204 ? undefined : await response.json();
         const parsed = schema.safeParse(json);
         if (!parsed.success) {
           throw new ClickUpError(
@@ -290,6 +324,18 @@ export class ClickUpClient {
       `/v2/space/${spaceId}/folder`,
       { query: { archived: false } },
     ).then((r) => r.folders);
+  }
+
+  /**
+   * One List, which is the only place a folderless List's statuses exist.
+   *
+   * `GET /space/{id}/list` answers with `override_statuses` and no `statuses`
+   * at all -- measured against the workspace, and the vendored spec agrees: the
+   * field is not in that response schema and is in this one. Lists inside a
+   * Folder arrive with the set inlined and never need this call.
+   */
+  getList(listId: string): Promise<ClickUpList> {
+    return this.request(clickUpList, "GET", `/v2/list/${listId}`);
   }
 
   /** Lists that live directly under a Space, with no Folder in between. */
@@ -536,15 +582,14 @@ export class ClickUpClient {
 
   // --- Time tracking ------------------------------------------------------
 
-  /*
+  /**
    * The timer running for the token's owner right now, or null.
    *
-   * No `assignee` parameter: ClickUp answers this endpoint for the token's own
-   * owner by design, and passing the id explicitly is a 403 TEAMM_002 on an
-   * OAuth token even when it names that same owner. `assignee` stays a
-   * parameter so callers read as intentional, but it does not travel.
+   * No assignee parameter, on purpose: with an OAuth token the explicit id is
+   * a 403 TEAMM_002 even when it names the owner, and the endpoint answers
+   * for the owner without it — which is the one person Rask ever asks about.
    */
-  getRunningTimeEntry(teamId: string, _assignee: string): Promise<ClickUpTimeEntry | null> {
+  getRunningTimeEntry(teamId: string): Promise<ClickUpTimeEntry | null> {
     return this.request(
       runningTimeEntryResponse,
       "GET",
@@ -859,6 +904,290 @@ export class ClickUpClient {
     );
   }
 
+  // --- Docs ---------------------------------------------------------------
+
+  /*
+   * Docs are the one thing Rask reads from ClickUp's *v3* API.
+   *
+   * Nothing special is needed to reach it: `baseUrl` is the host plus `/api`
+   * and every path here carries its own version, so `/v3/...` sits beside the
+   * `/v2/...` above with the same auth header, the same limiter and the same
+   * retry. The two are separate surfaces, not separate clients — v3's spec is
+   * vendored next to v2's, at `openapi/clickup-v3.json`.
+   *
+   * They do not answer alike, though. A v2 list endpoint wraps its rows in a
+   * named key or in `data`; these answer with a bare array, or with `docs` and
+   * a `next_cursor` rather than a page number.
+   */
+
+  /**
+   * Docs under one parent — for Rask, the Docs written inside one task.
+   *
+   * `parentType` is spelled as the word rather than the number even though
+   * both are accepted, because the number is `1` and a bare 1 in a query
+   * string is the kind of thing somebody later reads as a boolean.
+   *
+   * Unpaginated on purpose: a `parentId` this narrow answers with the handful
+   * of Docs on one thing. `listAllDocs` is the one that follows the cursor.
+   */
+  searchDocs(
+    workspaceId: string,
+    params: { parentId: string; parentType: "TASK" | "SPACE" | "FOLDER" | "LIST" | "WORKSPACE" },
+  ): Promise<ClickUpDoc[]> {
+    return this.request(docsSearchResponse, "GET", `/v3/workspaces/${workspaceId}/docs`, {
+      query: {
+        parent_id: params.parentId,
+        parent_type: params.parentType,
+        limit: DOC_SEARCH_LIMIT,
+        ...DOC_LIVE_ONLY,
+      },
+    }).then((r) => r.docs ?? []);
+  }
+
+  /**
+   * Every page of a Doc, with its content, in one request.
+   *
+   * `max_page_depth: -1` is what makes that true — the default walks one level
+   * and a Doc's sub-pages would come back as names with nothing in them. The
+   * flatten afterwards is for the same reason: the spec says a page may carry
+   * its own `pages`, so a nested one that this returned untouched would be a
+   * page the reader never sees.
+   *
+   * Markdown rather than HTML because the panel renders it through the same
+   * sanitizer as every task description, and because `text/plain` throws the
+   * tables away.
+   */
+  /**
+   * Every Doc in the workspace, following the cursor to the end.
+   *
+   * Unfiltered rather than one walk per parent type. `parent_type` is a filter,
+   * not a required argument, and the rows carry their own parent — so five
+   * scoped walks would be five times the requests for the same answer.
+   *
+   * This is an index, not content: names and parents, which is what the tree
+   * needs. Reading a Doc is `getDocPages`, and that only happens when somebody
+   * opens one. Measured against the workspace, 329 Docs cost four requests.
+   */
+  async listAllDocs(workspaceId: string): Promise<ClickUpDoc[]> {
+    const all: ClickUpDoc[] = [];
+    let cursor: string | undefined;
+
+    /*
+     * A bound rather than `while (cursor)`. The cursor comes from ClickUp and
+     * the loop's exit depends on it eventually coming back empty; a server that
+     * keeps answering with one costs a request every time round, against a
+     * budget the whole app shares. Fifty pages is 5000 Docs.
+     */
+    for (let page = 0; page < DOC_INDEX_MAX_PAGES; page++) {
+      const answer = await this.request(
+        docsSearchResponse,
+        "GET",
+        `/v3/workspaces/${workspaceId}/docs`,
+        { query: { limit: DOC_INDEX_PAGE, cursor, ...DOC_LIVE_ONLY } },
+      );
+      const docs = answer.docs ?? [];
+      all.push(...docs);
+      cursor = answer.next_cursor ?? undefined;
+      if (!cursor || docs.length === 0) break;
+    }
+
+    return all;
+  }
+
+  getDocPages(workspaceId: string, docId: string): Promise<ClickUpDocPage[]> {
+    return this.request(
+      docPagesResponse,
+      "GET",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages`,
+      { query: { max_page_depth: -1, content_format: "text/md" } },
+    ).then(flattenDocPages);
+  }
+
+  /**
+   * One page on its own, body included.
+   *
+   * The page list already carries every body, so this exists for the one thing
+   * a list read cannot answer: what ClickUp holds *now*. `replaceDocPage` sends
+   * a whole body built from a read, and the only check that keeps that from
+   * discarding somebody else's edit is a `date_updated` compare made at the
+   * moment of the write. A value taken from the list the browser has been
+   * looking at is as old as the browser is.
+   */
+  getDocPage(workspaceId: string, docId: string, pageId: string): Promise<ClickUpDocPage> {
+    return this.request(
+      clickUpDocPage,
+      "GET",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+      { query: { content_format: "text/md" } },
+    );
+  }
+
+  /**
+   * A new page in a Doc that already exists.
+   *
+   * The other additive write, and the one the release notes Doc actually wants:
+   * its 24 dated entries are child pages of one root page, not blocks appended
+   * to a running one. A create cannot lose anything by construction — it
+   * addresses a page that does not exist yet — which is what puts it in the
+   * same slice as `appendToDocPage` and both of them ahead of replace.
+   *
+   * `parent_page_id` is omitted rather than sent null for a page at the root of
+   * the Doc; the field is documented as absent on those, and this is the v3
+   * surface, where sending a shape it did not describe is how the parent type
+   * enum went wrong.
+   *
+   * Nothing else goes in the body. `name` and `sub_title` and `content` all
+   * default to `""` upstream, so every key present is a field being written:
+   * sending `sub_title: undefined` through `JSON.stringify` drops it, but
+   * sending it empty would set it, and a page whose subtitle was silently
+   * blanked at birth is not something anybody would trace back to here.
+   *
+   * The body it is born with is left empty on purpose. Writing into it is
+   * `appendToDocPage`'s job, which keeps one endpoint per shape of change and
+   * means a page can never be created and overwritten in the same breath.
+   */
+  createDocPage(
+    workspaceId: string,
+    docId: string,
+    input: { name: string; parentPageId?: string },
+  ): Promise<ClickUpDocPage> {
+    return this.request(
+      clickUpDocPage,
+      "POST",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages`,
+      {
+        body: input.parentPageId
+          ? { name: input.name, parent_page_id: input.parentPageId }
+          : { name: input.name },
+      },
+    );
+  }
+
+  /**
+   * Adds a block to the end of a page, without sending the page back.
+   *
+   * The mode and the format are written in here rather than taken as
+   * arguments, for the reason `searchDocs` spells its parent type as a word:
+   * the other value this field accepts is `replace`, and a mode that arrives
+   * as a parameter is a mode a caller can get wrong exactly once.
+   *
+   * Append is the only write in this set that cannot lose text, and that is a
+   * property of the request rather than of any check around it: the body
+   * carries the new block and nothing else, so there is no stale copy of the
+   * page in flight and nothing a concurrent edit in ClickUp's own collaborative
+   * editor can be overwritten by. Two simultaneous appends both land, in an
+   * order nobody promised. Replace has neither property — see
+   * `docs/doc-editing.md`.
+   *
+   * Nothing is parsed out of the answer because the vendored spec declares no
+   * schema for it at all. `getDocPage` is what says what the page now holds.
+   *
+   * ponytail: rides the shared 5xx retry, so a 502 that ClickUp returned after
+   * applying the append would append the block twice. `maxRetries` is per
+   * client and `clientFor` hands out one, so silencing it here means a second
+   * client per token — not worth it for a failure this narrow whose damage is
+   * a duplicated paragraph the author can see and delete. If duplicates ever
+   * turn up, the upgrade is a single-page read on the failure path
+   * (`getPagePublic`, not wrapped yet) comparing `date_updated` against the
+   * value read before the write, which tells "it never landed" from "it landed
+   * and the gateway died".
+   */
+  async appendToDocPage(
+    workspaceId: string,
+    docId: string,
+    pageId: string,
+    markdown: string,
+  ): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "PUT",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+      {
+        body: {
+          content: markdown,
+          content_edit_mode: "append",
+          content_format: "text/md",
+        },
+      },
+    );
+  }
+
+  /**
+   * Writes a page's whole body over what was there.
+   *
+   * The one write in this file that can lose text, and the mode is written in
+   * here for the same reason `appendToDocPage` writes its own: the value is the
+   * difference between adding a paragraph and overwriting a page, and a caller
+   * that passes it can pass the wrong one. Two verbs, no flag.
+   *
+   * What makes it safe enough to offer is not in this method. `content` was
+   * built by reading the page back as markdown, so a body written against a
+   * read from two minutes ago silently discards whatever was written in
+   * ClickUp's own collaborative editor in between — and there is no webhook for
+   * a Doc to tell us there was. The route (`apps/api/src/docs.ts`) re-reads the
+   * page and compares `date_updated` immediately before calling this, which is
+   * a compare-and-swap with a few hundred milliseconds still open in the
+   * middle. A check, not a lock.
+   *
+   * `name` and `sub_title` stay out of the body as they do for the append: both
+   * default to `""` upstream, so a key present is a field being written, and a
+   * page renamed to nothing as a side effect of an edit is not something anyone
+   * would trace back here.
+   *
+   * The shared 5xx retry is harmless on this one, unlike the append: the same
+   * body sent twice leaves the page holding exactly what it held after the
+   * first. What it can do is win a race it should have lost, which is what the
+   * route's compare is for.
+   */
+  async replaceDocPage(
+    workspaceId: string,
+    docId: string,
+    pageId: string,
+    markdown: string,
+  ): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "PUT",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+      {
+        body: {
+          content: markdown,
+          content_edit_mode: "replace",
+          content_format: "text/md",
+        },
+      },
+    );
+  }
+
+  /**
+   * Removes a page, and everything written on it.
+   *
+   * Absent from `openapi/clickup-v3.json` — there is no `deletePagePublic` in
+   * the vendored file at all — and it exists anyway. Confirmed live against
+   * workspace 529 on 2026-08-31: `DELETE /v3/workspaces/{ws}/docs/{doc}/pages/
+   * {page}` answers 204 and the page is gone. This is the same shape as the
+   * `parent_type` enum `clickUpDoc` documents: the spec understates the
+   * surface, so "not in the file" is a reason to go and ask, not a conclusion.
+   *
+   * Three neighbouring answers from the same session, so nobody has to probe
+   * them twice. `DELETE .../docs/{doc}` is 405 — there is no doc-level delete
+   * on v3, though `DELETE /v2/view/{doc}` does remove a Doc, since Docs are
+   * view-backed. `PUT .../pages/{page}` with `{ archived: true }` is 403, so
+   * there is no softer version of this call to reach for.
+   *
+   * The one write here that destroys text, which is why it is a verb of its own
+   * rather than a flag on the edit: nothing a caller can get wrong turns an
+   * append into this. ClickUp offers no undo for it that Rask can reach — ask
+   * the person first.
+   */
+  async deleteDocPage(workspaceId: string, docId: string, pageId: string): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "DELETE",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+    );
+  }
+
   // --- Webhooks -----------------------------------------------------------
 
   createWebhook(
@@ -1045,6 +1374,32 @@ function withoutListPageLies<T extends { checklists?: unknown }>(task: T): T {
   if (!("checklists" in task)) return task;
   const { checklists: _dropped, ...rest } = task;
   return rest as T;
+}
+
+/**
+ * Depth-first, parents before their children, siblings in `order_index` order.
+ *
+ * Reading order, in other words — the same order the Doc has in ClickUp. The
+ * index is sparse (1 and 3, not 0 and 1), so it is only ever compared, never
+ * used as a position.
+ *
+ * A child inherits `parent_page_id` from the nesting when it did not carry one.
+ * Flattening throws the shape away and `parent_page_id` is all that is left to
+ * rebuild it from: the reader indents by it and a new page is created as a
+ * sibling under it, so a child that arrives nested and unlabelled would draw
+ * flat and file its siblings at the root of the Doc. The workspace has only
+ * ever answered flat, where the field is always set — this is for the shape
+ * the spec declares and nobody has seen, which is the same reason `pages` is
+ * parsed at all.
+ */
+function flattenDocPages(pages: ClickUpDocPage[], parentId?: string): ClickUpDocPage[] {
+  return [...pages]
+    .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+    .flatMap((page) => {
+      const { pages: children, ...rest } = page;
+      const placed = rest.parent_page_id ? rest : { ...rest, parent_page_id: parentId ?? null };
+      return [placed, ...flattenDocPages(children ?? [], page.id)];
+    });
 }
 
 /** Full jitter, capped at 30s. Keeps a fleet of workers from retrying in lockstep. */

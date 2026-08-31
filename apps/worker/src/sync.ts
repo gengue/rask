@@ -1,8 +1,10 @@
-import type { ClickUpClient } from "@rask/clickup-client";
+import type { ClickUpClient, ClickUpDoc, ClickUpList } from "@rask/clickup-client";
 import {
   type Db,
   ingestComments,
   ingestTasks,
+  mapDoc,
+  replaceDocs,
   syncCursors,
   tasks,
   upsertFolders,
@@ -19,8 +21,9 @@ export interface SyncStats {
 }
 
 /**
- * Mirrors the Space/Folder/List tree. Cheap (1 + 2n requests for n spaces) and
- * a prerequisite for everything else, since list ids drive task sync.
+ * Mirrors the Space/Folder/List tree. Cheap (1 + 2n requests for n spaces, plus
+ * one per folderless List that overrides its statuses) and a prerequisite for
+ * everything else, since list ids drive task sync.
  */
 export async function syncHierarchy(
   db: Db,
@@ -29,6 +32,7 @@ export async function syncHierarchy(
 ): Promise<SyncStats> {
   const started = Date.now();
   const tree = await client.getWorkspaceHierarchy(teamId);
+  let extra = 0;
 
   await upsertSpaces(
     db,
@@ -38,18 +42,94 @@ export async function syncHierarchy(
 
   for (const { space, folders, lists: folderless } of tree) {
     await upsertFolders(db, folders, space.id);
-    await upsertLists(db, folderless, { spaceId: space.id, folderId: null });
+    const readable = await Promise.all(
+      folderless.map(async (list) => {
+        if (!list.override_statuses) return list;
+        extra++;
+        return readStatuses(client, list);
+      }),
+    );
+    await upsertLists(
+      db,
+      readable.filter((list) => list !== null),
+      { spaceId: space.id, folderId: null },
+    );
     for (const folder of folders) {
       await upsertLists(db, folder.lists, { spaceId: space.id, folderId: folder.id });
     }
   }
 
+  /*
+   * The Doc index rides along with the tree, because it is the same kind of
+   * thing: names and parents that the sidebar needs all at once, refreshed on
+   * the same schedule. It is deliberately last — a workspace whose Docs cannot
+   * be read still gets its Spaces, Folders and Lists, which is what task sync
+   * depends on.
+   *
+   * A failure here is warned about and swallowed for that reason. There is no
+   * webhook for a Doc, so the next hierarchy pass is the retry.
+   */
+  const docs = await readDocIndex(client, teamId);
+  if (docs)
+    await replaceDocs(
+      db,
+      teamId,
+      docs.map((doc) => mapDoc(doc, teamId)),
+    );
+
   return {
-    requests: 1 + tree.length * 2,
+    // The index costs at least one request even when it comes back empty.
+    requests: 1 + tree.length * 2 + extra + (docs ? Math.max(1, Math.ceil(docs.length / 100)) : 0),
     tasks: 0,
     changed: 0,
     ms: Date.now() - started,
   };
+}
+
+/**
+ * The workspace's Docs, or null if ClickUp would not say.
+ *
+ * Null rather than an empty array, and the caller checks: `replaceDocs` deletes
+ * every row it was not given, so handing it `[]` on a failed read would empty
+ * the sidebar of Docs and look exactly like a workspace that has none.
+ */
+async function readDocIndex(client: ClickUpClient, teamId: string): Promise<ClickUpDoc[] | null> {
+  try {
+    return await client.listAllDocs(teamId);
+  } catch (error) {
+    console.warn("[sync] doc index:", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+/**
+ * Re-reads a folderless List that overrides its Space, for the set itself.
+ *
+ * `GET /space/{id}/list` carries `override_statuses: true` and no `statuses`,
+ * so the tree walk alone cannot say what those statuses are -- and every status
+ * picker fell back to the Space's set, which for an overriding List is names it
+ * does not have and none of the ones it does. Lists inside a Folder come with
+ * the effective set inlined, so this is only ever the folderless overriders:
+ * one request each, none at all for a workspace without any.
+ *
+ * Null on failure, and the caller leaves that List out of the pass rather than
+ * writing the shallow row: `upsertLists` sets every column it names, so a row
+ * with no statuses blanks the set already mirrored and puts the picker straight
+ * back on the Space's -- the bug this exists to fix, reintroduced by a 500. The
+ * rest of the tree still lands, and the next sync tries again. The cost is that
+ * a List that is both new and unreadable waits a cycle to appear at all, which
+ * is the rarer half of a case that is already an outage.
+ */
+async function readStatuses(client: ClickUpClient, list: ClickUpList): Promise<ClickUpList | null> {
+  try {
+    return await client.getList(list.id);
+  } catch (error) {
+    console.warn(
+      `[sync] statuses for list ${list.id}:`,
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
 }
 
 /**

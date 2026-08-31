@@ -483,6 +483,25 @@ export const viewResponse = z.looseObject({ view: clickUpView });
  */
 export const VIEW_PARENT = { space: 4, folder: 5, list: 6, workspace: 7 } as const;
 
+/**
+ * The same numbers for a Doc's parent, except where they are not.
+ *
+ * 4, 5 and 6 agree with `VIEW_PARENT` above. 7 does not: on a view it means the
+ * Workspace, on a Doc it means Everything, and the Workspace is 12. Sharing the
+ * constant would put every workspace-level Doc under the wrong node and nothing
+ * would throw. They are written out twice on purpose.
+ *
+ * 1 is a task, and it is the one the vendored v3 spec omits — see `clickUpDoc`.
+ */
+export const DOC_PARENT = {
+  task: 1,
+  space: 4,
+  folder: 5,
+  list: 6,
+  everything: 7,
+  workspace: 12,
+} as const;
+
 export const clickUpList = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -642,3 +661,109 @@ export const timeEntryResponse = z.looseObject({ data: clickUpTimeEntry });
 export const timeEntriesResponse = z.looseObject({
   data: z.array(clickUpTimeEntry).nullish(),
 });
+
+// --- Docs -----------------------------------------------------------------
+
+/**
+ * A Doc, which lives on API v3 and not on the v2 surface everything else here
+ * speaks.
+ *
+ * `parent.type` is the field that matters and the one the vendored spec gets
+ * wrong. `PublicDocsParentDto` in `openapi/clickup-v3.json` documents 4 Space,
+ * 5 Folder, 6 List, 7 Everything and 12 Workspace — and omits the value the
+ * workspace actually uses most. A Doc written inside a task comes back as
+ * `parent: { id: "<task id>", type: 1 }`, and sending `parent_type=99` to the
+ * search endpoint answers 400 with the real set:
+ *
+ *   parent_type must be one of the following values:
+ *   1, 4, 5, 6, 7, 12, TASK, SPACE, FOLDER, LIST, EVERYTHING, WORKSPACE
+ *
+ * Numbers rather than a named enum here for the same reason the statuses are
+ * loose: this list has already been wrong once in the direction of "there are
+ * more of these than the document says".
+ */
+export const clickUpDoc = z.looseObject({
+  id: z.string(),
+  name: z.string().nullish(),
+  parent: z
+    .looseObject({
+      id: id.nullish(),
+      type: z.number().nullish(),
+    })
+    .nullish(),
+  date_created: epochMs,
+  date_updated: epochMs,
+  creator: numericId.nullish(),
+  deleted: z.boolean().nullish(),
+  archived: z.boolean().nullish(),
+});
+export type ClickUpDoc = z.infer<typeof clickUpDoc>;
+
+/**
+ * One page inside a Doc. The content is whatever `content_format` asked for.
+ *
+ * `pages` is the nesting the spec declares and that no doc in the workspace
+ * came back with — `max_page_depth=-1` answered with a flat array both times.
+ * It is parsed anyway, and flattened by `getDocPages`, because the failure mode
+ * of assuming flat is a sub-page that silently never renders.
+ */
+export const clickUpDocPage: z.ZodType<ClickUpDocPage> = z.lazy(() =>
+  z.looseObject({
+    id: z.string(),
+    doc_id: z.string().nullish(),
+    parent_page_id: z.string().nullish(),
+    name: z.string().nullish(),
+    content: z.string().nullish(),
+    /** Where the page sits among its siblings. Sparse: 1 and 3, not 0 and 1. */
+    order_index: z.number().nullish(),
+    date_updated: epochMs,
+    /**
+     * The page's icon, as `{ value: "emoji::🎃" }`.
+     *
+     * Loose about the prefix rather than parsing it: `emoji::` is the only form
+     * seen, but the field is named `avatar` and ClickUp uses that word for
+     * uploaded images elsewhere. `docPageIcon` is what reads it.
+     */
+    avatar: z.looseObject({ value: z.string().nullish() }).nullish(),
+    /** The banner across the top of a page. A public attachments URL. */
+    cover: z.looseObject({ image_url: z.string().nullish() }).nullish(),
+    /** Who wrote it and who has edited it since. ClickUp user ids. */
+    authors: z.array(numericId).nullish(),
+    contributors: z.array(numericId).nullish(),
+    pages: z.array(clickUpDocPage).nullish(),
+  }),
+);
+export interface ClickUpDocPage {
+  id: string;
+  doc_id?: string | null;
+  parent_page_id?: string | null;
+  name?: string | null;
+  content?: string | null;
+  order_index?: number | null;
+  date_updated: Date | null;
+  avatar?: { value?: string | null } | null;
+  cover?: { image_url?: string | null } | null;
+  authors?: number[] | null;
+  contributors?: number[] | null;
+  pages?: ClickUpDocPage[] | null;
+}
+
+/**
+ * A page's icon, or null.
+ *
+ * ClickUp stores it prefixed by kind — `emoji::🎃` — and only the emoji form
+ * has ever come back. Anything else is dropped rather than rendered raw, which
+ * is what stops a future `image::https://…` from printing as text in a heading.
+ */
+export function docPageIcon(page: ClickUpDocPage): string | null {
+  const value = page.avatar?.value;
+  return value?.startsWith("emoji::") ? value.slice("emoji::".length) || null : null;
+}
+
+/** The search answers a bare object, not the `{ data }` wrapper v2 uses. */
+export const docsSearchResponse = z.looseObject({
+  docs: z.array(clickUpDoc).nullish(),
+  next_cursor: z.string().nullish(),
+});
+
+export const docPagesResponse = z.array(clickUpDocPage);

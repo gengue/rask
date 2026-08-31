@@ -1,6 +1,7 @@
 import { placeholderId } from "@rask/clickup-client/vocabulary";
 import { createResource, createSignal, type JSX, onMount, Show } from "solid-js";
 import { api } from "../lib/api.ts";
+import { readyValue } from "../lib/resource.ts";
 import { tasks } from "../lib/store.ts";
 import { StatusIcon } from "./StatusIcon.tsx";
 
@@ -15,6 +16,12 @@ export function QuickAdd(props: {
   listId: string | null;
   listName: string | null;
   onClose: () => void;
+  /**
+   * Fires with the new task's placeholder id and a promise that settles when
+   * the API has the row — which is when opening `?task=<id>` stops racing the
+   * POST that creates what it fetches. Rejected means the insert rolled back.
+   */
+  onCreated: (id: string, persisted: Promise<unknown>) => void;
 }): JSX.Element {
   const [name, setName] = createSignal("");
   let input!: HTMLInputElement;
@@ -25,7 +32,9 @@ export function QuickAdd(props: {
     () => props.listId,
     (listId) => api.statuses(listId).catch(() => []),
   );
-  const initial = () => statuses()?.[0] ?? null;
+  // `readyValue`, because the plain accessor read while the fetch is in
+  // flight unmounted the whole page behind the box until the statuses came.
+  const initial = () => readyValue(statuses)?.[0] ?? null;
 
   onMount(() => input.focus());
 
@@ -35,8 +44,9 @@ export function QuickAdd(props: {
 
     const status = initial();
 
-    tasks.insert({
-      id: placeholderId(crypto.randomUUID()),
+    const id = placeholderId(crypto.randomUUID());
+    const tx = tasks.insert({
+      id,
       customId: null,
       name: value,
       status: status?.status ?? null,
@@ -60,6 +70,7 @@ export function QuickAdd(props: {
 
     setName("");
     props.onClose();
+    props.onCreated(id, tx.isPersisted.promise);
   };
 
   return (

@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { type Task, type TaskDetail, type TimeEntry, taskHalf } from "./api.ts";
-import { merge, tasks } from "./store.ts";
+import { merge } from "./store.ts";
 import { setRunningTimer } from "./timer.ts";
 import { pushToast } from "./toast.ts";
 
@@ -59,7 +59,8 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
   source.addEventListener("ready", () => setConnected(true));
 
   source.addEventListener("tasks", (event) => {
-    merge(JSON.parse((event as MessageEvent<string>).data) as Task[]);
+    const rows = JSON.parse((event as MessageEvent<string>).data) as Task[];
+    merge(rows);
   });
 
   source.addEventListener("task", (event) => {
@@ -69,15 +70,11 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
      * whole detail in there means the list rebuilds on every push. The panel
      * still gets everything, through `pushedDetail` below.
      *
-     * `customValues` is kept from the row already here: a detail never carries
-     * that key, list rows always do, and a row stripped of it both breaks the
-     * dedupe and fails the Custom Field clause its view is filtered on —
-     * which would drop the open task from the list it is being read in.
+     * A detail carries no `customValues` at all; `merge` keeps the row's own,
+     * which both the columns and a Custom Field clause read — see
+     * `keepValues`.
      */
-    const row = taskHalf(detail);
-    const prev = tasks.get(detail.id);
-    if (prev && "customValues" in prev) row.customValues = prev.customValues;
-    merge([row]);
+    merge([taskHalf(detail)]);
     setPushedDetail(detail);
     handlers.onDetail?.(detail);
   });

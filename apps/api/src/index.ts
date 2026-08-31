@@ -29,13 +29,15 @@ import { readUpload } from "./attachments.ts";
 import { authRoutes, currentUser, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
-import { fieldIdsIn, parseFilter } from "./filters.ts";
+import { docsRoutes } from "./docs.ts";
+import { fieldIdsIn, parseFilter, withDisplayFields } from "./filters.ts";
 import {
   findListView,
   findViewMembership,
   getHierarchy,
   getTaskDetail,
   type ListViewRow,
+  listDisplayFields,
   listFilterFields,
   listMembers,
   listTasks,
@@ -74,6 +76,7 @@ import {
   newCommentInput,
   newTaskInput,
   renameChecklist,
+  resolveCreatedTask,
   setCustomField,
   setTaskTags,
   taskPatchInput,
@@ -382,6 +385,11 @@ const taskFilters = z.object({
    * `parseFilter` rejects a field it does not know rather than ignoring it.
    */
   filter: z.string().max(8000).optional(),
+  /**
+   * Comma-separated Custom Field ids whose values the client draws as columns.
+   * Unioned with the filter's own ids; see `withDisplayFields`.
+   */
+  fields: z.string().max(2000).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
 
@@ -409,7 +417,7 @@ api.get("/tasks", async (c) => {
     statuses: f.status ? f.status.split(",") : undefined,
     tag: f.tag,
     clauses,
-    fieldIds: fieldIdsIn(clauses),
+    fieldIds: withDisplayFields(fieldIdsIn(clauses), f.fields),
     includeClosed: f.closed === "1",
     limit,
   });
@@ -434,6 +442,14 @@ api.get("/lists/:id/statuses", async (c) => c.json(await statusesForList(db, c.r
  */
 api.get("/lists/:id/filter-fields", async (c) =>
   c.json(await listFilterFields(db, c.req.param("id"))),
+);
+
+/**
+ * The Custom Fields the column picker can offer for one List — every type,
+ * where `filter-fields` above stops at the ones worth a facet.
+ */
+api.get("/lists/:id/display-fields", async (c) =>
+  c.json(await listDisplayFields(db, c.req.param("id"))),
 );
 
 /**
@@ -506,7 +522,10 @@ api.get("/views/:id/tasks", async (c) => {
    */
   let fieldIds: string[] = [];
   try {
-    fieldIds = fieldIdsIn(parseFilter(c.req.query("filter")));
+    fieldIds = withDisplayFields(
+      fieldIdsIn(parseFilter(c.req.query("filter"))),
+      c.req.query("fields"),
+    );
   } catch {
     return c.json({ error: "bad filter" }, 400);
   }
@@ -605,6 +624,17 @@ api.get("/views/:id/tasks", async (c) => {
   return c.json(rows);
 });
 
+/**
+ * What a placeholder task turned into.
+ *
+ * A browser can be showing `?task=tmp_…` when the outbox drains and the
+ * placeholder dies; this is how it follows the task to its real id instead of
+ * being left holding a snapshot no write can address. See `resolveCreatedTask`.
+ */
+api.get("/tasks/:id/resolved", async (c) =>
+  c.json(await resolveCreatedTask(db, c.req.param("id"))),
+);
+
 api.get("/tasks/:id", async (c) => {
   const detail = await getTaskDetail(db, c.req.param("id"));
   if (!detail) return c.json({ error: "not found" }, 404);
@@ -620,6 +650,12 @@ api.get("/tasks/:id", async (c) => {
 api.patch("/tasks/:id", async (c) => {
   const body = taskPatchInput.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+  // Queued anyway, the patch ships addressed to an id ClickUp never assigned
+  // and 404s — same reason the delete below refuses. Now that a just-created
+  // task opens on its own, its placeholder is on screen for the couple of
+  // seconds this window lasts, so the refusal is no longer a corner case.
+  if (isPlaceholder(c.req.param("id"))) return c.json({ error: NOT_YET }, 409);
 
   await applyTaskPatch(db, {
     taskId: c.req.param("id"),
@@ -674,6 +710,7 @@ api.post("/tasks/:id/comments", async (c) => {
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
 
   const taskId = c.req.param("id");
+  if (isPlaceholder(taskId)) return c.json({ error: NOT_YET }, 409);
   await createComment(db, { taskId, userId: c.get("user").id, comment: body.data });
   return c.json(await pushDetail(c.get("user").id, taskId), 201);
 });
@@ -726,6 +763,7 @@ api.post("/tasks/:id/checklists", async (c) => {
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
 
   const taskId = c.req.param("id");
+  if (isPlaceholder(taskId)) return c.json({ error: NOT_YET }, 409);
   await createChecklist(db, { taskId, userId: c.get("user").id, checklist: body.data });
   return c.json(await pushDetail(c.get("user").id, taskId), 201);
 });
@@ -851,6 +889,7 @@ api.post("/tasks/:id/attachments", async (c) => {
 api.put("/tasks/:id/tags", async (c) => {
   const body = taskTagsInput.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+  if (isPlaceholder(c.req.param("id"))) return c.json({ error: NOT_YET }, 409);
 
   await setTaskTags(db, {
     taskId: c.req.param("id"),
@@ -886,6 +925,7 @@ const customFieldInput = z.object({ value: z.unknown(), mirror: z.unknown() });
 api.put("/tasks/:id/fields/:fieldId", async (c) => {
   const body = customFieldInput.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+  if (isPlaceholder(c.req.param("id"))) return c.json({ error: NOT_YET }, 409);
 
   await setCustomField(db, {
     taskId: c.req.param("id"),
@@ -931,6 +971,12 @@ api.route(
     refreshTask: (userId, taskId, options) => refreshTask(userId, taskId, options),
   }),
 );
+
+/*
+ * Docs on a task, also read live rather than from the mirror. Same mounting
+ * rule as the rest: on `api`, so it inherits the session check.
+ */
+api.route("/", docsRoutes({ db, clientFor }));
 
 api.route(
   "/timesheet",

@@ -184,7 +184,7 @@ describe("the running timer", () => {
    */
   test("asks for the token's own timer, without naming an assignee", async () => {
     const { client, calls } = makeClient([{ body: { data: live } }]);
-    const entry = await client.getRunningTimeEntry("42", "7");
+    const entry = await client.getRunningTimeEntry("42");
 
     expect(calls[0]?.url).not.toContain("assignee");
     expect(entry && isTimeEntryRunning(entry)).toBe(true);
@@ -192,7 +192,7 @@ describe("the running timer", () => {
 
   test("null data means nothing is running", async () => {
     const { client } = makeClient([{ body: { data: null } }]);
-    expect(await client.getRunningTimeEntry("42", "7")).toBeNull();
+    expect(await client.getRunningTimeEntry("42")).toBeNull();
   });
 
   test("start names the task in `tid`", async () => {

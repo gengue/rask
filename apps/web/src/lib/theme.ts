@@ -1,18 +1,45 @@
 import { createSignal } from "solid-js";
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice =
+  | "system"
+  | "light"
+  | "dark"
+  | "ember"
+  | "brutal"
+  | "xp"
+  | "aqua"
+  | "cyber";
 
-/** Ordered so "System", the default, comes first, and so cycling starts there. */
-export const THEMES: ReadonlyArray<readonly [ThemeChoice, string]> = [
-  ["system", "System"],
-  ["light", "Light"],
-  ["dark", "Dark"],
+/**
+ * Ordered so "System", the default, comes first. Everything below "Dark" is an
+ * easter egg — extra themes rather than extra modes, which is what turned the
+ * cycling button into a menu: eight states behind one blind press is a slot
+ * machine.
+ *
+ * The third column is which way round the theme paints, and it is here rather
+ * than in a predicate because it was becoming a list of its own: `apply` below,
+ * the inline script in index.html, and `e2e/appearance.spec.ts` each carried
+ * their own `theme === "dark" || theme === "ember"`, and every light theme
+ * added made all three longer. Getting it wrong is quiet — native scrollbars
+ * and date pickers painted the wrong way round, nothing else.
+ *
+ * "system" is nominally light here and never used: it resolves to one of the
+ * other two before anything reads this.
+ */
+export const THEMES: ReadonlyArray<readonly [ThemeChoice, string, "light" | "dark"]> = [
+  ["system", "System", "light"],
+  ["light", "Light", "light"],
+  ["dark", "Dark", "dark"],
+  ["ember", "Ember", "dark"],
+  ["brutal", "Brutalist", "light"],
+  ["xp", "Windows XP", "light"],
+  ["aqua", "Aqua", "light"],
+  ["cyber", "Cyberpunk", "dark"],
 ];
 
-/** The next choice in that order, which is what one button can offer. */
-export function nextTheme(current: ThemeChoice): ThemeChoice {
-  const index = THEMES.findIndex(([value]) => value === current);
-  return THEMES[(index + 1) % THEMES.length]?.[0] ?? "system";
+/** Which way round a theme paints, for the two copies that cannot import it. */
+export function themePolarity(choice: Exclude<ThemeChoice, "system">): "light" | "dark" {
+  return THEMES.find(([value]) => value === choice)?.[2] ?? "light";
 }
 
 export function themeLabel(choice: ThemeChoice): string {
@@ -49,8 +76,11 @@ const media =
 
 function read(): ThemeChoice {
   try {
-    const value = localStorage.getItem(KEY);
-    return value === "light" || value === "dark" ? value : "system";
+    // Off the list rather than a chain of equality checks: this was the third
+    // place a theme's name had to be spelled, and the one where getting it
+    // wrong is silent — an unrecognised name is not an error, it is System.
+    const stored = localStorage.getItem(KEY);
+    return THEMES.find(([value]) => value === stored)?.[0] ?? "system";
   } catch {
     return "system";
   }
@@ -61,7 +91,7 @@ const [systemDark, setSystemDark] = createSignal(media?.matches ?? false);
 
 export const themeChoice = choice;
 
-export function resolvedTheme(): "light" | "dark" {
+export function resolvedTheme(): Exclude<ThemeChoice, "system"> {
   const value = choice();
   if (value !== "system") return value;
   return systemDark() ? "dark" : "light";
@@ -75,9 +105,10 @@ function apply(): void {
   if (!media) return;
   const theme = resolvedTheme();
   const root = document.documentElement;
-  root.classList.toggle("dark", theme === "dark");
-  root.classList.toggle("light", theme === "light");
-  root.style.colorScheme = theme;
+  // Also off the list. "system" is on it and is never what resolves, so its
+  // class is toggled off on every pass and never on.
+  for (const [value] of THEMES) root.classList.toggle(value, value === theme);
+  root.style.colorScheme = themePolarity(theme);
 }
 
 media?.addEventListener("change", (event) => {

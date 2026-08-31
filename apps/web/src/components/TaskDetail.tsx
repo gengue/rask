@@ -2,6 +2,7 @@ import { formatMention } from "@rask/clickup-client/mentions";
 import { isPlaceholder, parseInstant } from "@rask/clickup-client/vocabulary";
 import {
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   For,
@@ -10,6 +11,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  Suspense,
 } from "solid-js";
 import { unwrap } from "solid-js/store";
 import {
@@ -23,6 +25,7 @@ import {
 } from "../lib/api.ts";
 import { attachmentMarkdown, createUploader, filesFrom } from "../lib/attach.ts";
 import {
+  arrangeDetailFields,
   CLEAR,
   customFieldWrite,
   type FieldWrite,
@@ -33,6 +36,12 @@ import {
   peopleIn,
   typedFieldWrite,
 } from "../lib/custom-fields.ts";
+import {
+  hiddenFields,
+  pinnedFields,
+  toggleHiddenField,
+  togglePinnedField,
+} from "../lib/field-prefs.ts";
 import {
   formatDue,
   formatRelative,
@@ -45,13 +54,15 @@ import { renderMarkdown } from "../lib/markdown.ts";
 import { applyMention, type MentionQuery, mentionQueryAt } from "../lib/mention-query.ts";
 import { useExpanded } from "../lib/nav.tsx";
 import { reconcileStorage } from "../lib/reconcile-storage.ts";
+import { heldValue } from "../lib/resource.ts";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
-import { tasks } from "../lib/store.ts";
+import { setCustomValue, tasks } from "../lib/store.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Checklists } from "./Checklists.tsx";
+import { Docs } from "./Docs.tsx";
 
 /*
  * CodeMirror is loaded when someone starts editing, not before.
@@ -65,9 +76,10 @@ const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.tsx").then((m) => ({ default: m.MarkdownEditor })),
 );
 
+import { subtaskIndexOpen, toggleSubtaskIndex } from "../lib/subtask-fields.ts";
 import { Menu, type MenuItem } from "./Menu.tsx";
 import { PriorityIcon, StatusIcon } from "./StatusIcon.tsx";
-import { ParentLink, Subtasks } from "./Subtasks.tsx";
+import { ParentLink, SubtaskIndex, Subtasks } from "./Subtasks.tsx";
 import { TimeControl, TimeEntries } from "./Time.tsx";
 
 /**
@@ -110,12 +122,28 @@ export function TaskDetail(props: {
    */
   const live = useLiveTask(() => props.taskId);
 
+  /**
+   * The fetched detail, only while it is the open task's.
+   *
+   * `heldValue` holds the previous panel across a refetch, renders the panel's
+   * own Loading… line before the first answer instead of suspending the whole
+   * page, and degrades to that same line on a failed fetch instead of
+   * re-throwing it into the render. The memo on top is what keeps that cheap:
+   * `heldValue` watches the resource's state, which flaps ready → refreshing →
+   * ready on every background poll, and the memo answers the flap with the
+   * same object — reconcile keeps the reference stable — so nothing downstream
+   * re-runs until different bytes actually arrive.
+   */
+  const fetched = createMemo(() => {
+    const current = heldValue(detail);
+    return current && current.id === props.taskId ? current : null;
+  });
+
   const task = () => {
-    // `latest` does not hold the previous panel in Suspense while a new task loads.
-    const fetched = detail.latest;
-    if (!fetched || fetched.id !== props.taskId) return null;
+    const current = fetched();
+    if (!current) return null;
     const row = live();
-    return row ? withLiveTask(fetched, row) : fetched;
+    return row ? withLiveTask(current, row) : current;
   };
 
   const [assigneeMenu, setAssigneeMenu] = createSignal<{ x: number; y: number } | null>(null);
@@ -227,8 +255,8 @@ export function TaskDetail(props: {
   const optimistic = (
     apply: (current: TaskDetailData) => TaskDetailData,
   ): TaskDetailData | null => {
-    const current = detail();
-    if (!current || current.id !== props.taskId) return null;
+    const current = fetched();
+    if (!current) return null;
     const before = structuredClone(unwrap(current));
     const next = apply(current);
     if (next.id !== props.taskId) return null;
@@ -251,9 +279,9 @@ export function TaskDetail(props: {
 
   createEffect(() => {
     const row = live();
-    const fetched = detail();
-    if (!row || !fetched || fetched.id !== props.taskId) return;
-    if (row.dateUpdated === fetched.dateUpdated) return;
+    const current = fetched();
+    if (!row || !current) return;
+    if (row.dateUpdated === current.dateUpdated) return;
     if (row.dateUpdated === lastSeenUpdate) return;
     lastSeenUpdate = row.dateUpdated;
     void refetch();
@@ -341,6 +369,27 @@ export function TaskDetail(props: {
       />
 
       <header class="flex h-12 shrink-0 items-center gap-2 border-line/70 border-b px-4">
+        {/* On the left, next to the rail it summons. Only where it has
+            something to draw: the expanded layout, a task with subtasks —
+            collapsed there is no room for a rail. */}
+        <Show when={expanded() && (task()?.subtasks.length ?? 0) > 0}>
+          <button
+            type="button"
+            onClick={toggleSubtaskIndex}
+            aria-pressed={subtaskIndexOpen()}
+            title="Subtask index"
+            aria-label="Subtask index"
+            class="-ml-1 flex size-6 items-center justify-center rounded-[5px] hover:bg-hover hover:text-ink"
+            classList={{ "text-ink": subtaskIndexOpen(), "text-ink-3": !subtaskIndexOpen() }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+                <path d="M6.5 3v10" />
+              </g>
+            </svg>
+          </button>
+        </Show>
         <Show when={task()?.customId}>
           <span class="font-mono text-ink-3 text-xs">{task()?.customId}</span>
         </Show>
@@ -432,274 +481,299 @@ export function TaskDetail(props: {
          * children keep their order and the collapsed panel is untouched.
          */}
         {(task) => (
-          <div
-            class="flex-1 overflow-y-auto"
-            classList={{
-              /*
-               * Three explicit rows — title, description, comments — so the
-               * properties rail can span all of them. Without that, the rail
-               * sizes row one and leaves a hole under the title.
-               *
-               * Below `split` there is no room for a rail: 780 + 48 + 300 + 80
-               * needs 1208px inside this panel and the window stops supplying
-               * it at 1454. The second column collapses into the first and the
-               * rail becomes a strip, which the source order already puts
-               * above the description — the only thing that changes is the
-               * template. The measure stays capped at 780px either way, so the
-               * description never widens past a readable line.
-               */
-              "grid grid-cols-[minmax(0,780px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,780px)] max-split:grid-rows-none":
-                expanded(),
-            }}
-          >
-            <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": expanded() }}>
-              <ParentLink parent={task().parent} />
-              <TitleField
-                value={task().name}
-                onCommit={(name) => {
-                  mutate((current) => (current ? { ...current, name } : current));
-                  tasks.update(props.taskId, (draft) => {
-                    draft.name = name;
-                  });
-                }}
-              />
-            </div>
-
+          <div class="flex min-h-0 flex-1">
+            <Show when={expanded() && subtaskIndexOpen() && task().subtasks.length > 0}>
+              <SubtaskIndex task={task()} />
+            </Show>
             <div
-              class="space-y-px px-3 pb-4"
+              class="min-w-0 flex-1 overflow-y-auto"
               classList={{
-                /* Below `split` the rail lands in column one under the title.
-                   Two columns of label/value rather than one, because a strip
-                   that is 780px wide and one property tall wastes the width it
-                   was moved here to use. */
-                "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8 max-split:col-start-1 max-split:row-start-auto max-split:row-span-1 max-split:grid max-split:grid-cols-2 max-split:gap-x-8 max-split:gap-y-px max-split:space-y-0 max-split:pt-0":
+                /*
+                 * Three explicit rows — title, description, comments — so the
+                 * properties rail can span all of them. Without that, the rail
+                 * sizes row one and leaves a hole under the title.
+                 *
+                 * Below `split` there is no room for a rail: 680 + 48 + 300 + 80
+                 * needs 1108px inside this panel and the window stops supplying
+                 * it at 1354. The second column collapses into the first and the
+                 * rail becomes a strip, which the source order already puts
+                 * above the description — the only thing that changes is the
+                 * template. The measure stays capped at 680px either way, so the
+                 * description never widens past a readable line.
+                 */
+                "grid grid-cols-[minmax(0,680px)_300px] grid-rows-[auto_auto_1fr] justify-center content-start gap-x-12 px-10 pb-24 max-split:grid-cols-[minmax(0,680px)] max-split:grid-rows-none":
                   expanded(),
               }}
             >
-              <Property label="Status">
-                <button
-                  type="button"
-                  aria-label={`Status: ${task().status ?? "none"}`}
-                  onClick={props.onStatusClick}
-                  class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-hover"
-                >
-                  <StatusIcon type={task().statusType} color={task().statusColor} />
-                  <span class="text-md text-ink capitalize">{task().status ?? "None"}</span>
-                </button>
-              </Property>
-
-              <Property label="Priority">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    setPriorityMenu({ x: rect.left, y: rect.bottom + 6 });
+              <div class="px-5 pt-5 pb-4" classList={{ "col-start-1 px-0 pt-8": expanded() }}>
+                <ParentLink parent={task().parent} />
+                <TitleField
+                  value={task().name}
+                  onCommit={(name) => {
+                    mutate((current) => (current ? { ...current, name } : current));
+                    tasks.update(props.taskId, (draft) => {
+                      draft.name = name;
+                    });
                   }}
-                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
-                >
-                  <PriorityIcon priority={task().priority} />
-                  <span class="text-md text-ink-2">
-                    {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
-                  </span>
-                </button>
-              </Property>
-
-              <Property label="Assignees">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    setAssigneeMenu({ x: rect.left, y: rect.bottom + 6 });
-                  }}
-                  class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
-                >
-                  <Show
-                    when={task().assignees.length > 0}
-                    fallback={<span class="text-md text-ink-4">Unassigned</span>}
-                  >
-                    <For each={task().assignees}>
-                      {(user) => (
-                        <span class="flex items-center gap-1.5">
-                          <Avatar user={user} size={17} />
-                          <span class="text-md text-ink-2">{user.username}</span>
-                        </span>
-                      )}
-                    </For>
-                  </Show>
-                </button>
-              </Property>
-
-              <Property label="Due">
-                <DueField
-                  value={task().dueDate}
-                  onChange={(iso) =>
-                    patch((draft) => {
-                      draft.dueDate = iso;
-                    })
-                  }
                 />
-              </Property>
+              </div>
 
-              <Property label="Tags">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    clearSpaceTags([]);
-                    setTagMenu({ x: rect.left, y: rect.bottom + 6 });
-                  }}
-                  class="-mx-1.5 flex h-6 w-full items-center gap-1 rounded-[5px] px-1.5 text-left hover:bg-hover"
-                >
-                  <Show
-                    when={task().tags.length > 0}
-                    fallback={<span class="text-base text-ink-4">Add…</span>}
+              <div
+                class="space-y-px px-3 pb-4"
+                classList={{
+                  /* Below `split` the rail lands in column one under the title.
+                   Two columns of label/value rather than one, because a strip
+                   that is 680px wide and one property tall wastes the width it
+                   was moved here to use. */
+                  "col-start-2 row-start-1 row-span-3 self-start px-0 pt-8 max-split:col-start-1 max-split:row-start-auto max-split:row-span-1 max-split:grid max-split:grid-cols-2 max-split:gap-x-8 max-split:gap-y-px max-split:space-y-0 max-split:pt-0":
+                    expanded(),
+                }}
+              >
+                <Property label="Status">
+                  <button
+                    type="button"
+                    aria-label={`Status: ${task().status ?? "none"}`}
+                    onClick={props.onStatusClick}
+                    class="-mx-1.5 flex h-6 items-center gap-2 rounded-[5px] px-1.5 hover:bg-hover"
                   >
-                    <For each={task().tags}>
-                      {(tag) => (
-                        <span
-                          class="rounded-[4px] border px-1.5 py-px text-xs leading-4 text-ink-2"
-                          style={{
-                            "border-color": `${tag.bg ?? "var(--color-line-strong)"}55`,
-                            background: `${tag.bg ?? "transparent"}24`,
-                          }}
-                        >
-                          {tag.name}
-                        </span>
-                      )}
-                    </For>
-                  </Show>
-                </button>
-              </Property>
+                    <StatusIcon type={task().statusType} color={task().statusColor} />
+                    <span class="text-md text-ink capitalize">{task().status ?? "None"}</span>
+                  </button>
+                </Property>
 
-              <Property label="Time">
-                <TimeControl
-                  taskId={props.taskId}
-                  taskName={task().name}
-                  timeSpent={task().timeSpent}
-                />
-              </Property>
+                <Property label="Priority">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setPriorityMenu({ x: rect.left, y: rect.bottom + 6 });
+                    }}
+                    class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                  >
+                    <PriorityIcon priority={task().priority} />
+                    <span class="text-md text-ink-2">
+                      {task().priority ? PRIORITY_LABELS[task().priority ?? 0] : "None"}
+                    </span>
+                  </button>
+                </Property>
 
-              <Property label="List">
-                <span class="flex h-6 items-center truncate text-md text-ink-2">
-                  {task().listName ?? "—"}
-                </span>
-              </Property>
-
-              <CustomFields
-                taskId={props.taskId}
-                fields={task().customFields}
-                onChanged={() => void refetch()}
-              />
-            </div>
-
-            <section
-              class="border-line/70 border-t px-5 py-4"
-              /* Below `split` the hairline comes back: the property strip is
-                 now directly above the description and the two need a seam. */
-              classList={{
-                "col-start-1 border-t-0 px-0 pt-0 max-split:border-t max-split:pt-6": expanded(),
-              }}
-            >
-              <Show
-                when={editingDescription()}
-                fallback={
-                  <div>
-                    <button
-                      type="button"
-                      // Named, or the button announces the whole body as its
-                      // name — several hundred words for one "edit this".
-                      aria-label="Edit description"
-                      onClick={() => setEditingDescription(true)}
-                      class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
+                <Property label="Assignees">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setAssigneeMenu({ x: rect.left, y: rect.bottom + 6 });
+                    }}
+                    class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                  >
+                    <Show
+                      when={task().assignees.length > 0}
+                      fallback={<span class="text-md text-ink-4">Unassigned</span>}
                     >
-                      <Show
-                        when={task().description}
-                        fallback={<span class="text-base text-ink-4">Add a description…</span>}
-                      >
-                        {/* Sanitized in renderMarkdown. ClickUp descriptions are
-                            other people's input and never reach the DOM raw. */}
-                        <div
-                          ref={descriptionBox}
-                          class="prose-rask selectable text-base"
-                          classList={{
-                            "max-h-[300px] overflow-hidden transition-[max-height] duration-200":
-                              !descriptionExpanded(),
-                          }}
-                          style={{
-                            "mask-image":
-                              !descriptionExpanded() && descriptionOverflows()
-                                ? "linear-gradient(to bottom, black 82%, transparent)"
-                                : undefined,
-                          }}
-                          innerHTML={renderMarkdown(task().description)}
-                        />
-                      </Show>
-                    </button>
-                    <Show when={descriptionOverflows()}>
+                      <For each={task().assignees}>
+                        {(user) => (
+                          <span class="flex items-center gap-1.5">
+                            <Avatar user={user} size={17} />
+                            <span class="text-md text-ink-2">{user.username}</span>
+                          </span>
+                        )}
+                      </For>
+                    </Show>
+                  </button>
+                </Property>
+
+                <Property label="Due">
+                  <DueField
+                    value={task().dueDate}
+                    onChange={(iso) =>
+                      patch((draft) => {
+                        draft.dueDate = iso;
+                      })
+                    }
+                  />
+                </Property>
+
+                <Property label="Tags">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      clearSpaceTags([]);
+                      setTagMenu({ x: rect.left, y: rect.bottom + 6 });
+                    }}
+                    class="-mx-1.5 flex h-6 w-full items-center gap-1 rounded-[5px] px-1.5 text-left hover:bg-hover"
+                  >
+                    <Show
+                      when={task().tags.length > 0}
+                      fallback={<span class="text-base text-ink-4">Add…</span>}
+                    >
+                      <For each={task().tags}>
+                        {(tag) => (
+                          <span
+                            class="rounded-[4px] border px-1.5 py-px text-xs leading-4 text-ink-2"
+                            style={{
+                              "border-color": `${tag.bg ?? "var(--color-line-strong)"}55`,
+                              background: `${tag.bg ?? "transparent"}24`,
+                            }}
+                          >
+                            {tag.name}
+                          </span>
+                        )}
+                      </For>
+                    </Show>
+                  </button>
+                </Property>
+
+                <Property label="Time">
+                  <TimeControl
+                    taskId={props.taskId}
+                    taskName={task().name}
+                    timeSpent={task().timeSpent}
+                  />
+                </Property>
+
+                <Property label="List">
+                  <span class="flex h-6 items-center truncate text-md text-ink-2">
+                    {task().listName ?? "—"}
+                  </span>
+                </Property>
+
+                <CustomFields
+                  taskId={props.taskId}
+                  fields={task().customFields}
+                  onChanged={() => void refetch()}
+                />
+              </div>
+
+              <section
+                class="border-line/70 border-t px-5 py-4"
+                /* Below `split` the hairline comes back: the property strip is
+                 now directly above the description and the two need a seam. */
+                classList={{
+                  "col-start-1 border-t-0 px-0 pt-0 max-split:border-t max-split:pt-6": expanded(),
+                }}
+              >
+                <Show
+                  when={editingDescription()}
+                  fallback={
+                    <div>
                       <button
                         type="button"
-                        onClick={() => setDescriptionExpanded(!descriptionExpanded())}
-                        class="mx-auto mt-1 block rounded-[5px] px-2 py-1 text-xs text-ink-3 hover:bg-hover hover:text-ink"
+                        // Named, or the button announces the whole body as its
+                        // name — several hundred words for one "edit this".
+                        aria-label="Edit description"
+                        onClick={() => setEditingDescription(true)}
+                        class="-mx-2 block w-full cursor-text rounded-md px-2 py-1 text-left hover:bg-hover"
                       >
-                        {descriptionExpanded() ? "Collapse" : "Expand"}
+                        <Show
+                          when={task().description}
+                          fallback={<span class="text-base text-ink-4">Add a description…</span>}
+                        >
+                          {/* Sanitized in renderMarkdown. ClickUp descriptions are
+                            other people's input and never reach the DOM raw. */}
+                          <div
+                            ref={descriptionBox}
+                            class="prose-rask selectable text-base"
+                            classList={{
+                              "overflow-hidden transition-[max-height] duration-200":
+                                !descriptionExpanded(),
+                            }}
+                            // The cap lives here and in COLLAPSED_DESCRIPTION_HEIGHT —
+                            // the measure reads the constant, the cap reads this
+                            // style, and writing it once keeps them from drifting
+                            // apart (Tailwind cannot see a computed class name, so
+                            // this is an inline style on purpose).
+                            style={{
+                              "max-height": descriptionExpanded()
+                                ? undefined
+                                : `${COLLAPSED_DESCRIPTION_HEIGHT}px`,
+                              "mask-image":
+                                !descriptionExpanded() && descriptionOverflows()
+                                  ? "linear-gradient(to bottom, black 82%, transparent)"
+                                  : undefined,
+                            }}
+                            innerHTML={renderMarkdown(task().description)}
+                          />
+                        </Show>
                       </button>
+                      <Show when={descriptionOverflows()}>
+                        <button
+                          type="button"
+                          onClick={() => setDescriptionExpanded(!descriptionExpanded())}
+                          class="mx-auto mt-1 block rounded-[5px] px-2 py-1 text-xs text-ink-3 hover:bg-hover hover:text-ink"
+                        >
+                          {descriptionExpanded() ? "Collapse" : "Expand"}
+                        </button>
+                      </Show>
+                    </div>
+                  }
+                >
+                  {/* Its own boundary, because a lazy component suspends to the
+                      nearest one and without this that is the router's, wrapped
+                      around the whole route: the first edit after a page load
+                      blanked everything for the length of the chunk download. */}
+                  <Suspense fallback={<div class="py-1 text-base text-ink-4">Loading editor…</div>}>
+                    <MarkdownEditor
+                      value={task().description ?? ""}
+                      autofocus
+                      onFiles={(files, insert) => {
+                        insertIntoDescription = insert;
+                        void descriptionUploader.upload(files);
+                      }}
+                      onCancel={() => setEditingDescription(false)}
+                      onCommit={(description) => {
+                        setEditingDescription(false);
+                        // The description is not in the task collection: carrying
+                        // it would mean fetching every body for a 500-row list.
+                        // Show it locally and send it straight to the API.
+                        mutate((current) => (current ? { ...current, description } : current));
+                        void api.patchTask(props.taskId, { description });
+                      }}
+                    />
+                  </Suspense>
+                  <div class="pt-2 text-xs text-ink-4">
+                    {/* An upload waits on ClickUp, and the attachments strip that
+                      would otherwise say so is below the fold while editing. */}
+                    <Show
+                      when={descriptionUploader.pending()[0]}
+                      fallback="⌘↵ to save · esc to cancel"
+                    >
+                      {(name) => <>Uploading {name()}…</>}
                     </Show>
                   </div>
-                }
-              >
-                <MarkdownEditor
-                  value={task().description ?? ""}
-                  autofocus
-                  onFiles={(files, insert) => {
-                    insertIntoDescription = insert;
-                    void descriptionUploader.upload(files);
-                  }}
-                  onCancel={() => setEditingDescription(false)}
-                  onCommit={(description) => {
-                    setEditingDescription(false);
-                    // The description is not in the task collection: carrying
-                    // it would mean fetching every body for a 500-row list.
-                    // Show it locally and send it straight to the API.
-                    mutate((current) => (current ? { ...current, description } : current));
-                    void api.patchTask(props.taskId, { description });
-                  }}
-                />
-                <div class="pt-2 text-xs text-ink-4">
-                  {/* An upload waits on ClickUp, and the attachments strip that
-                      would otherwise say so is below the fold while editing. */}
-                  <Show
-                    when={descriptionUploader.pending()[0]}
-                    fallback="⌘↵ to save · esc to cancel"
-                  >
-                    {(name) => <>Uploading {name()}…</>}
-                  </Show>
-                </div>
-              </Show>
-            </section>
+                </Show>
+              </section>
 
-            {/* Inside the comments row rather than beside it: expanded, this
+              {/* Inside the comments row rather than beside it: expanded, this
                 container is a grid whose third row is the one that stretches,
                 and a fourth child would push the conversation to the bottom of
                 the panel. */}
-            <div classList={{ "col-start-1": expanded() }}>
-              <Attachments
-                items={task().attachments}
-                pending={[...uploader.pending(), ...descriptionUploader.pending()]}
-                onPick={() => filePicker.click()}
-              />
+              <div classList={{ "col-start-1": expanded() }}>
+                <Attachments
+                  items={task().attachments}
+                  pending={[...uploader.pending(), ...descriptionUploader.pending()]}
+                  onPick={() => filePicker.click()}
+                />
 
-              <Checklists
-                taskId={props.taskId}
-                checklists={task().checklists}
-                onDetail={acceptDetail}
-                onOptimistic={optimistic}
-              />
+                <Checklists
+                  taskId={props.taskId}
+                  checklists={task().checklists}
+                  onDetail={acceptDetail}
+                  onOptimistic={optimistic}
+                />
 
-              <Subtasks task={task()} onOptimistic={optimistic} onRefresh={() => void refetch()} />
+                <Subtasks
+                  task={task()}
+                  onOptimistic={optimistic}
+                  onRefresh={() => void refetch()}
+                />
 
-              <TimeEntries taskId={props.taskId} />
+                <TimeEntries taskId={props.taskId} />
 
-              <Comments taskId={props.taskId} threads={task().comments} onDetail={acceptDetail} />
+                <Docs taskId={props.taskId} />
+
+                <Comments taskId={props.taskId} threads={task().comments} onDetail={acceptDetail} />
+              </div>
             </div>
           </div>
         )}
@@ -768,7 +842,7 @@ export function TaskDetail(props: {
             anchor={anchor()}
             width={240}
             placeholder="Add or remove a tag…"
-            items={(spaceTags.latest ?? []).map((tag) => ({
+            items={(heldValue(spaceTags) ?? []).map((tag) => ({
               id: tag.name,
               label: tag.name,
               // Toggles, so say which ones are already on.
@@ -918,15 +992,29 @@ function CustomFields(props: {
    * list carries a dozen and most are blank on any given task. Expanded, the
    * blanks come too, because that is the only way to set one.
    */
-  const decorated = () =>
+  const decorated = createMemo(() =>
     props.fields.map((field) => ({
       ...field,
       display: formatFieldValue(field.type, field.typeConfig, field.value),
-    }));
+    })),
+  );
 
-  const filled = () => decorated().filter((field) => field.display !== "—");
-  const shown = () => (showAll() ? decorated() : filled().slice(0, VISIBLE_FIELDS));
-  const hidden = () => decorated().length - shown().length;
+  /*
+   * The heuristic above, bent by the user's own pins and hides: a pinned field
+   * always shows, even empty; a hidden one only comes back expanded, dimmed,
+   * which is also where it gets unhidden. `arrangeDetailFields` owns the order,
+   * and expanded it returns every field exactly once — which is what lets
+   * `more` be a plain subtraction.
+   */
+  const shown = createMemo(() =>
+    arrangeDetailFields(decorated(), {
+      hidden: hiddenFields(),
+      pinned: pinnedFields(),
+      showAll: showAll(),
+      limit: VISIBLE_FIELDS,
+    }),
+  );
+  const more = () => (showAll() ? 0 : decorated().length - shown().length);
 
   /** Sends the value and asks the parent to refetch, since it lives in a resource. */
   const write = async (fieldId: string, next: FieldWrite) => {
@@ -934,6 +1022,9 @@ function CustomFields(props: {
     try {
       await api.setField(props.taskId, fieldId, next);
       props.onChanged();
+      // The panel's own refetch says nothing to the list behind it: the row in
+      // the collection carries the value the column draws and the filter reads.
+      setCustomValue(props.taskId, fieldId, next);
     } catch (error) {
       pushToast({ tone: "error", title: "Could not set the field", detail: message(error) });
     }
@@ -943,13 +1034,31 @@ function CustomFields(props: {
     <>
       <For each={shown()}>
         {(field) => (
-          <Property label={field.name}>
-            <FieldValue
-              field={field}
-              onPick={(anchor) => setMenu({ field, anchor })}
-              onValue={(next) => void write(field.id, next)}
-            />
-          </Property>
+          <div classList={{ "opacity-55": hiddenFields().has(field.id) }}>
+            <Property label={field.name}>
+              <div class="group/cf flex items-center gap-0.5">
+                <div class="min-w-0 flex-1">
+                  <FieldValue
+                    field={field}
+                    onPick={(anchor) => setMenu({ field, anchor })}
+                    onValue={(next) => void write(field.id, next)}
+                  />
+                </div>
+                <FieldToggle
+                  label={pinnedFields().has(field.id) ? "Unpin" : "Pin — always show"}
+                  pressed={pinnedFields().has(field.id)}
+                  onToggle={() => togglePinnedField(field.id)}
+                  d="M6.2 2.5h3.6v3.8l1.7 2.4H4.5l1.7-2.4zM8 8.7v4.6"
+                />
+                <FieldToggle
+                  label={hiddenFields().has(field.id) ? "Show this field" : "Hide this field"}
+                  pressed={hiddenFields().has(field.id)}
+                  onToggle={() => toggleHiddenField(field.id)}
+                  d="M2.5 8s2.2-3.4 5.5-3.4S13.5 8 13.5 8s-2.2 3.4-5.5 3.4S2.5 8 2.5 8zM9.4 8a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0zM3.5 12.5l9-9"
+                />
+              </div>
+            </Property>
+          </div>
         )}
       </For>
 
@@ -968,23 +1077,73 @@ function CustomFields(props: {
         )}
       </Show>
 
-      <Show when={hidden() > 0 || showAll()}>
+      <Show when={more() > 0 || showAll()}>
         <button
           type="button"
           onClick={() => setShowAll((value) => !value)}
           class="flex h-6 items-center px-2 text-sm text-ink-3 hover:text-ink-2"
         >
-          {showAll() ? "Show less" : `Show ${hidden()} more`}
+          {showAll() ? "Show less" : `Show ${more()} more`}
         </button>
       </Show>
     </>
   );
 }
 
+/**
+ * The pin and the eye beside a field, visible on hover — or always, once on,
+ * because a control that changed something should not vanish with the pointer.
+ */
+function FieldToggle(props: {
+  label: string;
+  pressed: boolean;
+  d: string;
+  onToggle: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-pressed={props.pressed}
+      aria-label={props.label}
+      title={props.label}
+      onClick={props.onToggle}
+      class="flex size-5 shrink-0 items-center justify-center rounded-[5px] transition-opacity hover:bg-hover"
+      classList={{
+        "text-accent opacity-100": props.pressed,
+        /*
+         * Faint, not absent.
+         *
+         * These were `opacity-0` until hover, which is the house style for a
+         * row action you already know is there — and nobody knew these were.
+         * The first person to look for "where do I hide a field" found a
+         * property strip with no controls on it at all. A third of an opacity
+         * is enough to say something is clickable without competing with the
+         * value beside it; hover and keyboard focus still bring it up full.
+         */
+        "text-ink-4 opacity-30 hover:text-ink-2 focus-visible:opacity-100 group-hover/cf:opacity-100":
+          !props.pressed,
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d={props.d}
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
 function Property(props: { label: string; children: JSX.Element }): JSX.Element {
   return (
     <div class="flex items-center gap-3 px-2">
-      <span class="w-[104px] shrink-0 truncate text-sm text-ink-3" title={props.label}>
+      {/* `field-label` is a styling hook, not a layout class: the easter-egg
+        skins repaint every property name at once and a width is not an
+        identity. Pinned in skin-hooks.test.ts. */}
+      <span class="field-label w-[104px] shrink-0 truncate text-sm text-ink-3" title={props.label}>
         {props.label}
       </span>
       <div class="min-w-0 flex-1">{props.children}</div>

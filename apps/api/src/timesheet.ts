@@ -1,4 +1,8 @@
-import type { ClickUpClient, ClickUpTimeEntry } from "@rask/clickup-client";
+import {
+  type ClickUpClient,
+  type ClickUpTimeEntry,
+  isTimeEntryRunning,
+} from "@rask/clickup-client";
 import { type Db, folders, lists, spaces, tasks } from "@rask/schema";
 import { eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
@@ -141,11 +145,21 @@ export function timesheetRoutes(deps: TimesheetDeps) {
     }
     const cells = new Map<string, Cell>();
     const taskIds = new Set<string>();
+    /*
+     * The name ClickUp's payload carries on every entry. The mirror may not
+     * hold the task — its list was never opened — and the row still needs a
+     * name; this is that name, kept from the entry that proved the hours.
+     */
+    const upstreamNames = new Map<string, string>();
 
     for (const entry of entries) {
       const taskId = entry.task?.id;
       const startMs = entry.start?.getTime();
       if (!taskId || startMs === undefined) continue;
+      const upstreamName = entry.task?.name;
+      if (upstreamName && !upstreamNames.has(taskId)) {
+        upstreamNames.set(taskId, upstreamName);
+      }
 
       const dayIndex = Math.floor((startMs - start) / DAY_MS);
       // An off-grid hour belongs to another week's sheet; adding the task here
@@ -153,7 +167,7 @@ export function timesheetRoutes(deps: TimesheetDeps) {
       if (dayIndex < 0 || dayIndex > 6) continue;
       taskIds.add(taskId);
 
-      const running = (entry.duration ?? 0) < 0;
+      const running = isTimeEntryRunning(entry);
       /*
        * The running entry only exists inside the week containing now: its
        * intervals started there, and an old week asked to a grid that has
@@ -219,13 +233,14 @@ export function timesheetRoutes(deps: TimesheetDeps) {
     }
 
     /*
-     * Second pass, only when something was missing. Each repair is one request
-     * plus an ingest into the shared mirror, and after it these rows carry a
-     * real name — but the answer goes out with what was already held, because
-     * whoever asked came for numbers, not to wait on a walk of another list.
+     * Fire and forget, matching the comment that has claimed it all along:
+     * whoever asked came for numbers, not to wait on N task walks. The rows
+     * already read from the entry payload's own name, and the repair only
+     * exists so the *next* sheet answers from the indexed IN — status and
+     * location for these rows arrive with it too, a load later.
      */
     if (missing.length > 0) {
-      await Promise.all(missing.map((id) => deps.repairTask?.(user.id, id).catch(() => undefined)));
+      void Promise.all(missing.map((id) => deps.repairTask?.(user.id, id).catch(() => undefined)));
     }
 
     const rows: TimesheetRowDto[] = [];
@@ -243,10 +258,7 @@ export function timesheetRoutes(deps: TimesheetDeps) {
 
       rows.push({
         taskId,
-        // By the time this runs a repair may have landed, but reading it would
-        // mean re-querying the mirror mid-request; the upstream name rides in
-        // the entry payload, so use that and leave the row complete anyway.
-        taskName: info?.name ?? "…",
+        taskName: info?.name ?? upstreamNames.get(taskId) ?? "…",
         status: info?.status ?? null,
         statusColor: info?.statusColor ?? null,
         statusType: info?.statusType ?? null,

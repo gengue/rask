@@ -1,0 +1,61 @@
+<!-- Memphis confetti for the wall: squiggles, triangles, rings, crosses,
+     arrows and halftone patches. It only shows in the margins and in the gap
+     between the two cards, so the shapes cluster near the tile's edges and
+     leave the middle — which a panel always covers — nearly empty. Every
+     shape sits above the violet token; none of them is a surface. -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="620" height="620" viewBox="0 0 620 620">
+  <g fill="none" stroke-linecap="square">
+    <!-- squiggles -->
+    <path d="M14 58q14-24 28 0t28 0t28 0" stroke="#ffd93d" stroke-width="8"/>
+    <path d="M228 16q13-22 26 0t26 0" stroke="#131316" stroke-width="7"/>
+    <path d="M470 44q13-22 26 0t26 0t26 0" stroke="#2ee0c6" stroke-width="7"/>
+    <path d="M22 300q12-20 24 0t24 0" stroke="#ff90c8" stroke-width="7"/>
+    <path d="M556 268q12-20 24 0t24 0" stroke="#ffd93d" stroke-width="7"/>
+    <path d="M18 560q13-22 26 0t26 0t26 0" stroke="#131316" stroke-width="7"/>
+    <path d="M330 586q13-22 26 0t26 0" stroke="#ffffff" stroke-width="6" opacity=".9"/>
+    <path d="M540 540q12-20 24 0t24 0" stroke="#2ee0c6" stroke-width="7"/>
+    <!-- rings -->
+    <circle cx="146" cy="40" r="16" stroke="#ff90c8" stroke-width="8"/>
+    <circle cx="592" cy="150" r="14" stroke="#131316" stroke-width="7"/>
+    <circle cx="36" cy="188" r="13" stroke="#2ee0c6" stroke-width="7"/>
+    <circle cx="410" cy="600" r="15" stroke="#ffd93d" stroke-width="7"/>
+    <circle cx="600" cy="404" r="12" stroke="#ffffff" stroke-width="6" opacity=".9"/>
+    <circle cx="120" cy="596" r="12" stroke="#ff90c8" stroke-width="7"/>
+    <!-- triangles -->
+    <path d="M352 12l24 40h-48z" stroke="#ff90c8" stroke-width="7"/>
+    <path d="M30 396l22 38h-44z" stroke="#131316" stroke-width="7"/>
+    <path d="M586 486l20 34h-40z" stroke="#2ee0c6" stroke-width="7"/>
+    <path d="M232 604l20 34h-40z" stroke="#131316" stroke-width="7"/>
+    <!-- crosses -->
+    <path d="M598 60v26m-13-13h26" stroke="#ffd93d" stroke-width="7"/>
+    <path d="M40 470v24m-12-12h24" stroke="#ffffff" stroke-width="6" opacity=".9"/>
+    <path d="M598 596v24m-12-12h24" stroke="#ff90c8" stroke-width="7"/>
+    <!-- arrows, the reference's one directional shape -->
+    <path d="M12 116l34-34m0 0h-20m20 0v20" stroke="#2ee0c6" stroke-width="7"/>
+    <path d="M608 340l-34 34m0 0h20m-20 0v-20" stroke="#131316" stroke-width="7"/>
+  </g>
+  <!-- solid odds and ends -->
+  <circle cx="86" cy="248" r="8" fill="#131316"/>
+  <circle cx="574" cy="212" r="8" fill="#ff90c8"/>
+  <circle cx="300" cy="42" r="7" fill="#ffffff" opacity=".9"/>
+  <circle cx="66" cy="520" r="7" fill="#ffd93d"/>
+  <circle cx="500" cy="608" r="8" fill="#131316"/>
+  <!-- halftone patches, 4x4 -->
+  <g fill="#131316">
+    <circle cx="20" cy="238" r="0"/>
+    <circle cx="588" cy="88" r="3.5"/><circle cx="602" cy="88" r="3.5"/>
+    <circle cx="588" cy="102" r="3.5"/><circle cx="602" cy="102" r="3.5"/>
+    <circle cx="588" cy="116" r="3.5"/><circle cx="602" cy="116" r="3.5"/>
+  </g>
+  <g fill="#ffd93d">
+    <circle cx="18" cy="342" r="3.5"/><circle cx="32" cy="342" r="3.5"/><circle cx="46" cy="342" r="3.5"/>
+    <circle cx="18" cy="356" r="3.5"/><circle cx="32" cy="356" r="3.5"/><circle cx="46" cy="356" r="3.5"/>
+    <circle cx="18" cy="370" r="3.5"/><circle cx="32" cy="370" r="3.5"/><circle cx="46" cy="370" r="3.5"/>
+  </g>
+  <g fill="#131316">
+    <circle cx="560" cy="628" r="0"/>
+    <circle cx="286" cy="632" r="0"/>
+    <circle cx="574" cy="574" r="3.5"/><circle cx="588" cy="574" r="3.5"/><circle cx="602" cy="574" r="3.5"/>
+    <circle cx="574" cy="588" r="3.5"/><circle cx="588" cy="588" r="3.5"/><circle cx="602" cy="588" r="3.5"/>
+  </g>
+</svg>

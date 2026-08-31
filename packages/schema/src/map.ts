@@ -3,6 +3,7 @@ import type {
   ClickUpChecklist,
   ClickUpComment,
   ClickUpCustomField,
+  ClickUpDoc,
   ClickUpFolder,
   ClickUpList,
   ClickUpSpace,
@@ -280,6 +281,28 @@ export function mapFolder(folder: ClickUpFolder, spaceId: string) {
   };
 }
 
+/**
+ * A Doc row for the index. Contents are never mapped here — see the `docs`
+ * table for why the body stays live.
+ *
+ * ClickUp allows an unnamed Doc and its own UI shows those as "Doc"; the
+ * fallback lives here rather than in the sidebar so the tree never has to draw
+ * a blank row.
+ */
+export type MappedDoc = ReturnType<typeof mapDoc>;
+
+export function mapDoc(doc: ClickUpDoc, teamId: string) {
+  return {
+    id: doc.id,
+    teamId,
+    name: doc.name?.trim() || "Doc",
+    parentId: doc.parent?.id ?? null,
+    parentType: doc.parent?.type ?? null,
+    dateUpdated: doc.date_updated ?? null,
+    archived: doc.archived ?? false,
+  };
+}
+
 export function mapList(
   list: ClickUpList,
   fallback: { spaceId: string; folderId?: string | null },
@@ -297,9 +320,21 @@ export function mapList(
     content: list.content ?? null,
     taskCount: list.task_count ?? null,
     archived: list.archived ?? false,
-    // Only meaningful when the list overrides its Space. Otherwise the Space's
-    // set applies and duplicating it here would be a second thing to keep in sync.
-    statuses: list.override_statuses && list.statuses ? list.statuses.map(mapStatus) : null,
+    /*
+     * The List's usable statuses, whenever the payload carried them.
+     *
+     * Not gated on `override_statuses` any more, because the two things do not
+     * line up: a List inside a Folder arrives with the *effective* set inlined
+     * -- its own, its Folder's, or its Space's -- while `override_statuses`
+     * says only which of the three it is. Gating on the flag threw away the
+     * Folder's set for every List that inherits one, and a Folder that
+     * overrides is exactly the case a Space fallback gets wrong.
+     *
+     * Null when the payload has none, which is `GET /space/{id}/list`: it sends
+     * the flag and never the statuses, so the worker re-reads those Lists (see
+     * `syncHierarchy`) and the ones that inherit fall back to their Space.
+     */
+    statuses: list.statuses?.length ? list.statuses.map(mapStatus) : null,
   };
 }
 

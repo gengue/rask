@@ -10,6 +10,7 @@ import {
   type MappedAttachment,
   type MappedChecklist,
   type MappedCustomField,
+  type MappedDoc,
   type MappedUser,
   mapChecklist,
   mapComment,
@@ -24,6 +25,7 @@ import {
   commentMentions,
   comments,
   customFieldDefs,
+  docs,
   folders,
   lists,
   listViews,
@@ -156,6 +158,38 @@ export async function replaceListViews(
         keep.length > 0 ? notInArray(listViews.id, keep) : undefined,
       ),
     );
+}
+
+/**
+ * The workspace's Doc index, replacing whatever was there.
+ *
+ * The same bargain `replaceListViews` makes, for the same reason: the walk that
+ * feeds this answers with every Doc in the workspace, so a row that is absent
+ * really was deleted rather than merely unmentioned, and a sidebar still
+ * offering a Doc somebody removed sends people to a 404.
+ *
+ * Scoped to the team so a workspace whose walk failed cannot empty another's.
+ * Upsert first, delete second: the rows survive a failed fetch.
+ */
+export async function replaceDocs(db: Db, teamId: string, input: MappedDoc[]): Promise<void> {
+  if (input.length > 0) {
+    for (const chunk of chunks(input, ROW_CHUNK)) {
+      await db
+        .insert(docs)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: docs.id,
+          set: pick(["teamId", "name", "parentId", "parentType", "dateUpdated", "archived"], {
+            syncedAt: true,
+          }),
+        });
+    }
+  }
+
+  const keep = input.map((row) => row.id);
+  await db
+    .delete(docs)
+    .where(and(eq(docs.teamId, teamId), keep.length > 0 ? notInArray(docs.id, keep) : undefined));
 }
 
 export async function upsertUsers(db: Db, input: MappedUser[]): Promise<void> {

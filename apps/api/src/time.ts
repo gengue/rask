@@ -1,11 +1,12 @@
 import type { ClickUpClient, ClickUpTimeEntry } from "@rask/clickup-client";
-import { ClickUpError, isTimeEntryRunning } from "@rask/clickup-client";
+import { isTimeEntryRunning } from "@rask/clickup-client";
 import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import { type Db, tasks } from "@rask/schema";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { SessionUser } from "./auth.ts";
+import { upstream } from "./upstream.ts";
 import { NOT_YET } from "./writes.ts";
 
 /**
@@ -86,23 +87,6 @@ function toDto(entry: ClickUpTimeEntry): TimeEntryDto {
   };
 }
 
-/**
- * ClickUp's refusals reach the user; its outages do not pretend to be one.
- *
- * 4xx is an answer the person should read — "you cannot edit someone else's
- * entry" is the common one, since Rask has no way to know who is an admin.
- * It is deliberately not forwarded verbatim: a 401 from ClickUp means *our*
- * token is bad, and the browser treats a 401 as its own session ending and
- * signs the user out of Rask.
- */
-function upstream(error: unknown): { status: 422 | 502; error: string } {
-  if (error instanceof ClickUpError) {
-    const status = error.status >= 400 && error.status < 500 && error.status !== 401 ? 422 : 502;
-    return { status, error: error.message };
-  }
-  return { status: 502, error: error instanceof Error ? error.message : "ClickUp call failed" };
-}
-
 const startInput = z.object({ taskId: z.string().min(1) });
 
 /**
@@ -179,7 +163,7 @@ export function timeRoutes(deps: TimeDeps) {
     if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
     try {
-      const entry = await client.getRunningTimeEntry(user.teamId, user.id);
+      const entry = await client.getRunningTimeEntry(user.teamId);
       return c.json({ entry: entry ? toDto(entry) : null });
     } catch (error) {
       const { status, error: message } = upstream(error);
@@ -224,7 +208,7 @@ export function timeRoutes(deps: TimeDeps) {
     let failure: unknown = null;
 
     try {
-      const current = await client.getRunningTimeEntry(user.teamId, user.id);
+      const current = await client.getRunningTimeEntry(user.teamId);
       // Nothing moved, so there is nothing to repair and nothing to announce.
       if (current?.task?.id === taskId) {
         return c.json({ started: toDto(current), stopped: null });
@@ -267,7 +251,7 @@ export function timeRoutes(deps: TimeDeps) {
     if (!client) return c.json({ error: "no ClickUp token" }, 409);
 
     try {
-      const current = await client.getRunningTimeEntry(user.teamId, user.id);
+      const current = await client.getRunningTimeEntry(user.teamId);
       if (!current) {
         pushTo(user.id, "timer", { entry: null });
         return c.json({ stopped: null });

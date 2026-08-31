@@ -195,6 +195,38 @@ export interface AttachmentUpload {
   detail: TaskDetail;
 }
 
+/**
+ * A ClickUp Doc that lives inside a task.
+ *
+ * A Doc is a stack of pages, and a one-page Doc is the common case — the panel
+ * only shows page names once there is more than one of them.
+ */
+export interface Doc {
+  id: string;
+  name: string;
+  /** ISO 8601. */
+  updated: string | null;
+  pages: DocPage[];
+}
+
+export interface DocPage {
+  id: string;
+  name: string;
+  /** Markdown, rendered through the same sanitizer as a task description. */
+  content: string;
+  /** How deep the page sits. The list is flat and in reading order. */
+  depth: number;
+  /** The page's emoji, when it has one. */
+  icon: string | null;
+  /** Banner across the top of the page. A public ClickUp attachments URL. */
+  cover: string | null;
+  /** ISO 8601. */
+  updated: string | null;
+  /** ClickUp user ids, resolved against the workspace directory for faces. */
+  authors: string[];
+  contributors: string[];
+}
+
 export interface ChecklistItem {
   id: string;
   name: string;
@@ -330,11 +362,37 @@ export interface Me {
   inboxSeenAt: string;
 }
 
+/** A Doc in the tree: a name and somewhere to click. Contents come later. */
+export interface DocRef {
+  id: string;
+  name: string;
+}
+
+export interface ListRef {
+  id: string;
+  name: string;
+  /** Docs written inside this List. Usually empty; the node stays a leaf then. */
+  docs: DocRef[];
+}
+
 export interface Space {
   id: string;
   name: string;
-  folders: Array<{ id: string; name: string; lists: Array<{ id: string; name: string }> }>;
-  lists: Array<{ id: string; name: string }>;
+  folders: Array<{ id: string; name: string; lists: ListRef[]; docs: DocRef[] }>;
+  lists: ListRef[];
+  docs: DocRef[];
+}
+
+/**
+ * The tree, plus the Docs that hang off the Workspace rather than any Space.
+ *
+ * ClickUp keeps those outside the tree too, and there are more of them than
+ * every other kind put together — so they get their own section rather than
+ * being dropped for want of a node.
+ */
+export interface Hierarchy {
+  spaces: Space[];
+  docs: DocRef[];
 }
 
 /**
@@ -355,7 +413,11 @@ export interface ListView {
   /** The tab ClickUp opens the list on. */
   isDefault: boolean;
   groupField: string | null;
-  /** Whether the rows ClickUp returns for this view already include closed ones. */
+  /**
+   * ClickUp's own "show closed tasks" for this view — a display setting, not a
+   * filter. `GET /view/{id}/task` returns the closed rows either way, so this
+   * only ever seeds Rask's toggle; see `applyView` in lib/clickup-views.ts.
+   */
   showClosed: boolean;
   /** Forms only, and the only address at which one can be filled in. */
   publicUrl: string | null;
@@ -381,6 +443,7 @@ export type ResolvedRef =
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
   | { kind: "space"; spaceId: string; name: string }
+  | { kind: "doc"; docId: string; name: string }
   | { kind: "unknown" };
 
 export interface TaskQuery {
@@ -399,6 +462,8 @@ export interface TaskQuery {
    * crosses the wire.
    */
   filter?: string;
+  /** Custom Field ids whose values the rows should carry, for the columns. */
+  fields?: string[];
 }
 
 /** One Custom Field of a list that a filter can name, with its options. */
@@ -407,6 +472,17 @@ export interface FilterField {
   name: string;
   type: string;
   options: Array<{ value: string; label: string; color: string | null }>;
+}
+
+/** One Custom Field the column picker can offer, of any type. */
+export interface DisplayField {
+  id: string;
+  name: string;
+  type: string;
+  /** ClickUp's own shape, verbatim — `formatFieldValue` reads it. */
+  typeConfig: unknown;
+  /** Whether this list already uses it. The server sorts these first. */
+  usedHere: boolean;
 }
 
 export class ApiError extends Error {
@@ -540,7 +616,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ taskId }),
     }),
-  hierarchy: () => request<Space[]>("/api/hierarchy"),
+  hierarchy: () => request<Hierarchy>("/api/hierarchy"),
   members: () => request<Assignee[]>("/api/members"),
 
   tasks(query: TaskQuery = {}): Promise<TaskPage> {
@@ -553,12 +629,16 @@ export const api = {
     if (query.closed) params.set("closed", "1");
     if (query.limit) params.set("limit", String(query.limit));
     if (query.filter) params.set("filter", query.filter);
+    if (query.fields?.length) params.set("fields", query.fields.join(","));
 
     return requestPage(`/api/tasks?${params}`);
   },
 
   /** The Custom Fields of a list that a filter can name. Read when the menu opens. */
   filterFields: (listId: string) => request<FilterField[]>(`/api/lists/${listId}/filter-fields`),
+
+  /** Every Custom Field the column picker can offer for a list — all types. */
+  displayFields: (listId: string) => request<DisplayField[]>(`/api/lists/${listId}/display-fields`),
 
   /** The tabs above a list, in ClickUp's own order. */
   views: (listId: string) => request<ListView[]>(`/api/lists/${listId}/views`),
@@ -572,10 +652,13 @@ export const api = {
    * follows over the `view` SSE event, so this only fails against ClickUp when
    * the server has nothing remembered to answer with.
    */
-  viewTasks: (viewId: string, filter = "") =>
-    requestPage(
-      `/api/views/${viewId}/tasks${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`,
-    ),
+  viewTasks: (viewId: string, filter = "", fields: string[] = []) => {
+    const params = new URLSearchParams();
+    if (filter) params.set("filter", filter);
+    if (fields.length) params.set("fields", fields.join(","));
+    const query = params.toString();
+    return requestPage(`/api/views/${viewId}/tasks${query ? `?${query}` : ""}`);
+  },
 
   /**
    * One view by id, for a view opened at its own address.
@@ -626,6 +709,15 @@ export const api = {
 
   createTask: (input: Record<string, unknown>) =>
     request<TaskDetail>("/api/tasks", { method: "POST", body: JSON.stringify(input) }),
+
+  /**
+   * What a `tmp_` placeholder turned into once the outbox shipped its create.
+   *
+   * `id` is the real ClickUp id, `pending` means the create is still queued.
+   * Both null/false for a create that was rejected or never existed.
+   */
+  resolveCreated: (taskId: string) =>
+    request<{ id: string | null; pending: boolean }>(`/api/tasks/${taskId}/resolved`),
 
   /**
    * Deletes a task, and its subtasks with it.
@@ -729,6 +821,90 @@ export const api = {
 
   timeEntries: (taskId: string) =>
     request<{ entries: TimeEntry[] }>(`/api/tasks/${taskId}/time-entries`),
+
+  /**
+   * The Docs written inside a task, contents and all.
+   *
+   * Live from ClickUp like the entries above, and for the same reason: nothing
+   * in Rask filters or sorts by a Doc, so mirroring one would be upkeep with no
+   * reader. Costs a request per Doc, so the panel only asks when expanded.
+   */
+  taskDocs: (taskId: string) => request<{ docs: Doc[] }>(`/api/tasks/${taskId}/docs`),
+
+  /**
+   * One Doc, contents included.
+   *
+   * The name and the parent come from the mirrored index; only the pages are
+   * read live. Costs one ClickUp request no matter how many pages the Doc has.
+   */
+  doc: (docId: string) => request<{ doc: Doc }>(`/api/docs/${docId}`),
+
+  /**
+   * Adds a block to the end of a page.
+   *
+   * Append and never replace, which is the route's name rather than an argument
+   * here: a request that carries only the new block cannot overwrite what
+   * somebody else wrote in ClickUp's editor while this page was open, and there
+   * is no webhook for a Doc that would let us notice if it did.
+   *
+   * Answers nothing worth reading. The caller refetches the Doc, which is the
+   * only way to see what ClickUp actually stored.
+   */
+  appendDocPage: (docId: string, pageId: string, content: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}/append`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  /**
+   * A new, empty page in a Doc.
+   *
+   * `parentId` is the page it hangs off — the reader sends the page whose "+"
+   * was pressed, so the new one lands inside it. Omitted puts it at the Doc's
+   * root, which is what the header button sends.
+   *
+   * Worth knowing before changing this: `parent_page_id` is write-once. v3 has
+   * no move endpoint, so a page filed in the wrong place can only be corrected
+   * by deleting it and making it again.
+   *
+   * Answers the new page's id and nothing else, because a page has no place in
+   * the Doc's shape until the Doc is read again. The caller refetches and then
+   * has something to select.
+   */
+  createDocPage: (docId: string, input: { name: string; parentId?: string }) =>
+    request<{ id: string }>(`/api/docs/${docId}/pages`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  /**
+   * Rewrites a page's body with what the editor holds.
+   *
+   * `updated` is the page's own `updated` as it was read, sent back so the
+   * server can refuse the write if the page moved since. A Doc has no webhook,
+   * so this is the only thing standing between an edit written against a
+   * five-minute-old read and somebody else's paragraph disappearing. A 409
+   * carries the reason and means "reopen the page and apply this to what is
+   * there now" — the draft is not lost, but it cannot be saved as it stands.
+   *
+   * Answers nothing worth reading, like its neighbours: the caller refetches
+   * the Doc and repaints from ClickUp's own rendering of what it stored.
+   */
+  replaceDocPage: (docId: string, pageId: string, content: string, updated: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content, updated }),
+    }),
+
+  /**
+   * Removes a page and everything on it.
+   *
+   * The endpoint behind this is missing from ClickUp's vendored v3 spec and
+   * works anyway — `deleteDocPage` in the client carries the live check. Ask
+   * before calling it: ClickUp offers no undo Rask can reach.
+   */
+  deleteDocPage: (docId: string, pageId: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}`, { method: "DELETE" }),
 
   createTimeEntry: (taskId: string, entry: NewTimeEntry) =>
     request<{ entry: TimeEntry }>(`/api/tasks/${taskId}/time-entries`, {

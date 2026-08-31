@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="88" height="18" viewBox="0 0 88 18">
+  <!-- The centre ornament that sits on a panel's top rail: a lozenge with a
+       thin wing to each side, tapering to nothing. -->
+  <path d="M6 9 H34" stroke="#0c0906" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M54 9 H82" stroke="#0c0906" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M6 9 H34" stroke="#5d4930" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M54 9 H82" stroke="#5d4930" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M34 9 l4 -2.4 v4.8 Z" fill="#5d4930"/>
+  <path d="M54 9 l-4 -2.4 v4.8 Z" fill="#5d4930"/>
+  <rect x="39.2" y="4.2" width="9.6" height="9.6" transform="rotate(45 44 9)" fill="#4b3a24" stroke="#171008" stroke-width="1.4"/>
+  <rect x="41.6" y="6.6" width="4.8" height="4.8" transform="rotate(45 44 9)" fill="#8a6d42"/>
+</svg>

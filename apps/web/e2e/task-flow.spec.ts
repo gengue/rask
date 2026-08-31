@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isClosedType } from "@rask/clickup-client/vocabulary";
 
 /**
  * The flow Rask exists for: open a list, move a task's status without opening
@@ -114,7 +115,9 @@ test("the quick filter narrows a list to me, and stays visible where its button 
   await expect(chip).toHaveCount(0);
 });
 
-test("creates a task from the quick add dialog", async ({ page }) => {
+test("creates a task from the quick add dialog, opens it and puts it under the cursor", async ({
+  page,
+}) => {
   await page.goto("/__dev-login");
   await page.goto("/list/L1");
   await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
@@ -129,11 +132,14 @@ test("creates a task from the quick add dialog", async ({ page }) => {
 
   await expect(dialog).toBeHidden();
 
-  // The new task lands in the list's first status group, which may be below the
-  // fold in a 140-row list. Search for it rather than assuming it is on screen.
-  await page.keyboard.press("/");
-  await page.getByPlaceholder(/^Search name/).fill(title);
-  await expect(page.getByText(title)).toBeVisible();
+  // The new task opens on its own — under its placeholder id, since no worker
+  // runs here to ship it — and the row lands under the keyboard cursor, even
+  // when its status group is below the fold in a 140-row list.
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole("heading", { name: title })).toBeVisible();
+  await expect(page).toHaveURL(/task=tmp_/);
+  await expect(page.locator(".row-selected").getByText(title)).toBeVisible();
 });
 
 /**
@@ -371,6 +377,67 @@ test("picks the columns a subtask row shows, and keeps the task open on the way 
 });
 
 /**
+ * Hiding done subtasks, and the index rail the expanded view can grow.
+ *
+ * The seeded subtask statuses come out of a PRNG, so the test makes its own
+ * facts first: one subtask is patched to done through the API and the counts
+ * are read back from the same response the panel will render. What only a
+ * browser can catch is the wiring — the toggle filtering the rows the reader
+ * sees, and the rail existing only where the layout has room for it.
+ */
+test("hides done subtasks on request, and the expanded view grows an index rail", async ({
+  page,
+}) => {
+  const taskId = "t2601";
+  await page.goto("/__dev-login");
+
+  // The seeded subtask statuses come out of a PRNG, so the test deals its own
+  // hand: the first subtask done, the second open, whatever the seed said.
+  const before = await (await page.request.get(`/api/tasks/${taskId}`)).json();
+  await page.request.patch(`/api/tasks/${before.subtasks[0].id}`, { data: { status: "done" } });
+  await page.request.patch(`/api/tasks/${before.subtasks[1].id}`, {
+    data: { status: "in progress" },
+  });
+  const detailJson = await (await page.request.get(`/api/tasks/${taskId}`)).json();
+  const open = detailJson.subtasks.filter(
+    (sub: { statusType: string }) => !isClosedType(sub.statusType),
+  );
+
+  await page.goto(`/list/L1?task=${taskId}`);
+  const section = page.locator("section", {
+    has: page.getByRole("heading", { name: /Subtasks/i }),
+  });
+  await expect(section.locator("li")).toHaveCount(detailJson.subtasks.length);
+
+  await section.getByRole("button", { name: "Hide done" }).click();
+  await expect(section.locator("li")).toHaveCount(open.length);
+
+  // Collapsed there is no room for a rail, so its toggle only exists expanded.
+  await expect(page.getByRole("button", { name: "Subtask index" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Expand task" }).click();
+  await page.getByRole("button", { name: "Subtask index" }).click();
+
+  const rail = page.getByRole("navigation", { name: "Subtasks" });
+  await expect(rail).toBeVisible();
+  // The rail obeys the same "Hide done" the section does.
+  await expect(rail.locator("li")).toHaveCount(open.length);
+
+  // Clicking an entry opens that subtask without collapsing the panel — the
+  // rail only exists expanded, so dropping `expanded` here would close the
+  // very layout the reader navigated from.
+  await rail.locator("li button").first().click();
+  await expect(page).toHaveURL(new RegExp(`task=${open[0].id}`));
+  await expect(page).toHaveURL(/expanded=/);
+
+  // Both choices are preferences: they survive a reload.
+  await page.goto(`/list/L1?task=${taskId}&expanded=1`);
+  await expect(page.getByRole("navigation", { name: "Subtasks" }).locator("li")).toHaveCount(
+    open.length,
+  );
+  await expect(section.getByRole("button", { name: "Show done" })).toBeVisible();
+});
+
+/**
  * A screenshot pasted into the description becomes an attachment and a link.
  *
  * Stubbed at the network edge on purpose. The upload is the one write that
@@ -444,6 +511,134 @@ test("pastes an image into the description and keeps the link", async ({ page })
 });
 
 /**
+ * The editor's footer promises "esc to cancel", so Escape has to mean that —
+ * back out of the edit — and never fall through to the shell, whose own
+ * Escape closes the whole panel.
+ */
+test("Escape cancels the description edit instead of closing the task", async ({ page }) => {
+  // The same seeded task the paste test opens, for the same reason.
+  const taskId = "t2601";
+
+  await page.goto("/__dev-login");
+  await page.goto(`/list/L1?task=${taskId}`);
+  const detail = page.getByRole("complementary", { name: "Task detail" });
+  await detail.getByRole("button", { name: "Edit description" }).click();
+
+  const editor = detail.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.type("discarded on cancel ");
+  await page.keyboard.press("Escape");
+
+  // Back to the rendered body, panel still open — and the typing gone: cancel
+  // discards, it must never ride the blur into a commit.
+  await expect(detail.getByRole("button", { name: "Edit description" })).toBeVisible();
+  await expect(detail).not.toContainText("discarded on cancel");
+
+  // A second Escape is the shell's: now the panel goes.
+  await page.keyboard.press("Escape");
+  await expect(detail).not.toBeVisible();
+});
+
+/**
+ * The layout toggle.
+ *
+ * `b` flipped `ui.layout` long before anything on screen did, so what this has
+ * to check is that the two agree in both directions: a click has to redraw the
+ * panel, and the shortcut has to move the buttons. A unit test can read the
+ * store and see neither.
+ */
+test("the layout buttons switch list and board, and stay in step with `b`", async ({ page }) => {
+  await page.goto("/__dev-login");
+  await page.goto("/list/L1");
+
+  const rows = page.getByRole("listbox", { name: "Tasks" });
+  const asList = page.getByRole("button", { name: "List view" });
+  const asBoard = page.getByRole("button", { name: "Board view" });
+  await expect(rows).toBeVisible();
+  await expect(asList).toHaveAttribute("aria-pressed", "true");
+  await expect(asBoard).toHaveAttribute("aria-pressed", "false");
+
+  await asBoard.click();
+  await expect(rows).toHaveCount(0);
+  await expect(asBoard).toHaveAttribute("aria-pressed", "true");
+  await expect(asList).toHaveAttribute("aria-pressed", "false");
+
+  await page.keyboard.press("b");
+  await expect(rows).toBeVisible();
+  await expect(asList).toHaveAttribute("aria-pressed", "true");
+});
+
+/**
+ * The closed-task toggle, which is the board's Done column.
+ *
+ * End-to-end rather than another unit test for the same reason the quick filter
+ * is: the unit tests can say `ui.showClosed` is true and that `statusShown`
+ * agrees, and neither of them can see a column. The bug was that a reader who
+ * turned Done on lost it by walking to the next list — the preference lived in
+ * a per-tab store and every saved view wrote ClickUp's `show_closed` over it —
+ * so what has to be checked is a rendered board on the far side of a navigation
+ * and a reload.
+ */
+test("the Done column is a setting, and it survives leaving the list", async ({ page }) => {
+  await page.goto("/__dev-login");
+  /*
+   * L3 and L5, which no other spec opens.
+   *
+   * "The column is absent" is only true of a list whose statuses are the ones
+   * the seed gave it. Written against L1 this passed alone and failed in the
+   * suite: a spec above moves a task to "done" through the app, the fixture's
+   * ClickUp is a closed port, so the read-back that would have stamped the row
+   * `closed` never lands and one card sits there typed `custom` — enough to
+   * draw the column with the toggle off. That is the fixture, not the mirror;
+   * in production `ingestTasks` writes ClickUp's own answer back the moment the
+   * outbox drains.
+   */
+  await page.goto("/list/L3");
+  await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
+
+  await page.keyboard.press("b");
+  const done = page.getByRole("listbox", { name: "done" });
+  const toggle = page.getByRole("button", { name: "Show closed tasks" });
+  const count = page.getByTitle("Tasks matching this filter");
+
+  // Off by default: the column is not empty, it is absent. Drawing it while the
+  // same rule removes everything that lands in it is the trap `asStatusColumns`
+  // is written to avoid.
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(done).toHaveCount(0);
+  const hidden = Number(await count.textContent());
+  expect(hidden).toBeGreaterThan(0);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(done).toBeVisible();
+  // The rows are more than they were, which is the part a unit test cannot see:
+  // the route refetched with closed=1 rather than re-filtering the page it had.
+  await expect.poll(async () => Number(await count.textContent())).toBeGreaterThan(hidden);
+  await expect(done.getByRole("option").first()).toBeVisible();
+
+  // The next list, and then a reload: neither is allowed to take it back.
+  await page.goto("/list/L5");
+  await expect(page.getByRole("button", { name: "Show closed tasks" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show closed tasks" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  // And back off, which has to put the column away again — the toggle is one
+  // control, not a door that only opens.
+  await page.getByRole("button", { name: "Show closed tasks" }).click();
+  await page.goto("/list/L3");
+  await expect(page.getByRole("listbox", { name: "done" })).toHaveCount(0);
+});
+
+/**
  * Signing out, and what a signed-out visit sees.
  *
  * Neither existed: `POST /auth/logout` was on the API and nothing called it,
@@ -463,7 +658,8 @@ test("pastes an image into the description and keeps the link", async ({ page })
  * deletes the session row, and `/__dev-login` only replays the fixed token in
  * `.dev-session` — it does not mint a new one. With `workers: 1` Playwright
  * runs spec files in alphabetical order, so any new file needing a session has
- * to sort before `task-flow`. `keyboard-timer.spec.ts` is named for that.
+ * to sort before `task-flow`. `keyboard-timer.spec.ts` and
+ * `appearance.spec.ts` are both named for that.
  */
 test("signs out, and a signed-out visit gets a way back in", async ({ page }) => {
   await page.goto("/__dev-login");

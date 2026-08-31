@@ -1,5 +1,13 @@
-import { createEffect, createRoot, createSignal, onCleanup } from "solid-js";
-import { api, type FilterField, type StatusDef, type Tag, type Task } from "./api.ts";
+import { createEffect, createRoot, createSignal, onCleanup, untrack } from "solid-js";
+import {
+  api,
+  type DisplayField,
+  type FilterField,
+  type StatusDef,
+  type Tag,
+  type Task,
+} from "./api.ts";
+import { columnsFor } from "./field-prefs.ts";
 import {
   assignedToMe,
   type Clause,
@@ -345,10 +353,22 @@ const [filterFields, setFilterFields] = createSignal<FilterField[]>([]);
 
 export { filterFields };
 
+// Declared above the effect below, which reads both while the module loads.
+const [displayFields, setDisplayFields] = createSignal<DisplayField[]>([]);
+const displayFieldCache = new Map<string, DisplayField[]>();
+
+export { displayFields };
+
 createRoot(() => {
   createEffect(() => {
     const listId = viewListId();
     setFilterFields([]);
+    // The column catalogue swaps with the list too, from a session cache so
+    // bouncing between lists neither refetches nor blanks the columns while a
+    // request is in flight. Untracked: a column toggled from the picker must
+    // not clear the catalogue it is being rendered from.
+    setDisplayFields(listId ? (displayFieldCache.get(listId) ?? []) : []);
+    if (listId && untrack(() => columnsFor(listId)).length > 0) loadDisplayFields();
     if (!listId) {
       setViewStatuses([]);
       return;
@@ -405,6 +425,79 @@ export function loadFilterFields(): void {
     .filterFields(listId)
     .then((fields) => viewListId() === listId && setFilterFields(fields))
     .catch(() => setFilterFields([]));
+}
+
+/**
+ * The list's whole Custom Field catalogue, for the column picker and the
+ * columns it chose. Read when the picker opens, like `filterFields` above,
+ * plus one eager case: a list somebody already gave columns to loads it on
+ * arrival, or the columns would have names and no way to render. Cached per
+ * list for the session — definitions change about as often as statuses do,
+ * and re-forgetting them on every navigation blanked ~30 rows' cells for
+ * identical data. The signal and cache themselves live further up, above the
+ * effect that reads them at module load.
+ */
+export function loadDisplayFields(): void {
+  const listId = viewListId();
+  if (!listId) return;
+  const cached = displayFieldCache.get(listId);
+  if (cached) {
+    // Re-set rather than early-return alone: a failed fetch for another list
+    // may have blanked the signal since the effect above last filled it.
+    setDisplayFields(cached);
+    return;
+  }
+  void api
+    .displayFields(listId)
+    .then((fields) => {
+      displayFieldCache.set(listId, fields);
+      if (viewListId() === listId) setDisplayFields(fields);
+    })
+    // Guarded like the success path: list A's late failure must not blank the
+    // catalogue list B is drawing its columns from.
+    .catch(() => viewListId() === listId && setDisplayFields([]));
+}
+
+/** The chosen columns as definitions, in the order they were chosen. */
+export const listColumns = globalMemo(() => {
+  const listId = viewListId();
+  if (!listId) return [] as DisplayField[];
+  const defs = displayFields();
+  return columnsFor(listId).flatMap((id) => {
+    const def = defs.find((candidate) => candidate.id === id);
+    return def ? [def] : [];
+  });
+});
+
+/**
+ * The Custom Field ids task fetches should carry for the current list, as a
+ * stable comma key plus its array form.
+ *
+ * A session union per list rather than the live choice: unchoosing a column
+ * changes what renders, not what the rows need to carry — their values are
+ * already in hand — and a key that shrank would refetch 500 rows (or, on a
+ * stale saved view, walk ClickUp) to display less. Only a field this session
+ * has never asked for grows the key, and the routes' load effects re-run on
+ * exactly that.
+ */
+const fetchedColumns = new Map<string, Set<string>>();
+
+export const columnFetchKey = globalMemo(() => {
+  const listId = viewListId();
+  if (!listId) return "";
+  const seen = fetchedColumns.get(listId) ?? new Set<string>();
+  for (const id of columnsFor(listId)) seen.add(id);
+  fetchedColumns.set(listId, seen);
+  // The server unions these with the filter's ids and caps the set at 50, and
+  // its zod ceiling rejects the raw parameter a little past that — so a union
+  // allowed to grow unbounded would eventually 400 every fetch for the list.
+  // Trimmed here to the same 50, sorted first so the trim is deterministic.
+  return [...seen].sort().slice(0, 50).join(",");
+});
+
+export function columnFetchIds(): string[] {
+  const key = columnFetchKey();
+  return key ? key.split(",") : [];
 }
 
 export interface FacetOption {
@@ -508,6 +601,77 @@ export const rowTasks = globalMemo(() =>
 export function cursorTask(): Task | null {
   return rowTasks()[ui.cursor] ?? null;
 }
+
+/** The row the cursor is holding, and the rows it was read out of. */
+let anchor = { view: "", id: "", rows: [] as Task[] };
+
+/**
+ * Back to the top, holding no row.
+ *
+ * For the two moments the rows are about to be *replaced* rather than moved: a
+ * new view, and a new tab within one. Both leave the old rows on screen until
+ * the fetch lands, so a row anchored now belongs to the view being left — and
+ * one that also exists in the view arriving would drag the cursor into the
+ * middle of it. Empty until those rows arrive, which is when the anchor is
+ * taken.
+ *
+ * ponytail: "those rows arrive" is `rowTasks` rebuilding, so a view whose rows
+ * are identical to the ones it replaced never takes an anchor, and the first
+ * move in it goes unfollowed — the one after it does not. Give the routes a
+ * view id to reset on the day that is worth more than the signal it costs.
+ */
+export function resetCursor(): void {
+  anchor = { ...anchor, id: "" };
+  setUi("cursor", 0);
+}
+
+/**
+ * Keeps the cursor on the task it was on when the rows move underneath it.
+ *
+ * The cursor is a position, and changing a status regroups the view: the row
+ * leaves for its new group, and whatever slid into that slot is what looks
+ * selected and what `s`, `p`, `t` and Enter then act on. Anchoring the position
+ * to the row's id fixes every path that can reorder at once — the status menu,
+ * the board's drag, a priority change while grouped by priority, unfolding a
+ * group above, and somebody else's edit arriving over SSE — rather than one
+ * call per write site, which is what the board had and the list never got.
+ *
+ * Whether the user moved or the rows did is read from the array identity, not
+ * from the index: `rowTasks` rebuilds only when the rows actually moved, so the
+ * same array under a different cursor is j/k, and a different array is the view
+ * rearranging. Indices cannot tell those apart, and guessing wrong means either
+ * j/k snapping back or the cursor sitting on the wrong row.
+ *
+ * A task that leaves the view entirely — filtered out, closed, deleted — keeps
+ * the index, which lands the cursor on its neighbour the way it always did.
+ */
+createRoot(() => {
+  createEffect(() => {
+    const view = viewTitle();
+    const rows = rowTasks();
+    const cursor = ui.cursor;
+
+    // Row 4 of the old list means nothing in the new one, and neither does the
+    // row that was under it.
+    if (view !== anchor.view) {
+      anchor = { ...anchor, view, rows };
+      resetCursor();
+      return;
+    }
+
+    if (rows !== anchor.rows) {
+      const moved = anchor.id ? rows.findIndex((task) => task.id === anchor.id) : -1;
+      anchor = { view, id: moved < 0 ? (rows[cursor]?.id ?? "") : anchor.id, rows };
+      if (moved >= 0) setUi("cursor", moved);
+      return;
+    }
+
+    // Same rows, so it was the cursor that moved: this is the row to hold from
+    // now on. Not while the anchor is empty — these are the rows a reset left
+    // behind, and the next set is the one to take it from.
+    if (anchor.id) anchor = { ...anchor, id: rows[cursor]?.id ?? "" };
+  });
+});
 
 /**
  * A keystroke asking the filter bar to open its builder.

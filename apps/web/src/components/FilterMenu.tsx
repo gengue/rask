@@ -143,7 +143,7 @@ export function FilterMenu(props: {
           onInput={(event) => setQuery(event.currentTarget.value)}
           onKeyDown={onKeyDown}
           placeholder={props.field ? "Value…" : "Filter by…"}
-          class="h-9 min-w-0 flex-1 text-base text-ink"
+          class="h-9 min-w-0 flex-1 text-md text-ink"
         />
         <Show when={props.field}>
           {/* The one control that is not a value. It says what it will do, not
@@ -178,7 +178,7 @@ export function FilterMenu(props: {
               aria-selected={active() === index()}
               onMouseEnter={() => setActive(index())}
               onClick={() => commit(row.id)}
-              class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-base"
+              class="flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-md"
               classList={{
                 "row-selected text-ink": active() === index(),
                 "text-ink-2": active() !== index(),

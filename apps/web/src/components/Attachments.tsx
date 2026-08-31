@@ -97,7 +97,7 @@ export function Attachments(props: {
                   <span class="shrink-0 rounded bg-chip px-1.5 py-px font-medium text-xs text-ink-3 uppercase tracking-[0.04em]">
                     {file.extension || "file"}
                   </span>
-                  <span class="min-w-0 flex-1 truncate text-base text-ink-2">{nameOf(file)}</span>
+                  <span class="min-w-0 flex-1 truncate text-md text-ink-2">{nameOf(file)}</span>
                   <span class="shrink-0 text-xs text-ink-4 tabular-nums">
                     {formatBytes(file.size)}
                   </span>
@@ -113,7 +113,7 @@ export function Attachments(props: {
         <ul classList={{ "pt-2": props.items.length > 0 }}>
           <For each={props.pending}>
             {(name) => (
-              <li class="flex h-8 items-center gap-2.5 px-1.5 text-base text-ink-3">
+              <li class="flex h-8 items-center gap-2.5 px-1.5 text-md text-ink-3">
                 <span class="size-1.5 shrink-0 animate-pulse rounded-full bg-ink-4" />
                 <span class="min-w-0 flex-1 truncate">{name}</span>
                 <span class="shrink-0 text-ink-4 text-xs">Uploading…</span>

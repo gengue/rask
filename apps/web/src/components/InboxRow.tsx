@@ -108,7 +108,7 @@ export function InboxRow(props: {
       {/* Author and message in one run, so the eye reads a sentence rather than
           two columns it has to join up. The name carries the weight; the words
           carry the meaning. */}
-      <span class="min-w-0 flex-1 truncate text-base">
+      <span class="min-w-0 flex-1 truncate text-md">
         <Show when={props.reason.authorName}>
           <span class="font-medium text-ink">{props.reason.authorName}</span>
           <span class="text-ink-4">: </span>

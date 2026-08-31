@@ -68,7 +68,7 @@ export function BoardCard(props: {
         "opacity-55": pending(),
       }}
     >
-      <div class="line-clamp-2 h-9 text-base text-ink leading-[18px]">
+      <div class="line-clamp-2 h-9 text-md text-ink leading-[18px]">
         <Show when={props.task.parentId}>
           {/* A subtask is otherwise indistinguishable from a top-level task. */}
           <span class="mr-1 text-ink-4" title="Subtask">

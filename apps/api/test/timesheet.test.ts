@@ -88,6 +88,26 @@ function mount(client: ClickUpClient | null) {
   return { app, repaired };
 }
 
+const TZ_BOGOTA = -300;
+
+/**
+ * Sunday 00:00 of the week we are in, Bogotá time (UTC-5).
+ *
+ * Derived per run rather than written down: most tests below ask for the
+ * sheet without a `?start`, which is the route's own "this week", so a fixed
+ * week rots the moment the calendar leaves it. Computed the long way on
+ * purpose — importing the route's `weekStart` would make the assertion that
+ * the window opens here test nothing.
+ */
+const SUNDAY_BOGOTA = (() => {
+  const local = new Date(Date.now() + TZ_BOGOTA * 60_000);
+  local.setUTCDate(local.getUTCDate() - local.getUTCDay());
+  local.setUTCHours(0, 0, 0, 0);
+  return local.getTime() - TZ_BOGOTA * 60_000;
+})();
+
+const HOUR_MS = 60 * 60 * 1000;
+
 /**
  * An entry in ClickUp's shape. `start` is epoch ms as ClickUp sends it — a
  * number-in-string is what the real payload carries, and keeping that here is
@@ -100,18 +120,14 @@ function entry(over: Record<string, unknown> = {}) {
     wid: TEAM,
     user: { id: 7, username: "Ada" },
     billable: false,
-    start: "1756080000000",
-    end: "1756083600000",
+    start: String(SUNDAY_BOGOTA + 26 * HOUR_MS),
+    end: String(SUNDAY_BOGOTA + 27 * HOUR_MS),
     duration: "3600000",
     description: "",
     tags: [],
     ...over,
   };
 }
-
-/** Sunday 00:00 of a fixed week, Bogotá time (UTC-5): Aug 23–29, 2026. */
-const SUNDAY_BOGOTA = Date.UTC(2026, 7, 23, 5, 0, 0);
-const TZ_BOGOTA = -300;
 
 const WEEKQ = (over = "") => `/timesheet/week?tz=${encodeURIComponent(String(TZ_BOGOTA))}${over}`;
 
@@ -138,8 +154,8 @@ describe("GET /timesheet/week", () => {
   });
 
   test("a Monday-evening entry lands on Monday's column, not the week edge", async () => {
-    // Mon Aug 24 2026, 18:00 Bogotá = 23:00 UTC — inside day index 1.
-    const mondayEvening = Date.UTC(2026, 7, 24, 23, 0, 0);
+    // Monday 18:00 Bogotá — inside day index 1, well clear of both edges.
+    const mondayEvening = SUNDAY_BOGOTA + 42 * HOUR_MS;
     const { client } = stub([
       { body: { data: [entry({ start: String(mondayEvening), duration: "1800000" })] } },
     ]);
@@ -158,7 +174,7 @@ describe("GET /timesheet/week", () => {
   });
 
   test("two intervals on one task and day sum into one cell", async () => {
-    const base = SUNDAY_BOGOTA + 30 * 60 * 60 * 1000; // Mon ~06:00 local
+    const base = SUNDAY_BOGOTA + 30 * HOUR_MS; // Mon ~06:00 local
     const first = entry({ id: "e1", start: String(base), duration: "3600000" });
     const second = entry({ id: "e2", start: String(base + 7_200_000), duration: "1800000" });
     const { client } = stub([{ body: { data: [first, second] } }]);
@@ -189,15 +205,7 @@ describe("GET /timesheet/week", () => {
       }>;
     };
     const row = payload.rows[0];
-    /*
-     * The column the route places this entry in, computed the way the route
-     * does: the entry's own start against the week boundary, both epochs.
-     * "Today" is the wrong anchor twice over — UTC midnight runs ahead of the
-     * local evening, and the entry may have started on the other side of
-     * local midnight from `now` anyway. The entry's start is the one truth.
-     */
-    const entryStart = now - 1_800_000;
-    const todayIndex = Math.floor((entryStart - SUNDAY_BOGOTA) / 86_400_000);
+    const todayIndex = Math.floor((now - SUNDAY_BOGOTA) / 86_400_000);
 
     const todayCell = row?.days[todayIndex];
     expect(todayCell).not.toBeNull();
@@ -252,7 +260,7 @@ describe("GET /timesheet/week", () => {
   });
 
   test("rows sort heaviest first", async () => {
-    const base = SUNDAY_BOGOTA + 26 * 60 * 60 * 1000;
+    const base = SUNDAY_BOGOTA + 26 * HOUR_MS;
     const light = entry({
       id: "light",
       task: { id: OTHER, name: "Small thing" },
@@ -284,7 +292,7 @@ describe("GET /timesheet/week", () => {
       statusType: "custom",
     });
 
-    const base = SUNDAY_BOGOTA + 26 * 60 * 60 * 1000;
+    const base = SUNDAY_BOGOTA + 26 * HOUR_MS;
     const { client } = stub([{ body: { data: [entry({ start: String(base) })] } }]);
     const { app } = mount(client);
 
@@ -312,7 +320,7 @@ describe("GET /timesheet/week", () => {
   });
 
   test("a task the mirror never held still shows, upstream name and all", async () => {
-    const base = SUNDAY_BOGOTA + 26 * 60 * 60 * 1000;
+    const base = SUNDAY_BOGOTA + 26 * HOUR_MS;
     const stranger = entry({
       id: "stranger",
       task: { id: "never-mirrored", name: "Lives only in ClickUp" },
@@ -330,6 +338,9 @@ describe("GET /timesheet/week", () => {
     expect(repaired).toEqual(["never-mirrored"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.taskId).toBe("never-mirrored");
+    // The name the entry payload carried, not an ellipsis: the row has to
+    // read whole on the very first load, before any repair lands.
+    expect(rows[0]?.taskName).toBe("Lives only in ClickUp");
     expect(rows[0]?.location).toBeNull();
   });
 });

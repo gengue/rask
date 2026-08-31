@@ -11,6 +11,7 @@ import { taskAssignees, taskCustomValues, tasks } from "@rask/schema";
 import {
   and,
   type Column,
+  eq,
   ilike,
   inArray,
   isNotNull,
@@ -81,6 +82,28 @@ export function fieldIdsIn(clauses: readonly Clause[]): string[] {
     .map((clause) => customFieldId(clause.field));
 }
 
+/**
+ * The filter's field ids plus the columns the client wants to draw.
+ *
+ * A union, never a replacement: the browser re-evaluates the filter over these
+ * rows, and `customValues` missing a field the filter names would fail every
+ * row against it (see `matchesClause` in apps/web). The cap is this
+ * parameter's own ceiling — every id becomes a bound parameter in an
+ * `in (...)` — and the filter's ids go into the set first, so a trim can only
+ * ever drop columns, never a clause's field.
+ */
+export function withDisplayFields(
+  fieldIds: readonly string[],
+  param: string | undefined,
+): string[] {
+  const wanted = new Set(fieldIds);
+  for (const id of param?.split(",") ?? []) {
+    const trimmed = id.trim();
+    if (trimmed) wanted.add(trimmed);
+  }
+  return [...wanted].slice(0, 50);
+}
+
 // --- text search ------------------------------------------------------------
 
 /**
@@ -112,9 +135,14 @@ export function toTsQuery(term: string): string | null {
  * because it is prose and substring matching over prose is both slower and
  * noisier. Measured on the 147,000-task mirror: description search was a 334ms
  * sequential scan with no index, 15-24ms with a trigram index, and 2.5-11ms
- * with this one. The ClickUp id column rides the same trigram `ILIKE`: the id
- * is what the URL bar and every "paste me this task" conversation hands you,
- * and `86cbahrxg` matched nothing else in here.
+ * with this one.
+ *
+ * The ClickUp id matches with `=` and no index of its own: a pasted id is
+ * complete by definition — nobody types the middle of `86cbahrxg` the way
+ * they type the middle of a name — and `id` is the primary key, so equality
+ * is a btree probe. An `ILIKE '%…%'` branch here would need a fourth GIN
+ * index and, worse, would keep Postgres from building a bitmap over the
+ * indexed branches of the OR.
  *
  * Comments are deliberately not in here. See `searchTasks`.
  */
@@ -126,7 +154,7 @@ export function textCondition(term: string): SQL | undefined {
   const parts: SQL[] = [
     ilike(tasks.name, like),
     ilike(tasks.customId, like),
-    ilike(tasks.id, like),
+    eq(tasks.id, trimmed),
   ];
 
   const query = toTsQuery(trimmed);

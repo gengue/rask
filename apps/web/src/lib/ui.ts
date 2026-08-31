@@ -5,6 +5,33 @@ export type GroupBy = "status" | "due" | "assignee" | "priority" | "list" | "non
 export type Layout = "list" | "board";
 
 /**
+ * Above the store, not below it with `setShowClosed`, because the store's own
+ * initialiser reads it. A `const` declared after is in its temporal dead zone
+ * at that point, the `try` below swallows the ReferenceError as if storage were
+ * unavailable, and the preference silently never loads.
+ */
+const SHOW_CLOSED_KEY = "rask.showClosed";
+
+/**
+ * The stored closed-task preference, or null when nobody has chosen one.
+ *
+ * The null matters as much as the boolean. It is the only record of whether the
+ * reader has an opinion, and it is what lets a saved view seed the toggle from
+ * ClickUp once without overriding a choice made afterwards — see `applyView` in
+ * lib/clickup-views.ts. Same shape as `read` in lib/sidebar-state.ts, including
+ * the swallowed throw: private mode has no localStorage, and a preference is
+ * not worth a blank app.
+ */
+export function readShowClosed(): boolean | null {
+  try {
+    const raw = localStorage.getItem(SHOW_CLOSED_KEY);
+    return raw == null ? null : raw === "1";
+  } catch {
+    return null;
+  }
+}
+
+/**
  * View state that the URL does not own.
  *
  * Which task is open lives in the URL, because those links get shared. Grouping,
@@ -23,7 +50,20 @@ export const [ui, setUi] = createStore({
    * row list, which the board reads as a column plus a depth.
    */
   layout: "list" as Layout,
-  showClosed: false,
+  /**
+   * Whether closed statuses get a group, a column and rows.
+   *
+   * The odd one out in this store: it is read back from localStorage rather
+   * than starting fresh per tab. Everything else here is a decision about the
+   * moment — where the cursor is, which overlay is up — and this is a reading
+   * preference. Left ephemeral it survived walking from list to list and
+   * nothing else: a reload dropped it, and so did the first saved view opened
+   * afterwards, which seeds it from ClickUp's own `show_closed`.
+   *
+   * Write it through `setShowClosed`, never `setUi` directly, or the choice
+   * holds for the tab and is gone on the next reload.
+   */
+  showClosed: readShowClosed() ?? false,
   /**
    * Folded groups, as `<groupBy>:<groupId>` keys.
    *
@@ -70,6 +110,15 @@ export const [ui, setUi] = createStore({
    */
   filters: [] as Clause[],
 });
+
+export function setShowClosed(value: boolean): void {
+  setUi("showClosed", value);
+  try {
+    localStorage.setItem(SHOW_CLOSED_KEY, value ? "1" : "0");
+  } catch {
+    // Private mode, or a full quota. The choice still holds for this session.
+  }
+}
 
 export function closeOverlays(): void {
   setUi({ palette: false, quickAdd: false, shortcuts: false, menu: null, sidebarOpen: false });

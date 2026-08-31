@@ -210,7 +210,12 @@ export const lists = pgTable(
     content: text("content"),
     taskCount: integer("task_count"),
     archived: boolean("archived").notNull().default(false),
-    /** Only set when the list overrides its Space's statuses. */
+    /**
+     * The List's own status set, null when it just uses its Space's.
+     *
+     * "Own" as ClickUp reports it, which includes a set inherited from a Folder
+     * that overrides -- the List payload carries the effective one either way.
+     */
     statuses: jsonb<StatusDef[] | null>("statuses"),
     syncedAt: ts("synced_at").notNull().defaultNow(),
   },
@@ -273,6 +278,44 @@ export const listViews = pgTable(
     syncedAt: ts("synced_at").notNull().defaultNow(),
   },
   (t) => [index("list_views_list_idx").on(t.listId, t.orderindex)],
+);
+
+/**
+ * Every Doc in the workspace, as an index — names and parents, never content.
+ *
+ * The split is deliberate and it is the same one time tracking makes. The tree
+ * needs every Doc's name at once to draw the sidebar, and that is 329 rows the
+ * whole workspace shares: cheap to hold, four requests to refresh, and useless
+ * to fetch live because a sidebar cannot wait on a per-node round trip. The
+ * body of a Doc is the opposite — one person reads one of them, once — so it is
+ * read straight from ClickUp when somebody opens it and never stored.
+ *
+ * Which also means nothing here goes stale in a way that misleads: a renamed
+ * Doc shows its old name until the next hierarchy sync, and its contents are
+ * always whatever ClickUp says right now.
+ *
+ * There is no webhook for a Doc, so the sync is the only way this table moves.
+ */
+export const docs = pgTable(
+  "docs",
+  {
+    /** ClickUp's Doc id, e.g. "gh-84875". */
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull(),
+    name: text("name").notNull(),
+    /** The id of the Space, Folder, List or task this Doc hangs off. */
+    parentId: text("parent_id"),
+    /**
+     * ClickUp's parent-type number: 1 task, 4 space, 5 folder, 6 list,
+     * 7 everything, 12 workspace. Stored raw rather than as a word because it
+     * is ClickUp's vocabulary and `DOC_PARENT` is where it gets read.
+     */
+    parentType: integer("parent_type"),
+    dateUpdated: ts("date_updated"),
+    archived: boolean("archived").notNull().default(false),
+    syncedAt: ts("synced_at").notNull().defaultNow(),
+  },
+  (t) => [index("docs_parent_idx").on(t.parentType, t.parentId)],
 );
 
 /**

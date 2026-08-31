@@ -1,10 +1,11 @@
-import { flattenMentions } from "@rask/clickup-client";
+import { DOC_PARENT, flattenMentions } from "@rask/clickup-client";
 import {
   checklistItems,
   commentMentions,
   comments,
   customFieldDefs,
   type Db,
+  docs,
   folders,
   lists,
   listViews,
@@ -404,6 +405,17 @@ export async function getTaskDetail(db: Db, taskId: string) {
     await Promise.all([
       listComments(db, taskId),
 
+      /*
+       * Every definition, left-joined to this task's values — not the values
+       * inner-joined to their definitions, which is what this was.
+       *
+       * A row in `task_custom_values` only exists once somebody has set the
+       * field, so driving from there meant a task showed exactly the fields it
+       * already had. The panel's own promise — "expanded, the blanks come too,
+       * because that is the only way to set one" — could not be kept: there
+       * were no blanks, and a task nobody had touched offered nothing to fill
+       * in. Every field is a blank until it isn't.
+       */
       db
         .select({
           id: customFieldDefs.id,
@@ -412,9 +424,14 @@ export async function getTaskDetail(db: Db, taskId: string) {
           typeConfig: customFieldDefs.typeConfig,
           value: taskCustomValues.value,
         })
-        .from(taskCustomValues)
-        .innerJoin(customFieldDefs, eq(customFieldDefs.id, taskCustomValues.fieldId))
-        .where(eq(taskCustomValues.taskId, taskId))
+        .from(customFieldDefs)
+        .leftJoin(
+          taskCustomValues,
+          and(
+            eq(taskCustomValues.fieldId, customFieldDefs.id),
+            eq(taskCustomValues.taskId, taskId),
+          ),
+        )
         // Same reason as the comments below: names are not unique, ids are.
         .orderBy(asc(customFieldDefs.name), asc(customFieldDefs.id)),
 
@@ -824,15 +841,42 @@ export async function statusesForList(db: Db, listId: string): Promise<StatusDef
   return row?.listStatuses ?? row?.spaceStatuses ?? [];
 }
 
+/** A Doc as the tree shows it: a name and somewhere to click. */
+export interface DocRef {
+  id: string;
+  name: string;
+}
+
+export interface ListNode {
+  id: string;
+  name: string;
+  /** Docs written inside this List. Usually none; the node stays a leaf then. */
+  docs: DocRef[];
+}
+
 export interface HierarchyNode {
   id: string;
   name: string;
-  folders: Array<{ id: string; name: string; lists: Array<{ id: string; name: string }> }>;
-  lists: Array<{ id: string; name: string }>;
+  folders: Array<{ id: string; name: string; lists: ListNode[]; docs: DocRef[] }>;
+  lists: ListNode[];
+  docs: DocRef[];
 }
 
-export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
-  const [allSpaces, allFolders, allLists] = await Promise.all([
+export interface Hierarchy {
+  spaces: HierarchyNode[];
+  /**
+   * Docs that hang off the Workspace itself rather than any Space.
+   *
+   * ClickUp's own sidebar keeps these outside the tree too, and there are more
+   * of them than every other kind put together in the workspace this was built
+   * against — 73 against 4 at Space level. Dropping them because the tree has
+   * no node for them would hide most of the Docs somebody has.
+   */
+  docs: DocRef[];
+}
+
+export async function getHierarchy(db: Db): Promise<Hierarchy> {
+  const [allSpaces, allFolders, allLists, allDocs] = await Promise.all([
     db
       .select({ id: spaces.id, name: spaces.name })
       .from(spaces)
@@ -853,7 +897,35 @@ export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
       .from(lists)
       .where(eq(lists.archived, false))
       .orderBy(asc(lists.orderindex), asc(lists.name)),
+    db
+      .select({ id: docs.id, name: docs.name, parentId: docs.parentId, type: docs.parentType })
+      .from(docs)
+      .where(eq(docs.archived, false))
+      .orderBy(asc(docs.name)),
   ]);
+
+  /*
+   * Docs by parent, so each node can take its own without rescanning the list.
+   *
+   * Task-parented Docs are deliberately left out of the tree. They are the
+   * majority by count and they already have a home — the Docs section of the
+   * task panel — and hanging them off the List their task lives in would
+   * scatter a hundred rows through the sidebar under names nobody recognises.
+   */
+  const byParent = new Map<string, DocRef[]>();
+  for (const doc of allDocs) {
+    if (doc.type === DOC_PARENT.task || !doc.parentId) continue;
+    const key = `${doc.type}:${doc.parentId}`;
+    const bucket = byParent.get(key) ?? [];
+    bucket.push({ id: doc.id, name: doc.name });
+    byParent.set(key, bucket);
+  }
+  const docsOf = (type: number, id: string): DocRef[] => byParent.get(`${type}:${id}`) ?? [];
+  const listNode = (l: { id: string; name: string }): ListNode => ({
+    id: l.id,
+    name: l.name,
+    docs: docsOf(DOC_PARENT.list, l.id),
+  });
 
   // A list whose folder is not in the tree — hidden, archived, or simply not
   // mirrored yet — belongs at the space level. Without this it belongs nowhere
@@ -861,22 +933,33 @@ export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
   // went missing.
   const knownFolders = new Set(allFolders.map((folder) => folder.id));
 
-  return allSpaces.map((space) => ({
-    id: space.id,
-    name: space.name,
-    folders: allFolders
-      .filter((f) => f.spaceId === space.id)
-      .map((folder) => ({
-        id: folder.id,
-        name: folder.name,
-        lists: allLists
-          .filter((l) => l.folderId === folder.id)
-          .map((l) => ({ id: l.id, name: l.name })),
-      })),
-    lists: allLists
-      .filter((l) => l.spaceId === space.id && (!l.folderId || !knownFolders.has(l.folderId)))
-      .map((l) => ({ id: l.id, name: l.name })),
-  }));
+  return {
+    spaces: allSpaces.map((space) => ({
+      id: space.id,
+      name: space.name,
+      folders: allFolders
+        .filter((f) => f.spaceId === space.id)
+        .map((folder) => ({
+          id: folder.id,
+          name: folder.name,
+          lists: allLists.filter((l) => l.folderId === folder.id).map(listNode),
+          docs: docsOf(DOC_PARENT.folder, folder.id),
+        })),
+      lists: allLists
+        .filter((l) => l.spaceId === space.id && (!l.folderId || !knownFolders.has(l.folderId)))
+        .map(listNode),
+      docs: docsOf(DOC_PARENT.space, space.id),
+    })),
+    /*
+     * Everything (7) sits beside the Workspace (12) here. Both mean "not filed
+     * under a Space", they are two of ClickUp's words for nearly the same
+     * place, and splitting the sidebar into two indistinguishable sections
+     * would be a distinction the reader cannot act on.
+     */
+    docs: allDocs
+      .filter((d) => d.type === DOC_PARENT.workspace || d.type === DOC_PARENT.everything)
+      .map((d) => ({ id: d.id, name: d.name })),
+  };
 }
 
 export interface FilterFieldOption {
@@ -920,34 +1003,83 @@ export interface FilterField {
  * join, which measures 189.8ms, because an `exists` stops at the first hit and
  * a distinct does not. A table would be a third thing for ingest to keep in
  * step, for a query nothing but an open menu ever runs.
+ *
+ * Derived from `listDisplayFields` rather than run as its own query, so the
+ * "used in this list" probe is written once; the drop_down restriction is one
+ * `filter` over a result the ponytail note above already priced.
  */
 export async function listFilterFields(db: Db, listId: string): Promise<FilterField[]> {
+  const fields = await listDisplayFields(db, listId);
+  return fields
+    .filter((field) => field.usedHere && field.type === "drop_down")
+    .map((field) => ({
+      id: field.id,
+      name: field.name,
+      type: field.type,
+      options: optionsOf(field.typeConfig),
+    }));
+}
+
+export interface DisplayField {
+  id: string;
+  name: string;
+  type: string;
+  /** ClickUp's own shape, verbatim — `formatFieldValue` in apps/web reads it. */
+  typeConfig: unknown;
+  /** Whether some task in this List already carries a value for it. */
+  usedHere: boolean;
+}
+
+/**
+ * Every Custom Field the workspace knows, flagged by whether this List uses it.
+ *
+ * Not "every field with a value here", which is what this asked at first and
+ * what made the column picker read "No matches" on 243 of the 249 lists in the
+ * workspace. A field is offered by ClickUp on every task in its scope whether
+ * or not anybody has filled it in, and a picker that waits for a value before
+ * it will offer the column is a picker you cannot use to start filling one in.
+ *
+ * The `exists` probe stays, demoted from a filter to a flag: `listFilterFields`
+ * needs it — a facet whose every option matches nothing is worse than no facet
+ * — and the picker sorts on it, so the fields this list actually uses come
+ * first and the rest are a search away.
+ *
+ * ponytail: the flag is the whole notion of scope we have. ClickUp scopes a
+ * field to a Space, a Folder or a List, and `task.custom_fields` says which
+ * apply to each task — `packages/schema/src/map.ts` drops the ones with no
+ * value, so the mirror cannot answer "applies here" for a field nobody has
+ * filled in, and this offers the workspace's fields rather than none. The
+ * upgrade is to keep that applicability at ingest; the day a workspace has
+ * enough fields for the picker to feel long is the day to do it.
+ */
+export async function listDisplayFields(db: Db, listId: string): Promise<DisplayField[]> {
   const rows = await db
     .select({
       id: customFieldDefs.id,
       name: customFieldDefs.name,
       type: customFieldDefs.type,
       typeConfig: customFieldDefs.typeConfig,
+      /*
+       * `${customFieldDefs}.${sql.identifier("id")}`, not `${customFieldDefs.id}`.
+       *
+       * The outer query joins nothing, so Drizzle writes the bare form as
+       * `"id"` — and the subquery joins `tasks`, which has an `id` of its own.
+       * Unqualified it bound to `t.id`, making the predicate `v.field_id =
+       * t.id`, which matches nothing, so every field came back unused and the
+       * filter menu lost all its facets. Same trap as `assigneesJson` above.
+       */
+      usedHere: sql<boolean>`exists (
+        select 1 from ${taskCustomValues} v
+        join ${tasks} t on t.id = v.task_id
+        where v.field_id = ${customFieldDefs}.${sql.identifier("id")} and t.list_id = ${listId}
+      )`,
     })
     .from(customFieldDefs)
-    .where(
-      and(
-        inArray(customFieldDefs.type, ["drop_down"]),
-        sql`exists (
-          select 1 from ${taskCustomValues} v
-          join ${tasks} t on t.id = v.task_id
-          where v.field_id = ${customFieldDefs.id} and t.list_id = ${listId}
-        )`,
-      ),
-    )
-    .orderBy(asc(customFieldDefs.name));
+    .orderBy(asc(customFieldDefs.name), asc(customFieldDefs.id));
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    options: optionsOf(row.typeConfig),
-  }));
+  // Used-here first, name order kept within each group — Array.sort is stable,
+  // so the ordering above carries through rather than being re-stated here.
+  return rows.sort((a, b) => Number(b.usedHere) - Number(a.usedHere));
 }
 
 interface RawOption {
@@ -1043,7 +1175,9 @@ export async function searchTasks(db: Db, query: string, limit = 12) {
     .leftJoin(lists, eq(lists.id, tasks.listId))
     .where(and(isNull(tasks.deletedAt), eq(tasks.archived, false), matches))
     .orderBy(
-      sql`case when ${tasks.id} = ${term} then 0
+      // lower() on the id arm: the match beside it is ILIKE, and a pasted
+      // upper-case id should rank first, not lose to a name with the letters.
+      sql`case when lower(${tasks.id}) = lower(${term}) then 0
                 when ${tasks.customId} ilike ${prefix} then 1
                 when ${tasks.name} ilike ${prefix} then 2
                 when ${tasks.name} ilike ${like} then 3
@@ -1059,15 +1193,16 @@ export type ResolvedRef =
   | { kind: "view"; viewId: string; listId: string | null; name: string }
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
-  | { kind: "space"; spaceId: string; name: string };
+  | { kind: "space"; spaceId: string; name: string }
+  | { kind: "doc"; docId: string; name: string };
 
 /**
  * Identifies ids pulled out of a ClickUp URL against the mirror.
  *
  * The caller passes candidates most-specific first and gets back the first one
- * that is anything at all. Four indexed lookups run in parallel rather than a
- * union, because a task id and a list id share no shape and there is nothing to
- * decide before asking.
+ * that is anything at all. The lookups run in parallel rather than as a union,
+ * because a task id and a list id share no shape and there is nothing to decide
+ * before asking.
  */
 export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | null> {
   if (ids.length === 0) return null;
@@ -1076,7 +1211,7 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
   // may not be, and the column is indexed by value, not by upper(value).
   const upper = ids.map((id) => id.toUpperCase());
 
-  const [taskRows, viewRows, listRows, folderRows, spaceRows] = await Promise.all([
+  const [taskRows, viewRows, listRows, folderRows, spaceRows, docRows] = await Promise.all([
     db
       .select({ id: tasks.id, customId: tasks.customId, listId: tasks.listId })
       .from(tasks)
@@ -1097,6 +1232,7 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
     db.select({ id: lists.id, name: lists.name }).from(lists).where(inArray(lists.id, ids)),
     db.select({ id: folders.id, name: folders.name }).from(folders).where(inArray(folders.id, ids)),
     db.select({ id: spaces.id, name: spaces.name }).from(spaces).where(inArray(spaces.id, ids)),
+    db.select({ id: docs.id, name: docs.name }).from(docs).where(inArray(docs.id, ids)),
   ]);
 
   for (const id of ids) {
@@ -1117,6 +1253,12 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
 
     const space = spaceRows.find((row) => row.id === id);
     if (space) return { kind: "space", spaceId: space.id, name: space.name };
+
+    // Last, because a Doc id ("gh-84875") has the same shape as a view's and a
+    // view is the commoner paste. Nothing can be both: the ids come from
+    // different ClickUp id spaces.
+    const doc = docRows.find((row) => row.id === id);
+    if (doc) return { kind: "doc", docId: doc.id, name: doc.name };
   }
 
   return null;

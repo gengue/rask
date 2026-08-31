@@ -3,6 +3,7 @@ import {
   checklistItems,
   comments,
   createTestDb,
+  lists,
   outbox,
   taskAssignees,
   taskChecklists,
@@ -27,6 +28,7 @@ import {
   findChecklistItem,
   findComment,
   isEditable,
+  resolveCreatedTask,
   setCustomField,
   setTaskTags,
 } from "../src/writes.ts";
@@ -47,6 +49,10 @@ const db = createTestDb();
 const TASK = "writes-test-task";
 const CHILD = "writes-test-child";
 const GRANDCHILD = "writes-test-grandchild";
+/** The placeholder the paint test creates. `createTask` is `onConflictDoNothing`,
+ * so a row left behind by a failed run would make the next insert a silent no-op
+ * and the assertion read the old row. */
+const PAINTED = "tmp_client-painted";
 const AUTHOR = "9001";
 const ALICE = "9002";
 const BOB = "9003";
@@ -57,7 +63,7 @@ beforeEach(async () => {
     .values([{ id: AUTHOR }, { id: ALICE }, { id: BOB }])
     .onConflictDoNothing();
   await db.delete(outbox).where(eq(outbox.userId, AUTHOR));
-  await db.delete(tasks).where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD]));
+  await db.delete(tasks).where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD, PAINTED]));
   await db
     .insert(tasks)
     .values({ id: TASK, listId: "writes-test-list", name: "before", status: "todo" });
@@ -65,10 +71,32 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await db.delete(lists).where(eq(lists.id, "writes-test-list"));
   await db.delete(outbox).where(eq(outbox.userId, AUTHOR));
-  await db.delete(tasks).where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD]));
+  await db.delete(tasks).where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD, PAINTED]));
   await db.delete(users).where(inArray(users.id, [AUTHOR, ALICE, BOB]));
 });
+
+/**
+ * The List the two status tests write against, with a set to paint from.
+ *
+ * Dropped again in `afterEach`: every other test in here leans on this List
+ * having no statuses, which is the "leave the colour alone" path.
+ */
+async function paintedList() {
+  await db
+    .insert(lists)
+    .values({
+      id: "writes-test-list",
+      spaceId: "writes-test-space",
+      name: "Painted",
+      statuses: [
+        { status: "todo", color: "#87909e", type: "open" },
+        { status: "review", color: "#ab4aba", type: "custom" },
+      ],
+    })
+    .onConflictDoNothing();
+}
 
 async function queued() {
   const rows = await db.select().from(outbox).where(eq(outbox.userId, AUTHOR));
@@ -87,6 +115,64 @@ describe("applyTaskPatch", () => {
     expect(rows[0]?.op).toBe("update_task");
     expect(rows[0]?.entityId).toBe(TASK);
     expect(rows[0]?.payload).toEqual({ status: "done" });
+  });
+
+  /*
+   * The colour and the type travel with the name, or the row lands in its new
+   * group still painted as the one it left. The change feed pushes this row to
+   * every open browser inside a second, so a half-written status is what undoes
+   * the picker's optimistic paint -- and it stays undone until ClickUp's
+   * read-back arrives.
+   */
+  test("repaints the row from the List's own status set", async () => {
+    await paintedList();
+
+    // Cased differently on purpose: ClickUp does not care, and a picker built
+    // from one payload against a task stored from another is how that shows up.
+    await applyTaskPatch(db, { taskId: TASK, userId: AUTHOR, patch: { status: "Review" } });
+
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, TASK));
+    expect(task?.status).toBe("Review");
+    expect(task?.statusColor).toBe("#ab4aba");
+    expect(task?.statusType).toBe("custom");
+  });
+
+  test("leaves the colour alone for a status the List does not have", async () => {
+    await db
+      .update(tasks)
+      .set({ statusColor: "#f2c94c", statusType: "custom" })
+      .where(eq(tasks.id, TASK));
+
+    // No `lists` row at all, which is the same answer as a set without the
+    // name: the read-back knows better than a blanked colour does.
+    await applyTaskPatch(db, { taskId: TASK, userId: AUTHOR, patch: { status: "invented" } });
+
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, TASK));
+    expect(task?.status).toBe("invented");
+    expect(task?.statusColor).toBe("#f2c94c");
+    expect(task?.statusType).toBe("custom");
+  });
+
+  test("paints the placeholder a created task lands as", async () => {
+    await paintedList();
+
+    const id = await createTask(db, {
+      userId: AUTHOR,
+      task: {
+        listId: "writes-test-list",
+        name: "brand new",
+        status: "review",
+        assignees: [],
+        clientId: "client-painted",
+      },
+    });
+    expect(id).toBe(PAINTED);
+
+    // The feed hands this row back to the browser that drew it optimistically,
+    // so a placeholder with no colour unpaints the row it just added.
+    const [placeholder] = await db.select().from(tasks).where(eq(tasks.id, id));
+    expect(placeholder?.statusColor).toBe("#ab4aba");
+    expect(placeholder?.statusType).toBe("custom");
   });
 
   test("diffs assignees against the previous set, not the one just written", async () => {
@@ -172,7 +258,7 @@ describe("deleteTask", () => {
     const rows = await db
       .select()
       .from(tasks)
-      .where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD]));
+      .where(inArray(tasks.id, [TASK, CHILD, GRANDCHILD, PAINTED]));
     expect(rows).toHaveLength(3);
     expect(rows.filter((row) => row.deletedAt !== null)).toHaveLength(3);
 
@@ -286,6 +372,57 @@ describe("createTask", () => {
     expect(rows[0]?.payload).not.toHaveProperty("parent");
 
     await db.delete(tasks).where(eq(tasks.id, id));
+  });
+});
+
+/**
+ * The placeholder-to-real-id lookup the browser leans on when the panel is
+ * open on a `tmp_` task the worker just retired. Wrong answers here are
+ * silent in the worst way: `pending: false` for a queued create closes a
+ * panel on a task that is about to exist.
+ */
+describe("resolveCreatedTask", () => {
+  const CLIENT = "resolve-client";
+  const PLACEHOLDER = `tmp_${CLIENT}`;
+
+  afterEach(async () => {
+    await db.delete(tasks).where(eq(tasks.id, PLACEHOLDER));
+  });
+
+  async function queueCreate() {
+    await createTask(db, {
+      userId: AUTHOR,
+      task: { listId: "writes-test-list", name: "resolve me", assignees: [], clientId: CLIENT },
+    });
+  }
+
+  test("still queued answers pending, with no id yet", async () => {
+    await queueCreate();
+    expect(await resolveCreatedTask(db, PLACEHOLDER)).toEqual({ id: null, pending: true });
+  });
+
+  test("shipped answers the real id", async () => {
+    await queueCreate();
+    // What the worker writes the moment ClickUp answers the create.
+    await db
+      .update(outbox)
+      .set({ entityId: "real-1", status: "done" })
+      .where(eq(outbox.clientId, CLIENT));
+    expect(await resolveCreatedTask(db, PLACEHOLDER)).toEqual({ id: "real-1", pending: false });
+  });
+
+  test("rejected answers nothing, and not pending", async () => {
+    await queueCreate();
+    await db.update(outbox).set({ status: "failed" }).where(eq(outbox.clientId, CLIENT));
+    expect(await resolveCreatedTask(db, PLACEHOLDER)).toEqual({ id: null, pending: false });
+  });
+
+  test("a placeholder nobody queued answers nothing", async () => {
+    expect(await resolveCreatedTask(db, "tmp_never-queued")).toEqual({ id: null, pending: false });
+  });
+
+  test("a real id is not resolved at all", async () => {
+    expect(await resolveCreatedTask(db, TASK)).toEqual({ id: null, pending: false });
   });
 });
 

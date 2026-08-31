@@ -162,6 +162,16 @@
 .prose-rask > * + * {
   margin-top: 1.1em;
 }
+/* Folding a Doc page by its headings puts each heading's content in a div of
+   its own, and the rule above only reaches direct children, so it is repeated
+   one level in. An empty one is a heading with nothing under it — a gap there
+   would read as content that failed to render. */
+.prose-rask .rask-fold-body > * + * {
+  margin-top: 1.1em;
+}
+.prose-rask .rask-fold-body:empty {
+  display: none;
+}
 .prose-rask h1,
 .prose-rask h2,
 .prose-rask h3 {
@@ -264,4 +274,1870 @@
 .prose-rask th {
   color: var(--color-ink);
   font-weight: 500;
+}
+
+/*
+ * Ember's set dressing.
+ *
+ * The tokens in theme.css make Ember a colour scheme; this makes it a place.
+ * The materials live as SVGs in public/ember/ — procedural turbulence relief,
+ * no binary assets — and every texture is a *translucent* overlay: the token
+ * underneath still owns the base colour, so the AA audit keeps meaning
+ * something. `::before` on body is the vignette and a film of fine grain;
+ * `::after` is the sidebar's iron rail. Both are pointer-events: none and
+ * ride above static content by paint order alone, so anything positioned
+ * (menus, the palette, the scrim at z-50) still covers them.
+ *
+ * Web-only on purpose: theme.css is shared with the landing page, and the
+ * landing page never applies `html.ember`.
+ */
+html.ember body {
+  background-image: url("/ember/stone.svg");
+  background-size: 640px 640px;
+}
+
+html.ember body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(135% 100% at 50% 26%, transparent 55%, rgb(6 3 0 / 0.45) 100%),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 0.75 0 0 0 0 0.4 0 0 0 0.045 0'/></filter><rect width='140' height='140' filter='url(%23g)'/></svg>");
+}
+
+/*
+ * The rail: twin iron columns running down the sidebar's right edge, the
+ * reference's structural border between the sidebar and the content.
+ */
+html.ember body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("/ember/rail.svg");
+  background-repeat: repeat-y;
+  background-position: left 218px top 0;
+  background-size: 36px auto;
+}
+
+/* Below the dock breakpoint the sidebar is a drawer and every pixel is
+   contested: everything ornamental that occupies space — rail, frames,
+   finials, the sidebar's inner frame — gets out of the way. The flat
+   textures stay; they cost no room. */
+@media (width < theme(--breakpoint-dock)) {
+  html.ember body::before,
+  html.ember body::after,
+  html.ember main::before,
+  html.ember main::after,
+  html.ember aside[aria-label="Task detail"]::before,
+  html.ember aside[aria-label="Task detail"]::after,
+  html.ember aside[aria-label="Workspace"]::after {
+    display: none;
+  }
+}
+
+/* Panel surfaces wear their materials: leather on every panel and floating
+   menu, stone already on the wall behind. The utility class is the hook. */
+html.ember .bg-panel,
+html.ember .floating {
+  background-image: url("/ember/panel.svg");
+  background-size: 480px 480px;
+}
+
+/* The carved frame, laid over the two big panels as a border-image overlay.
+   Pseudo-element rather than a real border so the layout never moves; under
+   the drag overlay (z-30) and every fixed menu (z-50). */
+html.ember main {
+  position: relative;
+}
+
+html.ember main::after,
+html.ember aside[aria-label="Task detail"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  border: 18px solid transparent;
+  border-image: url("/ember/frame.svg") 18 / 18px stretch;
+}
+
+/* The finial riding the frame's top rail, centred. */
+html.ember main::before,
+html.ember aside[aria-label="Task detail"]::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 26;
+  pointer-events: none;
+  width: 88px;
+  height: 18px;
+  background: url("/ember/finial.svg");
+}
+
+/*
+ * The victory banner (src/lib/celebration.tsx). The webp is a transparent
+ * 1920x1080 frame with the banner band across the middle, so covering the
+ * viewport is the whole layout. Above the palette's z-50 on purpose — it is a
+ * moment, not chrome — and pointer-events: none so it never eats a click.
+ * Timing mirrors elden-all: a second in, three and a half held, a second out.
+ */
+.ember-banner {
+  position: fixed;
+  /* Both offsets pinned on each axis is what sizes the image — no 100vh,
+     which overflows dynamic mobile viewports. */
+  inset: 0;
+  z-index: 60;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+  animation: ember-banner 5.5s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+@keyframes ember-banner {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/*
+ * Look and feel of the panels under Ember, beyond what tokens can say.
+ *
+ * Tokens re-colour; they cannot recess an input or open the tracking on a
+ * carved label. These are the three structural notes from the reference that
+ * CSS can reach without touching a component: element and utility selectors
+ * only, all of them unlayered so they beat Tailwind's layered rules.
+ */
+
+/* Long-form inputs sit recessed, like ink wells: the comment box and every
+   inline editor. Element-level because the composer is a plain textarea. */
+html.ember textarea {
+  background-image:
+    url("/ember/paper.svg"),
+    linear-gradient(180deg, rgb(0 0 0 / 0.22), rgb(0 0 0 / 0.08) 40%, rgb(255 190 110 / 0.03));
+  background-size:
+    400px 400px,
+    auto;
+  border-radius: 7px;
+  box-shadow:
+    inset 0 1px 8px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(82 64 42 / 0.4);
+}
+
+/* Every section label is already uppercase; carved lettering is mostly wider
+   tracking. Overrides the tracking utility because this rule is unlayered. */
+html.ember .uppercase {
+  letter-spacing: 0.14em;
+}
+
+/* The task detail panel reads as an aged page: a warm double hairline inside
+   its edge and a faint inner shadow pooling in the corners. */
+html.ember aside[aria-label="Task detail"] {
+  box-shadow:
+    inset 0 0 0 1px rgb(82 64 42 / 0.45),
+    inset 0 0 48px rgb(0 0 0 / 0.4);
+}
+
+/* The reference marks every section break with a small lozenge on the rule.
+   `section.border-t` is the stable hook: every titled section in the panel
+   draws that border, and the empty ones drop the class along with the line. */
+/* Shared with Cyberpunk, which hangs a different marker off the same rule.
+   The two ::before bodies stay apart; only the box they need does not. */
+:is(html.ember, html.cyber) aside[aria-label="Task detail"] section.border-t {
+  position: relative;
+}
+
+html.ember aside[aria-label="Task detail"] section.border-t::before {
+  content: "";
+  position: absolute;
+  top: -3.5px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--color-app);
+  border: 1px solid var(--color-line-strong);
+}
+
+html.ember textarea::placeholder {
+  font-style: italic;
+}
+
+/* The reference's buttons are cut stone, not amber: scoped to the solid
+   accent button (Comment, and its siblings) so links and chips keep the
+   ember accent. Surface and border are the audited tokens — ink on elevated
+   is a pair the contrast suite already rates — with only translucent light
+   layered on top, which no audit can lose. */
+html.ember button.bg-accent {
+  background-color: var(--color-elevated);
+  background-image: linear-gradient(180deg, rgb(255 220 160 / 0.07), rgb(0 0 0 / 0.25));
+  color: var(--color-ink);
+  border: 1px solid var(--color-line-strong);
+  box-shadow:
+    inset 0 1px 0 rgb(255 220 160 / 0.12),
+    0 1px 3px rgb(0 0 0 / 0.5);
+}
+
+/* The sidebar wears the reference's chrome: a thin bronze inner frame with
+   shadow pooling behind it. The aria-label doubles as the styling hook, same
+   as the detail panel. */
+html.ember aside[aria-label="Workspace"] {
+  position: relative;
+}
+
+html.ember aside[aria-label="Workspace"]::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  z-index: 24;
+  border: 1px solid rgb(140 110 70 / 0.5);
+  border-radius: 8px;
+  box-shadow: inset 0 0 34px rgb(0 0 0 / 0.5);
+}
+
+/* The current row carries the reference's outlined-chip look everywhere the
+   cursor lands: nav item, task row, palette command. */
+html.ember .row-selected {
+  box-shadow: inset 0 0 0 1px rgb(140 110 70 / 0.55);
+}
+
+/*
+ * Brutal's set dressing.
+ *
+ * The tokens in theme.css make Brutal a colour scheme; this makes it a poster.
+ * Same contract as Ember: the materials are SVGs in public/brutal/, and
+ * everything hangs off selector hooks the hooks test pins, so a rename in a
+ * component sheds the skin loudly rather than silently.
+ *
+ * Where Ember only tinted, this one repaints. The reference is polychrome —
+ * a hot pink Filter, a yellow Status, teal group chips, violet section labels
+ * — and a poster painted in one ink is not the reference. So the Memphis
+ * palette lives here as its own five names, and every pairing built from it is
+ * annotated with the ratio it was chosen for: `contrast.ts` reads theme.css
+ * and cannot see this file, so these are hand-checked and have to say so.
+ *
+ * The one thing the reference does that the palette could not: white on hot
+ * pink is 3.6:1. Ink on it is 5.1:1, so the poster's black-on-magenta wins and
+ * the reference's white lettering is what gets sacrificed — the same bargain
+ * light mode documents for its due-date amber.
+ */
+html.brutal {
+  --brutal-ink: #131316;
+  --brutal-teal: #2ee0c6;
+  --brutal-pink: #f0417e;
+  --brutal-yellow: #ffd93d;
+  --brutal-violet: #5233e8;
+  /* Nothing blurs. Two offsets and a hard edge, everywhere. */
+  --brutal-lift: 3px 3px 0 var(--brutal-ink);
+}
+
+/* The wall: violet graph paper strewn with confetti. Both live on the body
+   itself, not a fixed overlay, so panels cover them and the shapes only show
+   where the wall does — the margins, and the gap between the two cards. */
+html.brutal body {
+  background-image: url("/brutal/confetti.svg"), url("/brutal/grid.svg");
+  background-size:
+    620px 620px,
+    26px 26px;
+}
+
+/*
+ * Two cards on a wall, not one window with a divider.
+ *
+ * `main` stops being a surface: it keeps the flex layout and gives up its
+ * background, border and clipping, so the list and the detail panel each
+ * become a pasted card with the wall showing between and around them. The
+ * margin is 22px rather than the 8px gutters the other themes use — the wall,
+ * its grid and its confetti are the theme, and at 8px they read as a
+ * rendering artefact rather than a place.
+ */
+html.brutal main {
+  margin: 22px;
+  gap: 20px;
+  background: none;
+  border: 0;
+  overflow: visible;
+}
+
+html.brutal main > div,
+html.brutal aside[aria-label="Task detail"] {
+  background-color: var(--color-panel);
+  background-image: url("/brutal/paper.svg");
+  background-size: 360px 360px;
+  border: 2px solid var(--brutal-ink);
+  box-shadow: 5px 5px 0 var(--brutal-ink);
+  /* `main` gave up its clipping, so each card has to do its own. */
+  overflow: hidden;
+}
+
+/*
+ * Floating menus are cream paper wherever they open — including anchored
+ * inside the black sidebar, whose scope below re-points the whole ink ladder
+ * light. The menu is `position: fixed` but still a DOM child of the sidebar,
+ * and custom properties inherit through the anchor, so a menu opened there
+ * painted pale grey on cream.
+ *
+ * Restoring the theme-block values explicitly is the only fix CSS has: there
+ * is no "inherit from :root" for a custom property. That makes this a second
+ * copy of the `html.brutal` block in theme.css, so it has to match token for
+ * token with what the sidebar re-points — `skin-hooks.test.ts` pins both
+ * halves, because a drifted copy is wrong only inside menus opened from the
+ * sidebar, which is the last place anyone looks.
+ */
+html.brutal .floating {
+  background-image: url("/brutal/paper.svg");
+  background-size: 360px 360px;
+  --color-ink: #0e0e11;
+  --color-ink-2: #17171b;
+  --color-ink-3: #1b1b20;
+  --color-ink-4: #1e1e24;
+  --color-ink-prose: #121216;
+  --color-line: #131316;
+  --color-line-strong: #000000;
+  --color-accent: #16123f;
+  --color-accent-soft: #16123f24;
+  --color-on-accent: #ffd93d;
+  --color-urgent: #6f0f20;
+  --color-high: #553305;
+  --color-ok: #123f1e;
+  --color-hover: rgb(0 0 0 / 0.06);
+  --color-selected: rgb(0 0 0 / 0.09);
+  --color-chip: rgb(0 0 0 / 0.07);
+  --color-wash: rgb(0 0 0 / 0.035);
+  --color-scrollbar: #131316;
+  --color-scrollbar-hover: #000000;
+}
+
+/*
+ * The sidebar is the reference's one dark slab, with a teal spine down its
+ * open edge. Opposite polarity to the audited palette, so the whole ink ladder
+ * is re-pointed inside the scope — ratios on #131316: ink 18.2, ink-2 13.9,
+ * ink-3 11.5, ink-4 9.2, prose 16.4, accent (the yellow) 13.5, ok 7.4 — all
+ * past the floors the audit enforces elsewhere. The status tones come back to
+ * their dark-theme values for the same reason: oxblood on near-black is
+ * invisible.
+ */
+html.brutal aside[aria-label="Workspace"] {
+  background: var(--brutal-ink);
+  border-right: 6px solid var(--brutal-teal);
+  --color-ink: #fdfdfa;
+  --color-ink-2: #d9d9e2;
+  --color-ink-3: #c6c6d2;
+  --color-ink-4: #b6b6c3;
+  --color-ink-prose: #ececf2;
+  --color-line: #34343e;
+  --color-line-strong: #52525f;
+  --color-accent: #ffd93d;
+  --color-accent-soft: #ffd93d29;
+  --color-on-accent: var(--brutal-ink);
+  --color-urgent: #f2606a;
+  --color-high: #f2994a;
+  --color-ok: #2ecd6f;
+  --color-hover: rgb(255 255 255 / 0.09);
+  --color-selected: rgb(255 255 255 / 0.13);
+  --color-chip: rgb(255 255 255 / 0.1);
+  --color-wash: rgb(255 255 255 / 0.05);
+  --color-scrollbar: #3a3a46;
+  --color-scrollbar-hover: #52525f;
+}
+
+/* Every word in the tree is shouted, which is what makes it a poster and not
+   a file browser. The footer's name goes with them. */
+html.brutal aside[aria-label="Workspace"] a,
+html.brutal aside[aria-label="Workspace"] .text-md {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+}
+
+/* The open list, in teal with an ink outline. Ink on this teal is 11.1:1, so
+   the whole ladder collapses onto near-black inside the chip. */
+html.brutal aside[aria-label="Workspace"] .row-selected {
+  background: var(--brutal-teal);
+  box-shadow: inset 0 0 0 2px var(--brutal-ink);
+  --color-ink: var(--brutal-ink);
+  --color-ink-2: var(--brutal-ink);
+  --color-ink-3: #1f1f26;
+  --color-ink-4: #1f1f26;
+  --color-accent: var(--brutal-ink);
+}
+
+/* My Tasks is the reference's one standing button rather than a nav row:
+   yellow, outlined, lifted. Ink on it is 13.5:1. It stays yellow when it is
+   also the open route — it reads as a button, and a button does not become a
+   different colour for being where you are. */
+html.brutal aside[aria-label="Workspace"] a[href="/"] {
+  background: var(--brutal-yellow);
+  box-shadow:
+    inset 0 0 0 2px var(--brutal-ink),
+    var(--brutal-lift);
+  margin-bottom: 5px;
+  --color-ink: var(--brutal-ink);
+  --color-ink-2: var(--brutal-ink);
+}
+
+/* Section labels in the tree are pasted tags, not quiet captions. */
+html.brutal aside[aria-label="Workspace"] .uppercase {
+  align-self: flex-start;
+  background: var(--brutal-yellow);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 1px 8px;
+  margin-bottom: 4px;
+}
+
+/*
+ * The list header: an outlined title plate, a violet count, and the two
+ * controls the reference paints loudest.
+ *
+ * In the reference that whole row sits on the wall, above the card — the card
+ * starts at the tabs. Reproducing that literally would mean the card's paper,
+ * border and shadow all starting 48px down inside their own element, which is
+ * a pseudo-element and a stacking context threaded through a scroller that
+ * already documents why it must not become a containing block. Painting the
+ * band with the wall instead puts the same plate and the same two buttons on
+ * the same violet, inside the card's outline rather than above it, for three
+ * declarations.
+ */
+html.brutal .view-header {
+  background-color: var(--color-app);
+  background-image: url("/brutal/grid.svg");
+  background-size: 26px 26px;
+  border-bottom: 2px solid var(--brutal-ink);
+}
+
+/* Small header controls read as pressed-out chips, the way everything
+   clickable does in the reference. Filter and the grouping picker override
+   the fill below; this is what the rest get. */
+html.brutal .view-header button {
+  border: 2px solid var(--brutal-ink);
+  background-color: var(--color-overlay);
+  color: var(--brutal-ink);
+  padding-inline: 5px;
+}
+
+html.brutal main header h1 {
+  background: var(--color-overlay);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 3px 11px;
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+html.brutal main header h1 + .bg-chip {
+  background: var(--brutal-violet);
+  color: #ffffff; /* 7.0:1 */
+  border: 2px solid var(--brutal-ink);
+  padding: 2px 8px;
+}
+
+/* Filter, in hot pink. Ink on it is 5.1:1. */
+html.brutal [aria-label="Add a filter"] {
+  background: var(--brutal-pink);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 0 8px;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+/* The grouping picker — "Status" in the reference — in yellow. It is the only
+   header control with a `capitalize` label, which is the hook. Ink 13.5:1. */
+html.brutal main header button:has(> span.capitalize) {
+  background: var(--brutal-yellow);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 0 8px;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+/*
+ * Group headers are a chip and a counter sitting on the paper, not a tinted
+ * band across it. The band goes; the label becomes the reference's teal chip
+ * (ink 11.1:1) and the count its own outlined box.
+ */
+html.brutal button.bg-wash {
+  background-color: transparent;
+  border-bottom: 0;
+}
+
+html.brutal button.bg-wash > span.capitalize {
+  background: var(--brutal-teal);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 1px 10px;
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+html.brutal button.bg-wash > span.bg-chip {
+  background: var(--color-overlay);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  padding: 1px 7px;
+}
+
+/*
+ * Tags are outlined stickers rather than tinted washes.
+ *
+ * `!important` because TaskRow writes the border and the fill as an inline
+ * style, derived from the tag's own ClickUp colour, and an inline style beats
+ * every stylesheet rule regardless of specificity. Only the border is taken:
+ * the fill stays the tag's colour, which is the part the row is trying to
+ * say, and is exactly what a poster would outline rather than repaint.
+ */
+html.brutal [role="option"] .border {
+  /* biome-ignore lint/complexity/noImportantStyles: the value it overrides is
+     an inline style, which no specificity can outrank */
+  border-color: var(--brutal-ink) !important;
+  font-weight: 700;
+}
+
+/* Rows are ruled in marker, and the cursor's left hairline becomes the
+   reference's fat yellow tab. */
+html.brutal [role="option"] {
+  border-bottom-style: dashed;
+  border-bottom-color: var(--color-line-strong);
+}
+
+html.brutal [role="option"] > span.bg-accent:first-of-type {
+  width: 6px;
+  background: var(--brutal-yellow);
+}
+
+/*
+ * The cursor is a violet slab with white ink, the reference's selected row.
+ * Darker than the wall token on purpose: white needs 4.5:1 and the wall only
+ * gives 3.6. Ratios on #5233e8: ink (white) 7.0, ink-2 6.6, ink-3 6.3,
+ * ink-4 6.0, accent (light yellow) 5.5; the status tints all sit above 5.
+ */
+html.brutal .row-selected {
+  background: var(--brutal-violet);
+  box-shadow: inset 0 0 0 2px var(--brutal-ink);
+  --color-ink: #ffffff;
+  --color-ink-2: #f1edff;
+  --color-ink-3: #e7e1ff;
+  --color-ink-4: #ded6ff;
+  --color-ink-prose: #ffffff;
+  --color-accent: #ffe066;
+  --color-urgent: #ffb3ba;
+  --color-high: #ffd28f;
+  --color-ok: #a5f0b8;
+  --color-low: #d9d3ff;
+}
+
+/* Headings are shouted: every uppercase label goes heavy and a touch wider. */
+html.brutal .uppercase {
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+/* The detail panel's section labels are the reference's violet tabs. The h3 is
+   every titled section's heading, and `section.border-t` is the same hook
+   Ember hangs its lozenge on. White on violet is 7.0:1. */
+html.brutal aside[aria-label="Task detail"] section h3 {
+  /* The h3 is itself a flex row (label plus count), so it is a block that
+     would otherwise stripe the full width instead of sitting as a tab. */
+  width: fit-content;
+  background: var(--brutal-violet);
+  color: #ffffff;
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  padding: 2px 9px;
+}
+
+/* Attachments and Time entries hang their action inside the heading, so the
+   tab swallows it. Give it back its own edge: a cream chip on the violet,
+   ink 16.7:1. */
+html.brutal aside[aria-label="Task detail"] section h3 button {
+  background: var(--color-overlay);
+  color: var(--brutal-ink);
+  border: 2px solid var(--brutal-ink);
+  padding: 0 6px;
+  margin-left: 8px;
+}
+
+/* ponytail: the reference paints "+ Add checklist" and "+ Add subtask" as pink
+   buttons and they stay plain here. Both are `button.-mx-1.text-xs`, which
+   nine other small actions in the panel also are, so the only selector that
+   reaches the two of them reaches all eleven. Ceiling: two buttons duller than
+   the reference. Upgrade path: a marker class in Checklists.tsx and
+   Subtasks.tsx, pinned in the hooks test like every other hook here. */
+
+/* The task title is the poster's headline. */
+html.brutal aside[aria-label="Task detail"] h1,
+html.brutal aside[aria-label="Task detail"] textarea.text-lg {
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.005em;
+}
+
+/* Every disc gets the marker outline. Outline, not box-shadow: the stacked
+   avatars draw their overlap ring with Tailwind's ring-2, which is a
+   box-shadow this must not replace. */
+html.brutal .rounded-full {
+  outline: 1.5px solid var(--brutal-ink);
+  outline-offset: -1px;
+}
+
+/* Long-form inputs are pasted paper slips: sharp, double-ruled in ink. */
+html.brutal textarea {
+  background: var(--color-overlay);
+  border-radius: 0;
+  box-shadow: inset 0 0 0 2px var(--brutal-ink);
+}
+
+html.brutal textarea::placeholder {
+  font-weight: 600;
+}
+
+/* The solid accent button — Comment, and its siblings — is violet with white
+   lettering, 7.0:1, lifted like everything else that can be pressed. */
+html.brutal button.bg-accent {
+  background-color: var(--brutal-violet);
+  color: #ffffff;
+  border: 2px solid var(--brutal-ink);
+  box-shadow: var(--brutal-lift);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+/* Pictures in descriptions read as pasted photos. */
+html.brutal .prose-rask img {
+  border: 2px solid var(--brutal-ink);
+  border-radius: 0;
+}
+
+/*
+ * Below the dock breakpoint the sidebar is a drawer over the list and every
+ * pixel is contested, so the wall margins collapse back to the other themes'
+ * gutters and the cards keep only their outline. The flat textures stay; they
+ * cost no room.
+ */
+@media (width < theme(--breakpoint-dock)) {
+  html.brutal main {
+    margin: 8px;
+    gap: 0;
+  }
+
+  html.brutal main > div,
+  html.brutal aside[aria-label="Task detail"] {
+    box-shadow: none;
+  }
+
+  html.brutal aside[aria-label="Workspace"] {
+    border-right-width: 2px;
+  }
+}
+
+/*
+ * XP's set dressing.
+ *
+ * The tokens in theme.css make XP a colour scheme; this makes it a window.
+ * Same contract as the other two skins: element and utility selectors only,
+ * every hook pinned by `skin-hooks.test.ts`, and the materials procedural —
+ * two small SVGs in public/xp/ and a pile of gradients, because Luna is
+ * gradients all the way down.
+ *
+ * The one thing this skin does that the others do not is invent chrome. Rask
+ * has no title bar and no menu bar, and an XP theme without them is just a
+ * blue colour scheme — so the two of them are drawn as fixed strips at the top
+ * of the viewport and the app is pushed down past them. They are decoration
+ * and behave like it: pointer-events: none, and under every fixed menu.
+ */
+/*
+ * Luna's five colours, named once, and the window frame.
+ *
+ * The border goes on <html> rather than on a fourth overlay: it is the only
+ * box that already spans the viewport on every axis, and with border-box (the
+ * preflight puts it on `*`) the three pixels come out of the page rather than
+ * scrolling it. No top border — the caption is the top edge.
+ */
+html.xp {
+  --xp-face: #ece9d8;
+  --xp-frame: #0c4fd2;
+  --xp-field: #7f9db9;
+  --xp-highlight: #316ac5;
+  --xp-groove: #c8cfdd;
+
+  border: 3px solid var(--xp-frame);
+  border-top: 0;
+}
+
+/* The padding is the room the two strips stand in. Percentage heights below
+   it resolve against the content box, so #root and the whole flex shell shrink
+   by exactly the 49px without a single calc(). */
+html.xp body {
+  padding-top: 49px;
+  /* Tahoma at 11px is a hinted bitmap-era face; smoothing tuned for light
+     text on near-black thins it into mush. Same call light mode makes. */
+  -webkit-font-smoothing: auto;
+  /* The tracking the rest of the app uses is for a humanist sans at 16px. */
+  letter-spacing: 0;
+}
+
+/* The caption: Luna's sixteen-stop blue, the app icon, and the three buttons.
+   z-40 keeps it under the palette and every menu (z-50) and over everything
+   inside #root, which cannot reach up here anyway. */
+html.xp body::before {
+  content: "Rask - AI Task Manager";
+  position: fixed;
+  top: 0;
+  right: 3px;
+  left: 3px;
+  z-index: 40;
+  display: flex;
+  height: 28px;
+  align-items: center;
+  overflow: hidden;
+  padding-right: 84px;
+  padding-left: 26px;
+  border-radius: 7px 7px 0 0;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-shadow: 1px 1px 1px rgb(0 0 0 / 0.55);
+  pointer-events: none;
+  background:
+    url("/xp/app-icon.svg") no-repeat left 6px center / 16px 16px,
+    url("/xp/caption-buttons.svg") no-repeat right 4px center / 72px 21px,
+    linear-gradient(
+      180deg,
+      #0058ee 0%,
+      #3593ff 4%,
+      #288eff 6%,
+      #127dff 8%,
+      #036ffc 10%,
+      #0262ee 14%,
+      #0057e5 20%,
+      #0054e3 24%,
+      #0055eb 56%,
+      #005bf5 66%,
+      #005dfa 76%,
+      #0262ff 86%,
+      #0470ff 92%,
+      #0068ff 96%,
+      #005bff 100%
+    );
+}
+
+/* The menu bar. Six words that do nothing, which is the joke and also the
+   reference: the row is what tells you which decade the window is from. */
+html.xp body::after {
+  content: "File   Edit   View   Tools   Actions   Help";
+  position: fixed;
+  top: 28px;
+  right: 3px;
+  left: 3px;
+  z-index: 40;
+  display: flex;
+  height: 21px;
+  align-items: center;
+  padding-left: 6px;
+  background: var(--xp-face);
+  box-shadow: inset 0 -1px 0 #d5d2c2;
+  color: #000000;
+  font-size: 11px;
+  white-space: nowrap;
+  word-spacing: 10px;
+  pointer-events: none;
+}
+
+/*
+ * The Explorer task pane. A white card with a sunken border and a glossy blue
+ * caption, which is the shape the reference's left column has.
+ *
+ * Only the caption flips polarity, and nothing that opens a menu lives in it —
+ * the theme and sign-out buttons are down in the footer, which stays light. So
+ * the ink re-point here needs no counterpart in `.floating`, unlike Brutal's
+ * black sidebar, and there is no second copy of the palette to keep in step.
+ */
+html.xp aside[aria-label="Workspace"] {
+  margin: 4px 0 4px 4px;
+  border: 1px solid var(--xp-field);
+  border-radius: 4px;
+  background: var(--color-panel);
+  overflow: hidden;
+}
+
+html.xp aside[aria-label="Workspace"] > header {
+  background: linear-gradient(180deg, #6f96e0 0%, #4a70c8 40%, #3d61b8 60%, #35539f 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    0 1px 0 #2c4784;
+  color: #ffffff;
+  /* White on the middle of that gradient is 4.8:1; the icon button rides the
+     same band. Both tokens go white rather than to a tint for that reason. */
+  --color-ink: #ffffff;
+  --color-ink-4: #ffffff;
+  --color-hover: rgb(255 255 255 / 0.22);
+}
+
+html.xp aside[aria-label="Workspace"] > header > span {
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.35);
+}
+
+/* The tree's connector lines are dotted, the way every XP treeview's are. */
+html.xp aside[aria-label="Workspace"] .border-l {
+  border-left-style: dotted;
+  border-left-color: #8ea3c0;
+}
+
+/*
+ * The treeview expander: a nine-pixel box with a plus or a minus, which is the
+ * single loudest thing a Windows tree does and the one the chevron was not
+ * saying. The box is the <svg> itself — its own path is dropped and the two
+ * strokes are gradients, so nothing about the glyph has to come from markup.
+ * `.rotate-90` is how the component already spells "open", so the vertical
+ * stroke collapses to nothing there and the plus becomes a minus.
+ */
+html.xp aside[aria-label="Workspace"] .chevron {
+  width: 9px;
+  height: 9px;
+  border: 1px solid #7d92b3;
+  background-color: #ffffff;
+  background-image: linear-gradient(#0b3f9c 0 0), linear-gradient(#0b3f9c 0 0);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size:
+    5px 1px,
+    1px 5px;
+  /* The open state turns the chevron a quarter, and Tailwind writes that as
+     `rotate: 90deg` rather than a transform — so cancelling `transform` does
+     nothing and the minus comes out standing up. A box does not turn. */
+  rotate: none;
+}
+
+html.xp aside[aria-label="Workspace"] .chevron.rotate-90 {
+  background-size:
+    5px 1px,
+    0 0;
+}
+
+html.xp aside[aria-label="Workspace"] .chevron path {
+  display: none;
+}
+
+/* The palette opener is drawn as a dormant input, so under XP it becomes an
+   actual one: white, sunken, square. `button.bg-hover` is the hook — it is the
+   only control in the tree wearing the hover tint as its resting state. */
+html.xp aside[aria-label="Workspace"] button.bg-hover {
+  background-color: #ffffff;
+  border: 1px solid var(--xp-field);
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 #ccd6e3;
+}
+
+/* Section headings are bold blue. XP carries hierarchy with weight and hue,
+   not with grey — its own grey label is 2.9:1 on the window face. */
+html.xp h3.uppercase,
+html.xp aside[aria-label="Workspace"] .uppercase {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* The client area: square, sunken, sitting on the window face. */
+html.xp main {
+  margin: 4px;
+  border: 1px solid var(--xp-field);
+  border-radius: 0;
+  background-color: var(--color-panel);
+}
+
+/* The list header becomes the toolbar band, and its controls become flat
+   toolbar buttons that only draw an edge under the pointer. */
+html.xp .view-header {
+  background: linear-gradient(180deg, #fdfdfb 0%, #f4f2e9 55%, var(--xp-face) 100%);
+  border-bottom: 1px solid #d0ccb8;
+}
+
+html.xp .view-header button {
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+html.xp .view-header button:hover {
+  border-color: #97b4dd;
+  background-image: linear-gradient(180deg, #ffffff, #dbe8fb);
+}
+
+html.xp main header h1 {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* The count beside it: an outlined blue badge, 7.5:1. */
+html.xp main header h1 + .bg-chip {
+  background: #d8e4f8;
+  border: 1px solid #9db6da;
+  color: var(--color-accent);
+}
+
+/* The Filter control is the one the reference draws with a border of its own
+   even at rest, because it holds state. */
+html.xp [aria-label="Add a filter"] {
+  border-color: #97b4dd;
+  background-image: linear-gradient(180deg, #ffffff, #e6eefa);
+}
+
+/*
+ * Group headers stop being a tinted band and become a bold blue caption over
+ * a hairline, which is how XP's own grouped list views separate them.
+ */
+html.xp button.bg-wash {
+  background-color: transparent;
+  border-bottom-color: #c3cfe2;
+}
+
+html.xp button.bg-wash > span.capitalize {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+html.xp button.bg-wash > span.bg-chip {
+  background: var(--color-elevated);
+  border: 1px solid #b8c8e0;
+  color: var(--color-accent);
+}
+
+/*
+ * The cursor is the Explorer highlight: a solid blue slab with white ink and
+ * the dotted focus rectangle inside it. Ratios on #316ac5 — ink (white) 7.1,
+ * ink-2 6.8, ink-3 6.7, ink-4 6.5, accent (white) 7.1 — all past the floor the
+ * audit enforces on the tokens it can see.
+ */
+html.xp .row-selected {
+  background: var(--xp-highlight);
+  border-radius: 0;
+  outline: 1px dotted rgb(255 255 255 / 0.6);
+  outline-offset: -3px;
+  --color-ink: #ffffff;
+  --color-ink-2: #f4f7fe;
+  --color-ink-3: #eef3fd;
+  --color-ink-4: #eaf0fc;
+  --color-ink-prose: #ffffff;
+  --color-accent: #ffffff;
+  --color-urgent: #ffb3ba;
+  --color-high: #ffd28f;
+  --color-ok: #a5f0b8;
+  --color-low: #dbe4f8;
+}
+
+/* Rows are ruled the way a list view is: one hairline, no dash, no tint. */
+html.xp [role="option"] {
+  border-bottom-color: #e2e6ef;
+}
+
+/* The task title is the pane's blue headline — the reference's is the loudest
+   thing on screen after the caption. */
+html.xp aside[aria-label="Task detail"] h1,
+html.xp aside[aria-label="Task detail"] textarea.text-lg {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* Section breaks are the etched groove: a dark rule with a white one under it,
+   which is the only 3D XP ever draws on a flat surface. */
+html.xp aside[aria-label="Task detail"] section.border-t {
+  border-top-color: var(--xp-groove);
+  box-shadow: inset 0 1px 0 #ffffff;
+}
+
+/* Text boxes are sunken white fields with the field border, everywhere —
+   including the inline editors, which is what XP's edit-in-place looks like. */
+html.xp textarea {
+  background: #ffffff;
+  border: 1px solid var(--xp-field);
+  border-radius: 0;
+  /* The shadow pools in the top-left corner, the way a sunken box does under a
+     light coming from there. */
+  box-shadow: inset 1px 1px 0 #ccd6e3;
+}
+
+/* The solid accent button is a Luna push button: black lettering on the window
+   face, a navy edge and a white inner bevel. */
+html.xp button.bg-accent {
+  background-color: var(--xp-face);
+  background-image: linear-gradient(180deg, #ffffff 0%, #f6f4ec 45%, #e9e5d5 55%, #dedac6 100%);
+  border: 1px solid #003c74;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #ffffff;
+  color: #000000;
+  font-weight: 400;
+}
+
+/* Menus and the palette: square, one grey hairline, a hard drop shadow. The
+   shadow itself is --floating-shadow, set in theme.css. */
+html.xp .floating {
+  border: 1px solid #a0a0a0;
+  border-radius: 0;
+}
+
+/* Luna's scrollbar: a wide glossy blue thumb in a pale channel, no rounding.
+   The base rule inset the thumb with a transparent border and padding-box
+   clipping, both of which have to go for the gradient to reach the edge. */
+html.xp ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+html.xp ::-webkit-scrollbar-track {
+  background: #f1f4fb;
+  box-shadow: inset 1px 0 0 #d5dcea;
+}
+
+html.xp ::-webkit-scrollbar-thumb {
+  border: 1px solid #6c8fca;
+  border-radius: 0;
+  background: linear-gradient(90deg, #fbfcfe 0%, #d5e2f6 35%, #b3caee 65%, #93b3e4 100%);
+  background-clip: border-box;
+}
+
+html.xp ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #ffffff 0%, #e2ecfb 35%, #c6d9f4 65%, #a6c2ea 100%);
+  background-clip: border-box;
+}
+
+/* XP rounds by three pixels and never by ten. --radius-panel already says so;
+   this catches the ad-hoc radii spelled as utilities. Circles stay circles. */
+html.xp [class*="rounded"]:not(.rounded-full) {
+  border-radius: 3px;
+}
+
+/*
+ * Scrollbar arrow buttons. Chrome draws none unless they are styled, and a
+ * blue XP scrollbar with nothing at its ends is the one part of the chrome
+ * that reads as a web page. The sprite carries all four; the `:start`/`:end`
+ * pairs that would put a second button at the wrong end are dropped.
+ */
+html.xp ::-webkit-scrollbar-button {
+  display: block;
+  background-image: url("/xp/scroll-arrows.svg");
+  background-repeat: no-repeat;
+  background-size: 64px 16px;
+}
+
+html.xp ::-webkit-scrollbar-button:vertical:start:decrement {
+  height: 16px;
+  background-position: 0 0;
+}
+
+html.xp ::-webkit-scrollbar-button:vertical:end:increment {
+  height: 16px;
+  background-position: -16px 0;
+}
+
+html.xp ::-webkit-scrollbar-button:horizontal:start:decrement {
+  width: 16px;
+  background-position: -32px 0;
+}
+
+html.xp ::-webkit-scrollbar-button:horizontal:end:increment {
+  width: 16px;
+  background-position: -48px 0;
+}
+
+html.xp ::-webkit-scrollbar-button:vertical:start:increment,
+html.xp ::-webkit-scrollbar-button:vertical:end:decrement,
+html.xp ::-webkit-scrollbar-button:horizontal:start:increment,
+html.xp ::-webkit-scrollbar-button:horizontal:end:decrement {
+  display: none;
+}
+
+/*
+ * Focus is a dotted rectangle, not a ring. `.row-selected` is excluded because
+ * it draws its own in white — black dots on the Explorer highlight are gone.
+ * Text fields keep opting out for the reason the base layer gives: they show a
+ * caret and take the keystrokes, and XP does not ring them either.
+ */
+html.xp :focus-visible:not(.row-selected) {
+  outline: 1px dotted #000000;
+  outline-offset: -3px;
+}
+
+html.xp input:focus-visible,
+html.xp textarea:focus-visible {
+  outline: none;
+}
+
+/*
+ * Every small action in the detail panel is a blue link, which is what a task
+ * pane is made of. This is the selector Brutal named as its ceiling and did not
+ * take — it reaches all eleven small buttons, not the two the reference paints
+ * — because here reaching all eleven is the correct answer rather than the
+ * collateral: XP has no quiet grey action.
+ */
+html.xp aside[aria-label="Task detail"] button.text-xs {
+  color: var(--color-accent);
+}
+
+html.xp aside[aria-label="Task detail"] button.text-xs:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* The sunken bevel: the dark edge is the border, the light one sits outside
+   it on the window face. Two surfaces claim to be recessed, so both get it. */
+html.xp main,
+html.xp aside[aria-label="Workspace"] {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7);
+}
+
+/*
+ * The stop error (src/components/RouteError.tsx).
+ *
+ * Fixed and above everything, including the title bar and the menu bar: a blue
+ * screen drawn politely inside a window is not a blue screen. Unscoped like
+ * `.ember-banner`, because the component only renders it under XP — the theme
+ * check lives there, next to the decision to render at all.
+ */
+.xp-bsod {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  /* Near the top, not floating in the middle: the original was eighty columns
+     of text mode starting four lines down, and vertical centring on a wide
+     monitor is the tell that it is a web page. */
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 14vh 28px 40px;
+  background: #0000aa;
+  /* 13.3:1. The one pairing in this theme the audit cannot see, because it is
+     not built from tokens — a stop error is not part of the palette. */
+  color: #ffffff;
+  font-family: "Lucida Console", "DejaVu Sans Mono", var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+
+/* A flex column rather than `p + p` margins: one declaration instead of two,
+   and no descendant selector for the linter to worry about. */
+.xp-bsod-page {
+  display: flex;
+  width: 100%;
+  max-width: 78ch;
+  flex-direction: column;
+  gap: 1.5em;
+}
+
+.xp-bsod-link {
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+}
+
+.xp-bsod-link:hover {
+  text-decoration: underline;
+}
+
+.xp-caret {
+  animation: xp-caret 1.06s steps(1, end) infinite;
+}
+
+@keyframes xp-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* A cursor blinking forever is a real problem for some readers, and the screen
+   says everything it has to say without it. */
+@media (prefers-reduced-motion: reduce) {
+  .xp-caret {
+    animation: none;
+  }
+}
+
+/*
+ * Below the dock breakpoint the sidebar stops being a column and becomes an
+ * absolutely positioned drawer, where a margin fights `inset-y-0` and a
+ * rounded card floating over the list reads as a bug. It goes back to being a
+ * plain panel with one edge. The chrome stays: the strips cost height, not the
+ * width that is contested down here.
+ */
+@media (width < theme(--breakpoint-dock)) {
+  html.xp aside[aria-label="Workspace"] {
+    margin: 0;
+    border-width: 0 1px 0 0;
+    border-radius: 0;
+  }
+}
+
+/*
+ * Aqua's set dressing.
+ *
+ * The tokens in theme.css make Aqua a colour scheme; this makes it Mac OS X.
+ * Same contract as the other skins: the materials are SVGs in
+ * public/aqua/, every texture is a translucent overlay so the audited token
+ * underneath still owns the base colour, and everything hangs off selector
+ * hooks that `skin-hooks.test.ts` pins — a rename in a component sheds the
+ * skin loudly rather than silently.
+ *
+ * The shell already has the shape of the reference: a frame with a source list
+ * down the left and a document area inset from it. So the frame becomes
+ * brushed metal, the document becomes the pinstriped white page, and the two
+ * h-12 headers become toolbars. Nothing structural moves.
+ *
+ * Aqua is gloss, and gloss is one gradient: bright across the top half, a hard
+ * step at the waist, a lit rim at the bottom. `--aqua-gloss` is that gradient,
+ * laid over a solid colour wherever a control should look pressed out of gel —
+ * button, scrollbar thumb, traffic light. Layering *light* over a colour is
+ * also what keeps this honest: the base colour is what a ratio is quoted
+ * against, and the ratios in here are hand-checked, because contrast.ts reads
+ * theme.css and cannot see this file.
+ *
+ * The one place the reference loses: white lettering on Aqua's own selection
+ * blue (#3875d7) is 4.1:1. The blues below are a step darker so white clears
+ * 4.5 — the same bargain light mode documents for its due-date amber.
+ */
+html.aqua {
+  /* The 1px line around every metal edge, and the lit line just inside it. */
+  --aqua-rim: #868d97;
+  /* Under the gloss of a default button. White on it is 6.4:1 bare, 4.7:1
+     through the 14% gloss the lettering actually sits in. */
+  --aqua-gel: #255cb4;
+  /* The selected row, top and bottom stop. White on the top stop is 5.8:1. */
+  --aqua-select: #2a63bd;
+  --aqua-select-2: #17498f;
+  --aqua-gloss: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.34) 0%,
+    rgb(255 255 255 / 0.14) 47%,
+    rgb(255 255 255 / 0.02) 48%,
+    rgb(255 255 255 / 0.22) 100%
+  );
+}
+
+/* The frame: horizontal grain, lit from the top the way a metal window is.
+   Font smoothing goes back to the browser's for the same reason light mode
+   documents — near-black on near-white thins under the greyscale pass. */
+html.aqua body {
+  background-image:
+    url("/aqua/metal.svg"),
+    linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.45) 0,
+      rgb(255 255 255 / 0) 180px,
+      rgb(0 0 0 / 0.05) 100%
+    );
+  background-size:
+    256px 256px,
+    auto;
+  background-repeat: repeat, no-repeat;
+  -webkit-font-smoothing: auto;
+}
+
+/* The document area is pinstriped paper. Menus are not: in the reference a
+   window is striped and a menu is plain, which is why `.floating` is left
+   alone here — it already gets white, a grey rim and a real shadow from the
+   tokens. */
+html.aqua .bg-panel {
+  background-image: url("/aqua/pinstripe.svg");
+  background-size: 4px 4px;
+}
+
+/* The window: a hairline rim, a lit inner edge, and the drop shadow that was
+   the era's one concession to depth. */
+html.aqua main {
+  border-color: var(--aqua-rim);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    0 0 0 1px rgb(255 255 255 / 0.5),
+    0 3px 8px rgb(0 0 0 / 0.22),
+    0 14px 32px -8px rgb(0 0 0 / 0.4);
+}
+
+/* The source list, a shade lighter than the metal it sits on. */
+html.aqua aside[aria-label="Workspace"] {
+  background-image: linear-gradient(90deg, rgb(255 255 255 / 0.12), rgb(0 0 0 / 0.02));
+}
+
+/*
+ * The traffic lights, top left, where they have always been.
+ *
+ * The sidebar header is the shell's top-left corner, so it is the title bar
+ * whether or not it is labelled one. Drawn as a pseudo-element and paid for
+ * with padding, so the logo and the new-task button keep their own layout.
+ */
+html.aqua aside[aria-label="Workspace"] > header {
+  position: relative;
+  padding-left: 74px;
+  /* The title bar is already metal; it only wants the embossed lettering. */
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+html.aqua aside[aria-label="Workspace"] > header::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  margin-top: -7px;
+  width: 56px;
+  height: 14px;
+  pointer-events: none;
+  background: url("/aqua/lights.svg") no-repeat;
+}
+
+/* Toolbars: the two h-12 headers inside the window, and the list's group
+   bands, all struck from the same grey gradient. The lit top line and the
+   embossed lettering are what make it metal rather than a grey box. */
+html.aqua .view-header,
+html.aqua aside[aria-label="Task detail"] > header,
+html.aqua button.bg-wash {
+  background-color: transparent;
+  background-image: linear-gradient(180deg, #fbfcfd, #e4e7ec 52%, #d7dbe1);
+  border-bottom: 1px solid var(--aqua-rim);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9);
+  /* Chrome lettering was embossed, not painted. Inherits, so one declaration
+     per band covers everything written on it. */
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+/* Toolbar controls are capsules pressed out of the same metal. In the
+   reference every clickable thing in a toolbar has an edge; flat chrome is a
+   later decade. */
+html.aqua .view-header button,
+html.aqua aside[aria-label="Task detail"] > header button {
+  background-image: linear-gradient(180deg, #fdfdfe, #e6e9ee);
+  border: 1px solid #a3aab3;
+  border-radius: 5px;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 1px 1px rgb(0 0 0 / 0.08);
+}
+
+/* The workspace search field: a capsule with the light coming from inside the
+   window, which is what an inset field looked like. `.bg-hover` is the hook
+   and it is unique in the sidebar — every other control there spells it
+   `hover:bg-hover`, a different class token. */
+html.aqua aside[aria-label="Workspace"] button.bg-hover {
+  background-color: var(--color-overlay);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.18),
+    inset 0 0 0 1px #9aa3ad;
+}
+
+/* Long-form inputs are sunken wells with a hard rim. */
+html.aqua textarea {
+  background-color: var(--color-overlay);
+  border-radius: 3px;
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.2),
+    inset 0 0 0 1px #9aa3ad;
+}
+
+/*
+ * The selected row — list cursor, highlighted command, the open list in the
+ * source list — is the reference's blue gradient with white lettering, so the
+ * whole ink ladder is re-pointed inside the scope. Ratios on the top stop
+ * #2a63bd, which is the lighter of the two: ink (white) 5.8, ink-2 5.0,
+ * ink-3 4.7, ink-4 4.6, accent 5.0; the status tints are all above 3.4.
+ */
+html.aqua .row-selected {
+  background-color: var(--aqua-select);
+  background-image: linear-gradient(180deg, var(--aqua-select), var(--aqua-select-2));
+  --color-ink: #ffffff;
+  --color-ink-2: #e8effb;
+  --color-ink-3: #dde7f8;
+  --color-ink-4: #dbe6f8;
+  --color-ink-prose: #ffffff;
+  --color-accent: #e8effb;
+  --color-on-accent: var(--aqua-select-2);
+  --color-urgent: #ffb3ba;
+  --color-high: #ffd28f;
+  --color-ok: #a5f0b8;
+  --color-low: #cbd8ee;
+}
+
+/* The default button, in gel. The lettering sits across the middle of the
+   gloss, where white on the base blue is 4.7:1; only the top rim, which holds
+   no glyph, is brighter than that. */
+html.aqua button.bg-accent {
+  background-color: var(--aqua-gel);
+  background-image: var(--aqua-gloss);
+  color: #ffffff;
+  border: 1px solid #1c4a92;
+  /* A lozenge, which is what a push button was at this height. */
+  border-radius: 999px;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    0 1px 2px rgb(0 0 0 / 0.22);
+}
+
+/*
+ * Scrollbars are the other blue gel in the reference: a wider channel with a
+ * ruled edge and a glossy capsule in it. The base rules draw the thumb as a
+ * padding-box inset with a transparent border, which is what gives the other
+ * themes their inset track; here the border is the thumb's own rim, so the
+ * clip goes back to the default.
+ */
+html.aqua ::-webkit-scrollbar {
+  width: 15px;
+  height: 15px;
+}
+
+html.aqua ::-webkit-scrollbar-track {
+  background: #eef0f3;
+  box-shadow: inset 1px 0 0 #c3c7cd;
+}
+
+html.aqua ::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar);
+  background-image: var(--aqua-gloss);
+  background-clip: border-box;
+  border: 1px solid #6f8fbe;
+  border-radius: 999px;
+}
+
+html.aqua ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-hover);
+  background-clip: border-box;
+}
+
+/* Source-list headings are small, bold and spaced out. Already uppercase. */
+html.aqua .uppercase {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* ponytail: the reference alternates row tints down a list, and these rows do
+   not. TaskList windows its rows into absolutely positioned wrappers whose
+   DOM order slides as you scroll, so `:nth-child` stripes the viewport rather
+   than the list and crawls under the cursor. Ceiling: flat rows. Upgrade
+   path: a parity class from `index()` in TaskList.tsx, pinned in the hooks
+   test like every other hook here. */
+
+/*
+ * Cyberpunk's set dressing.
+ *
+ * The tokens in theme.css make it a colour scheme; this makes it a terminal in
+ * Night City. Same contract as the other two skins: no binary assets, every
+ * rule hangs off a selector hook `skin-hooks.test.ts` pins, and everything
+ * painted on top of a surface is translucent so the audited token underneath
+ * still owns the contrast.
+ *
+ * Unlike Ember and Brutal there are no SVGs at all. Every texture here — the
+ * grid, the scanlines, the vignette, the corner brackets — is a gradient, and
+ * a gradient is what these shapes actually are. Files would have been four
+ * round trips to draw eight straight lines.
+ *
+ * Three colours do all the work and none of them is a token: cyan is chrome,
+ * yellow is where you are, magenta is the room. The ratios that matter are
+ * annotated inline — `contrast.ts` reads theme.css and cannot see this file.
+ */
+html.cyber {
+  /*
+   * Channels rather than hex, so one name covers both the opaque uses and the
+   * fifteen translucent ones. Written as `#2de2e6` the colour has to be
+   * retyped as `rgb(var(--cyber-cyan) / …)` every time it is washed over something,
+   * which is a find-and-replace with a base conversion in the middle of it
+   * the first time anyone retunes the cyan.
+   */
+  --cyber-cyan: 45 226 230;
+  --cyber-yellow: 252 238 10;
+  --cyber-magenta: 255 42 109;
+  /* Chrome, at the one weight every hairline in the reference is drawn at. */
+  --cyber-hair: rgb(var(--cyber-cyan) / 0.5);
+  /* The HUD strips: their height, and the room they take out of the shell. */
+  --cyber-hud: 15px;
+}
+
+/*
+ * The room: a faint survey grid, lit cyan from the top left and magenta from
+ * the bottom right. On the body itself rather than a fixed overlay, so panels
+ * cover it and it shows in the gutters — the same bargain Brutal's wall makes.
+ */
+html.cyber body {
+  background-image:
+    radial-gradient(120% 80% at 10% 0%, rgb(var(--cyber-cyan) / 0.07), transparent 62%),
+    radial-gradient(90% 70% at 100% 100%, rgb(var(--cyber-magenta) / 0.06), transparent 60%),
+    repeating-linear-gradient(90deg, rgb(var(--cyber-cyan) / 0.05) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(0deg, rgb(var(--cyber-cyan) / 0.05) 0 1px, transparent 1px 34px);
+}
+
+/*
+ * The screen you are reading all this through: scanlines and a vignette, over
+ * everything static. `pointer-events: none`, and it rides above the content by
+ * paint order alone — it is fixed, so it paints in the positioned phase, and
+ * every menu, palette and scrim with a z-index still covers it.
+ *
+ * The lines are 14% black on one row in three, which costs every pairing in
+ * the app about 4% of its ratio. The palette clears AA by 6.9:1 at its
+ * tightest, so there is room for that; a heavier scanline reads better in a
+ * screenshot and worse at 11px, which is the size most of this app is set in.
+ */
+html.cyber body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 0.14) 0 1px, transparent 1px 3px),
+    radial-gradient(130% 100% at 50% 38%, transparent 52%, rgb(0 2 6 / 0.55) 100%);
+}
+
+/*
+ * The HUD frame: three strips of telemetry pinned to the edges of the window.
+ *
+ * `#root` takes the padding, not `body` — box-sizing is border-box and every
+ * layer below is `height: 100%`, so the shell simply gets 30px shorter and
+ * nothing has to know. The strips themselves are fixed, so they cost no room
+ * and take no clicks.
+ *
+ * Two pseudo-elements on one strip is what puts text at both ends of it: the
+ * `::after` is transparent and stacked on the `::before`, right-aligned. It is
+ * a trick, and it is cheaper than the marker elements and the hooks test rows
+ * that a real strip would need in three components.
+ *
+ * The strings are set dressing and say nothing true — this is the one place in
+ * the app where that is the point, which is exactly why each carries the empty
+ * alt text after the slash. Generated content is in the accessibility tree and
+ * cannot be `aria-hidden`; without the alt a screen reader announces
+ * "ENCRYPTION: AES-256 // CHANNEL SECURE" as chrome on every screen, block
+ * glyphs and all. Same axis as the `aria-hidden` on every decorative svg in
+ * this app. Where the syntax is unsupported the whole declaration is invalid
+ * and the strip does not paint, which is the right way for a decoration to
+ * fail.
+ */
+html.cyber #root {
+  padding-block: var(--cyber-hud);
+}
+
+html.cyber #root::before,
+html.cyber #root::after,
+html.cyber body::after {
+  position: fixed;
+  left: 0;
+  right: 0;
+  padding-inline: 12px;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: var(--cyber-hud);
+  letter-spacing: 0.22em;
+  white-space: nowrap;
+  overflow: hidden;
+  color: rgb(var(--cyber-cyan));
+}
+
+html.cyber #root::before {
+  content: "SYS_STATUS █████░ // LINK ONLINE" / "";
+  top: 0;
+  border-bottom: 1px solid var(--cyber-hair);
+  background: linear-gradient(90deg, rgb(var(--cyber-cyan) / 0.1), transparent 45%);
+}
+
+html.cyber #root::after {
+  content: "NIGHT CITY // DATA FEED 0x4A7F // REL 2.0.77" / "";
+  top: 0;
+  text-align: right;
+}
+
+html.cyber body::after {
+  content: "ENCRYPTION: AES-256 // CHANNEL SECURE // BUILD 1.7.3_2077" / "";
+  bottom: 0;
+  border-top: 1px solid var(--cyber-hair);
+}
+
+/* Panels are lit from inside their own edge rather than bordered. */
+html.cyber .bg-panel {
+  border-color: var(--cyber-hair);
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--cyber-cyan) / 0.1),
+    0 0 34px rgb(var(--cyber-cyan) / 0.05);
+}
+
+/* The edge is this border. `--floating-shadow` (theme.css) carries the bloom
+   behind it and no ring of its own — the two were painting the same hairline
+   twice, one file apart, which reads as a 2px edge nobody asked for. */
+html.cyber .floating {
+  border-color: rgb(var(--cyber-cyan));
+}
+
+/*
+ * Corner brackets on both big panels — eight gradients rather than eight
+ * elements, one hard-edged `linear-gradient` reused at four positions in two
+ * orientations. Under the drag overlay (z-30) and every fixed menu (z-50),
+ * exactly where Ember hangs its frame.
+ */
+html.cyber main::after,
+html.cyber aside[aria-label="Task detail"]::after {
+  --cyber-bracket: linear-gradient(rgb(var(--cyber-yellow)), rgb(var(--cyber-yellow)));
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  background:
+    var(--cyber-bracket) 0 0 / 16px 2px no-repeat,
+    var(--cyber-bracket) 0 0 / 2px 16px no-repeat,
+    var(--cyber-bracket) 100% 0 / 16px 2px no-repeat,
+    var(--cyber-bracket) 100% 0 / 2px 16px no-repeat,
+    var(--cyber-bracket) 0 100% / 16px 2px no-repeat,
+    var(--cyber-bracket) 0 100% / 2px 16px no-repeat,
+    var(--cyber-bracket) 100% 100% / 16px 2px no-repeat,
+    var(--cyber-bracket) 100% 100% / 2px 16px no-repeat;
+}
+
+/* Every label in the reference is spaced out like a readout, and lit. */
+html.cyber .uppercase {
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 10px rgb(var(--cyber-cyan) / 0.35);
+}
+
+/*
+ * Everything else the reference shouts. One rule, because seven rules whose
+ * entire body was "uppercase, and a tracking value" is seven places to edit
+ * when the shout is retuned — and the four values they carried spanned 0.06em,
+ * which at 9-13px is a quarter of a pixel.
+ *
+ * Every entry names an element rather than a container it could inherit
+ * through, and that is not style: the UA stylesheet gives form controls their
+ * own `text-transform: none`, so an uppercase set on a listbox or a header
+ * stops dead at the first button inside it. `.capitalize` is named for the
+ * mirror-image reason — the app writes it on the span itself, where it beats
+ * anything inherited. A comma list keeps each selector's own specificity,
+ * which is what lets them share a body at all.
+ *
+ * The command palette is deliberately absent: it is not a listbox, and it
+ * lists task names.
+ */
+html.cyber aside[aria-label="Workspace"] .text-md:not(.floating *),
+html.cyber .floating [role="listbox"] button,
+html.cyber .view-header button,
+html.cyber .capitalize,
+html.cyber [role="option"] .border,
+html.cyber aside[aria-label="Task detail"] button.text-xs,
+html.cyber textarea::placeholder {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/*
+ * The sidebar is the terminal's own column: a lit spine down its open edge and
+ * every word in the tree shouted, which is what the reference does with it.
+ * No polarity flip — unlike Brutal it is the same near-black as everything
+ * else — so the ink ladder is the audited one and `.floating` needs no restore.
+ */
+html.cyber aside[aria-label="Workspace"] {
+  border-right: 1px solid var(--cyber-hair);
+  box-shadow: 10px 0 30px -18px rgb(var(--cyber-cyan) / 0.6);
+}
+
+/*
+ * `:not(.floating *)` because a menu anchored in the sidebar is `position:
+ * fixed` and still a DOM child of it — the same inheritance Brutal's
+ * `.floating` restore exists for, reaching text-transform instead of a custom
+ * property. Without it a menu's filter box shouted whatever was typed into it,
+ * and only the menus opened from down there.
+ */
+/*
+ * The cursor, everywhere it lands: nav row, task row, palette command. A
+ * yellow hairline box over the yellow wash the token already paints — 6.4:1
+ * for the dimmest ink on it, which is the pairing this replaces a plain
+ * highlight with.
+ */
+html.cyber .row-selected {
+  box-shadow: inset 0 0 0 1px rgb(var(--cyber-yellow) / 0.55);
+}
+
+/* The list header is the reference's title bar: a lit rule and a plate. */
+html.cyber .view-header {
+  border-bottom-color: var(--cyber-hair);
+  background-image: linear-gradient(180deg, rgb(var(--cyber-cyan) / 0.06), transparent);
+}
+
+/* The view's name, in the game's yellow. 16.0:1 on the panel. */
+html.cyber main header h1 {
+  color: rgb(var(--cyber-yellow));
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 16px rgb(var(--cyber-yellow) / 0.4);
+}
+
+/* Its count stops being a filled chip and becomes an outlined readout. */
+html.cyber main header h1 + .bg-chip {
+  background: transparent;
+  border: 1px solid rgb(var(--cyber-yellow));
+  color: rgb(var(--cyber-yellow));
+}
+
+/* Filter is the one header control the reference outlines rather than fills. */
+html.cyber [aria-label="Add a filter"] {
+  border: 1px solid rgb(var(--cyber-cyan) / 0.45);
+  padding-inline: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Group headers read as section banners cut into the list. */
+html.cyber button.bg-wash {
+  border-bottom-color: var(--cyber-hair);
+}
+
+/* Three of the four are section names rather than values — the list group, the
+   board column, the grouping picker — and the reference paints those cyan:
+   12.1:1 on the panel, the one place the chrome colour carries a word. The
+   fourth is the status on the detail panel, which is a value and stays ink. */
+html.cyber :is(button.bg-wash, main header) span.capitalize {
+  color: rgb(var(--cyber-cyan));
+}
+
+/* Rows are ruled in the same cyan as everything else the chrome draws. Their
+   tags are left alone on purpose: the fill is the tag's own ClickUp colour,
+   written inline, and it is the part the row is trying to say. The skin only
+   takes their corners (the radius sweep) and their case (the shout above). */
+html.cyber [role="option"] {
+  border-bottom-color: rgb(var(--cyber-cyan) / 0.14);
+}
+
+/* The cursor's left hairline becomes the reference's lit tab. */
+html.cyber [role="option"] > span.bg-accent:first-of-type {
+  width: 3px;
+  box-shadow: 0 0 10px rgb(var(--cyber-yellow));
+}
+
+/* "TASK DETAILS", where the reference puts it. Generated content rather than a
+   marker element in TaskDetail.tsx: the header is a flex row that already ends
+   in a spacer, so a first child costs nothing and adds no component to keep in
+   step. */
+html.cyber aside[aria-label="Task detail"] header::before {
+  content: "TASK DETAILS";
+  color: rgb(var(--cyber-cyan));
+  font-size: var(--text-xs);
+  letter-spacing: 0.18em;
+}
+
+/* Every section break gets the reference's lit tick on the rule, at the left
+   end rather than Ember's centred lozenge. `section.border-t` is the same
+   stable hook: every titled section draws that border, and the empty ones drop
+   the class along with the line. */
+html.cyber aside[aria-label="Task detail"] section.border-t::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 26px;
+  height: 2px;
+  background: rgb(var(--cyber-yellow));
+  box-shadow: 0 0 10px rgb(var(--cyber-yellow));
+}
+
+/* Every property name is a readout label, which is the reference's loudest
+   note in this panel and the one thing no existing hook could reach — hence
+   `field-label` in TaskDetail.tsx. 12.1:1 on the panel. */
+html.cyber .field-label {
+  color: rgb(var(--cyber-cyan));
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: var(--text-xs);
+}
+
+/* Rendered markdown is boxed rather than set loose on the panel — the
+   reference frames the description and every comment the same way. */
+html.cyber aside[aria-label="Task detail"] .prose-rask {
+  border: 1px solid rgb(var(--cyber-cyan) / 0.22);
+  padding: 10px 12px;
+}
+
+/* The task title is the readout everything else on the panel is about. */
+html.cyber aside[aria-label="Task detail"] h1,
+html.cyber aside[aria-label="Task detail"] textarea.text-lg {
+  color: rgb(var(--cyber-yellow));
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 18px rgb(var(--cyber-yellow) / 0.35);
+}
+
+/* Long-form inputs are lit wells: no fill of their own, one cyan rule around
+   them. The title textarea above is excluded rather than overridden back — it
+   is a heading that happens to be editable, and boxing it makes the panel read
+   as a form. */
+html.cyber textarea:not(.text-lg) {
+  background-color: rgb(var(--cyber-cyan) / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(var(--cyber-cyan) / 0.32);
+}
+
+/* The solid accent button is the game's one hot key: chamfered bottom-right,
+   black on yellow at 16.4:1, and glowing. `filter` rather than `box-shadow`
+   because `clip-path` cuts a shadow off with the corner it removes. */
+html.cyber button.bg-accent {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+  filter: drop-shadow(0 0 8px rgb(var(--cyber-yellow) / 0.45));
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+/*
+ * Below the dock breakpoint the sidebar is a drawer over the list and every
+ * pixel is contested, so the two HUD strips and the corner brackets go and
+ * give back the room they took. The flat textures stay; they cost no room.
+ *
+ * `theme()` reads the token itself — Tailwind resolves it at build time, which
+ * a bare `var()` in a media query cannot do. All three skins used to repeat
+ * the literal with a comment apologising for it.
+ */
+@media (width < theme(--breakpoint-dock)) {
+  html.cyber #root {
+    padding-block: 0;
+  }
+
+  html.cyber #root::before,
+  html.cyber #root::after,
+  html.cyber body::after,
+  html.cyber main::after,
+  html.cyber aside[aria-label="Task detail"]::after {
+    display: none;
+  }
+}
+
+/*
+ * Nothing is filleted, in either of the two skins that say so: Brutalism has
+ * no fillets and the Cyberpunk reference is all chamfer and right angle.
+ * `--radius-panel` is already 0 in both, so what is left is the ad-hoc radii
+ * spelled as utilities. Circles (avatars, dots) keep being circles.
+ *
+ * One rule rather than one per skin: it was written twice, byte for byte, and
+ * the utility list is the kind of thing that gains a name every few months —
+ * a copy that misses one is a single filleted corner in one theme, which
+ * nothing goes red over. `[class*="rounded"]` for the same reason: the
+ * six-name list it replaces missed `rounded-t-*` and its siblings, none of
+ * which the app uses today and any of which it could tomorrow. XP keeps a rule
+ * of its own: it rounds by three pixels rather than squaring off.
+ */
+:is(html.brutal, html.cyber) [class*="rounded"]:not(.rounded-full) {
+  border-radius: 0;
+}
+
+:is(html.brutal, html.cyber) ::-webkit-scrollbar-thumb {
+  border-radius: 0;
 }

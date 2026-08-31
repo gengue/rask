@@ -1,4 +1,5 @@
-import { Outlet, useNavigate, useSearch } from "@tanstack/solid-router";
+import { isPlaceholder } from "@rask/clickup-client/vocabulary";
+import { Outlet, useNavigate, useParams, useSearch } from "@tanstack/solid-router";
 import {
   createEffect,
   createMemo,
@@ -26,6 +27,8 @@ import { RunningTimer } from "./components/Time.tsx";
 import { Toasts } from "./components/Toasts.tsx";
 import { ApiError, api, type StatusDef, type Task } from "./lib/api.ts";
 import { boardColumns, nextCursor, shiftColumn } from "./lib/board.ts";
+import { CelebrationBanner } from "./lib/celebration.tsx";
+import { columnsFor, toggleColumn } from "./lib/field-prefs.ts";
 import { PRIORITY_LABELS } from "./lib/format.ts";
 import {
   INBOX_WINDOW_DAYS,
@@ -37,9 +40,9 @@ import {
   setInboxScope,
 } from "./lib/inbox.ts";
 import { lightboxOpen } from "./lib/lightbox.ts";
-import { useLiveTasks } from "./lib/live.ts";
+import { useLiveTask, useLiveTasks } from "./lib/live.ts";
 import { useExpanded } from "./lib/nav.tsx";
-import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
+import { loadSession, me, reloadHierarchy, spaces, workspaceDocs } from "./lib/session.ts";
 import { signInError } from "./lib/sign-in-error.ts";
 import { markSignedOut, signedOut } from "./lib/signed-out.ts";
 import { connect } from "./lib/sse.ts";
@@ -48,11 +51,22 @@ import { clickUpTaskUrl, raskTaskUrl, type TaskAction, taskMenuItems } from "./l
 import { setTheme, THEMES, themeChoice } from "./lib/theme.ts";
 import { hydrateTimer, isTracking, toggleTimer } from "./lib/timer.ts";
 import { pushToast } from "./lib/toast.ts";
-import { clearFilters, closeOverlays, expandGroups, setUi, toggleGroup, ui } from "./lib/ui.ts";
+import {
+  clearFilters,
+  closeOverlays,
+  expandGroups,
+  type Layout,
+  setShowClosed,
+  setUi,
+  toggleGroup,
+  ui,
+} from "./lib/ui.ts";
 import {
   boardLayout,
   cursorGroup,
   cursorTask,
+  displayFields,
+  loadDisplayFields,
   mineOnly,
   rowTasks,
   searchScope,
@@ -84,6 +98,9 @@ const MENU_PLACEHOLDER: Record<"status" | "priority" | "task", string> = {
 export function AppShell(): JSX.Element {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
+  /** Whether a Doc is open, which is the one route with no task query behind it. */
+  const params = useParams({ strict: false });
+  const onDoc = () => (params() as { docId?: string }).docId !== undefined;
 
   /*
    * A refused sign-in is a signed-out state, not an error to swallow.
@@ -141,10 +158,23 @@ export function AppShell(): JSX.Element {
   const openTaskId = () => (search() as { task?: string }).task ?? null;
   const [expanded, setExpanded] = useExpanded();
 
+  // What `s`, `p`, `m`, `t` and their palette twins act on. While the panel is
+  // expanded the list is display:none, so the cursor names a row nobody can
+  // see — the task on screen is the open one, and acting on anything else is
+  // editing blind.
+  const actionTask = (): Task | null =>
+    (expanded() && tasks.get(openTaskId() ?? "")) || cursorTask();
+
   onCleanup(connect());
 
-  const openTask = (task: Task) =>
-    navigate({ to: ".", search: (prev: Record<string, unknown>) => ({ ...prev, task: task.id }) });
+  const openTaskById = (taskId: string, opts: { replace?: boolean } = {}) =>
+    navigate({
+      to: ".",
+      replace: opts.replace,
+      search: (prev: Record<string, unknown>) => ({ ...prev, task: taskId }),
+    });
+
+  const openTask = (task: Task) => openTaskById(task.id);
 
   // `expanded` goes with it: it describes the open task, and a URL that says
   // a task is full width with no task open is a link nobody can act on.
@@ -157,6 +187,91 @@ export function AppShell(): JSX.Element {
         expanded: undefined,
       }),
     });
+
+  /**
+   * A just-created task opens and lands under the cursor, so Enter, j/k and
+   * the status keys act on it immediately.
+   *
+   * The cursor waits for the row: the insert reaches the collection
+   * synchronously, but the route mirrors it into `viewTasks` in an effect, so
+   * the row's index does not exist yet when QuickAdd closes. The panel waits
+   * for `persisted` instead — opening `?task=tmp_…` any earlier races the POST
+   * that writes the row this fetch reads, and loses on a fast GET.
+   */
+  const [pendingFocus, setPendingFocus] = createSignal<string | null>(null);
+  const pendingRow = useLiveTask(() => pendingFocus() ?? "");
+
+  const focusNewTask = (id: string, persisted: Promise<unknown>) => {
+    setPendingFocus(id);
+    persisted.then(
+      () => openTaskById(id),
+      // Rolled back: the placeholder is gone and the toast already said why.
+      () => {},
+    );
+  };
+
+  createEffect(() => {
+    const id = pendingFocus();
+    if (!id) return;
+    const index = rowTasks().findIndex((task) => task.id === id);
+    if (index >= 0) setUi("cursor", index);
+    // Done once the row is under the cursor — or gone: rolled back, or swapped
+    // for its real id (the resolver below re-aims at the real row, since the
+    // same task can land at a different index once ClickUp's own dates and
+    // order arrive). A row a filter hides keeps waiting until then.
+    if (index >= 0 || !pendingRow()) setPendingFocus(null);
+  });
+
+  /*
+   * The panel can be open on a `tmp_` placeholder. When the outbox ships the
+   * create, the worker retires that row and the real one arrives under
+   * ClickUp's id — with nothing here linking the two. The outbox remembers the
+   * mapping, so when the placeholder under the panel dies, ask and follow.
+   * `replace`, because the placeholder was never an address worth Backing into.
+   * A create that was rejected resolves to nothing and the panel closes; the
+   * `write-failed` toast says why.
+   *
+   * `pending` re-polls rather than giving up: it is the answer while the create
+   * is still queued (a tmp_ URL in a fresh tab, whose row may never reach this
+   * tab's collection) and for the instant between a rejected create's tombstone
+   * and its outbox row turning `failed` — on both paths the row-death this
+   * effect waits on may never arrive. A fetch that failed outright re-polls
+   * too: offline is a reason to ask again, not to guess. The timer dies with
+   * the effect, so navigating away stops the polling.
+   */
+  const openRow = useLiveTask(() => openTaskId() ?? "");
+  const [resolveRetry, setResolveRetry] = createSignal(0);
+  createEffect(() => {
+    resolveRetry();
+    const id = openTaskId();
+    if (!id || !isPlaceholder(id) || openRow()) return;
+
+    let stale = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    onCleanup(() => {
+      stale = true;
+      clearTimeout(timer);
+    });
+    const again = (ms: number) => {
+      timer = setTimeout(() => !stale && setResolveRetry((n) => n + 1), ms);
+    };
+
+    api.resolveCreated(id).then(
+      (resolved) => {
+        if (stale || openTaskId() !== id) return;
+        const realId = resolved.id;
+        if (realId) {
+          openTaskById(realId, { replace: true });
+          setPendingFocus(realId);
+        } else if (resolved.pending) {
+          again(2_000);
+        } else {
+          closeTask();
+        }
+      },
+      () => again(5_000),
+    );
+  });
 
   const openStatusMenu = async (task: Task, anchor: { x: number; y: number }) => {
     const statuses = await api.statuses(task.listId).catch(() => []);
@@ -181,9 +296,11 @@ export function AppShell(): JSX.Element {
    * already anchors this way.
    */
   const anchorForCursor = (): { x: number; y: number } => {
-    const task = cursorTask();
+    const task = actionTask();
     const rect = task ? document.getElementById(`task-${task.id}`)?.getBoundingClientRect() : null;
-    if (!rect) return { x: window.innerWidth / 2 - 120, y: 180 };
+    // A zero rect is the row still in the DOM behind an expanded panel; a menu
+    // anchored to it opens in the top-left corner.
+    if (!rect || rect.width === 0) return { x: window.innerWidth / 2 - 120, y: 180 };
     return { x: rect.left + 44, y: rect.bottom + 4 };
   };
 
@@ -291,7 +408,8 @@ export function AppShell(): JSX.Element {
       case "delete": {
         closeMenu();
         /*
-         * The one confirmation in the app.
+         * One of the two confirmations in the app; deleting a Doc page in
+         * `DocReader` is the other, and it is here for the same reason.
          *
          * Everything else here is a field ClickUp can be told to change back,
          * and the outbox makes even a rejected write self-correcting. This is
@@ -392,7 +510,7 @@ export function AppShell(): JSX.Element {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
 
     const key = event.key;
-    const task = cursorTask();
+    const task = actionTask();
     const max = Math.max(0, rowTasks().length - 1);
 
     switch (key) {
@@ -558,16 +676,20 @@ export function AppShell(): JSX.Element {
     window.removeEventListener("drop", swallowDrop);
   });
 
-  // Reset per-view state when the view changes; row 4 of the old list means
-  // nothing in the new one, and picking a list is the drawer's whole job.
+  // Picking a list is the drawer's whole job, so it closes behind the choice.
+  // The cursor resets with it, in `lib/view.ts`, next to what it points at.
   createEffect(() => {
     viewTitle();
-    setUi({ cursor: 0, sidebarOpen: false });
+    setUi("sidebarOpen", false);
   });
 
   const commands = (): Command[] => [
-    ...buildNavigationCommands(spaces(), (listId) =>
-      navigate({ to: "/list/$listId", params: { listId } }),
+    ...buildNavigationCommands(
+      { spaces: spaces(), docs: workspaceDocs() },
+      {
+        list: (listId) => navigate({ to: "/list/$listId", params: { listId } }),
+        doc: (docId) => navigate({ to: "/doc/$docId", params: { docId } }),
+      },
     ),
     {
       id: "nav:my-tasks",
@@ -629,7 +751,7 @@ export function AppShell(): JSX.Element {
       id: "view:closed",
       label: ui.showClosed ? "Hide closed tasks" : "Show closed tasks",
       section: "View",
-      run: () => setUi("showClosed", !ui.showClosed),
+      run: () => setShowClosed(!ui.showClosed),
     },
     /*
      * The theme lives here rather than behind a settings page, because there
@@ -656,7 +778,7 @@ export function AppShell(): JSX.Element {
       section: "Task",
       hint: "s",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (target) void openStatusMenu(target, anchorForCursor());
       },
     },
@@ -666,7 +788,7 @@ export function AppShell(): JSX.Element {
       section: "Task",
       hint: "p",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (!target) return;
         setMenu({ kind: "priority", task: target, statuses: [], anchor: anchorForCursor() });
         setUi("menu", "priority");
@@ -674,11 +796,11 @@ export function AppShell(): JSX.Element {
     },
     {
       id: "task:timer",
-      label: isTracking(cursorTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
+      label: isTracking(actionTask()?.id ?? "") ? "Stop the timer" : "Start a timer",
       section: "Task",
       hint: "t",
       run: () => {
-        const target = cursorTask();
+        const target = actionTask();
         if (target) void toggleTimer(target);
       },
     },
@@ -762,6 +884,7 @@ export function AppShell(): JSX.Element {
         <Sidebar
           me={me()}
           spaces={spaces()}
+          docs={workspaceDocs()}
           open={ui.sidebarOpen}
           onSearch={() => setUi("palette", true)}
           onQuickAdd={() => setUi("quickAdd", true)}
@@ -782,7 +905,23 @@ export function AppShell(): JSX.Element {
           {/* The expanded task takes the whole panel; the list is still there,
             one Escape away. */}
           <div class="flex min-w-0 flex-1 flex-col" classList={{ hidden: expanded() }}>
-            <header class="flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5">
+            {/* `view-header` is a styling hook, not a layout class: the
+              easter-egg skins repaint this whole band, and the only other way
+              to reach it is `main > div > header` — through a wrapper div that
+              exists purely to carry `hidden` when a task is expanded. Unwrap
+              that and the skins shed silently, which no test can see. Pinned in
+              skin-hooks.test.ts. */}
+            {/*
+              Hidden on a Doc, which is the one route here that is not a list of
+              tasks. Filter, Closed, Status and the layout toggle all act on a
+              task query a Doc does not have, and a toolbar whose every control
+              is inert on the thing under it reads as a broken page. The reader
+              draws its own header in its place.
+            */}
+            <header
+              class="view-header flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5"
+              classList={{ hidden: onDoc() }}
+            >
               {/* The only way back to the workspace tree for a mouse below
                 `dock`, where the sidebar is a drawer. */}
               <button
@@ -808,7 +947,7 @@ export function AppShell(): JSX.Element {
                 when={searching()}
                 fallback={
                   <>
-                    <h1 class="truncate font-medium text-base text-ink tracking-[-0.005em]">
+                    <h1 class="truncate font-medium text-md text-ink tracking-[-0.005em]">
                       {viewTitle()}
                     </h1>
                     <span
@@ -862,7 +1001,7 @@ export function AppShell(): JSX.Element {
                       ? "Search name, id and description…"
                       : "Search these results by name or id…"
                   }
-                  class="h-full min-w-0 flex-1 text-base"
+                  class="h-full min-w-0 flex-1 text-md"
                 />
                 <button
                   type="button"
@@ -907,7 +1046,17 @@ export function AppShell(): JSX.Element {
                 setting intact the moment you leave. */}
               <Show when={!viewIsFeed()} fallback={<InboxControls />}>
                 <span class="h-3.5 w-px shrink-0 bg-line-strong" />
+                <LayoutToggle />
+                <ClosedToggle />
                 <GroupPicker />
+                {/* Columns are a per-list choice, so the picker only appears
+                    where there is a list to choose for — and not on the board,
+                    whose cards draw no columns; a control that visibly does
+                    nothing is worse than one that is not there. The choice
+                    survives and returns with the list layout. */}
+                <Show when={!boardLayout() && viewListId()}>
+                  {(listId) => <FieldsPicker listId={listId()} />}
+                </Show>
               </Show>
             </header>
 
@@ -989,6 +1138,7 @@ export function AppShell(): JSX.Element {
             listId={viewListId()}
             listName={viewListId() ? viewTitle() : null}
             onClose={() => setUi("quickAdd", false)}
+            onCreated={focusNewTask}
           />
         </Show>
 
@@ -1040,6 +1190,10 @@ export function AppShell(): JSX.Element {
         {/* Last, so it covers everything, and always mounted: it is what makes
           images inside descriptions and comments clickable. */}
         <Lightbox />
+
+        {/* The Ember theme's full-screen victory banner. Renders nothing
+          until `celebrate` fires, which itself is a no-op outside Ember. */}
+        <CelebrationBanner />
       </div>
     </Show>
   );
@@ -1110,6 +1264,109 @@ function InboxControls(): JSX.Element {
   );
 }
 
+/**
+ * Rows or columns, as two buttons.
+ *
+ * `b` and the palette have always flipped `ui.layout`, and nothing on screen
+ * said the board was there — the same gap the closed toggle below had. A saved
+ * view seeds the layout from ClickUp's own view type, so a list-typed view drew
+ * rows with no hint that columns were a keystroke away.
+ *
+ * Two buttons rather than one that flips, because with only two states the
+ * button showing what a click *does* and the button showing where you *are*
+ * look identical and mean opposite things. Both are on screen; the pressed one
+ * is the layout you are in.
+ */
+function LayoutToggle(): JSX.Element {
+  return (
+    <div class="flex shrink-0 items-center gap-0.5">
+      <LayoutButton
+        value="list"
+        label="List view"
+        d="M2.7 4h.01M2.7 8h.01M2.7 12h.01M6 4h7.3M6 8h7.3M6 12h7.3"
+      />
+      {/* Two columns of unequal height: three even ones read as the grouping
+          glyph next door rotated, which is the one thing this must not be. */}
+      <LayoutButton
+        value="board"
+        label="Board view"
+        d="M2.9 3.7h3.4v8.6H2.9zM9.7 3.7h3.4v5.2H9.7z"
+      />
+    </div>
+  );
+}
+
+function LayoutButton(props: { value: Layout; label: string; d: string }): JSX.Element {
+  const current = () => ui.layout === props.value;
+  return (
+    <button
+      type="button"
+      aria-pressed={current()}
+      aria-label={props.label}
+      /* The shortcut is named only on the button that would do what it does.
+         `b` flips the pair, so on the layout you are already in it would take
+         you off it, and a hint that reads as "press b for this" would be
+         pointing the wrong way. */
+      title={current() ? props.label : `${props.label}  b`}
+      onClick={() => setUi("layout", props.value)}
+      class="flex size-[22px] items-center justify-center rounded-[5px] transition-colors"
+      classList={{
+        "bg-accent-soft text-ink": current(),
+        "text-ink-4 hover:bg-hover hover:text-ink-2": !current(),
+      }}
+    >
+      {/* Round joins and caps on one shared path, so the board's corners and
+          the list's dots — zero-length segments — both come out of it. */}
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d={props.d}
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * ClickUp's "show closed tasks", as a button.
+ *
+ * The state is not new — `ui.showClosed` has always decided which statuses get
+ * a group or a column, and the palette has always been able to flip it. What
+ * was missing is that it looks like a setting. A saved view seeds the toggle
+ * from ClickUp's own `show_closed`, which is false on most boards, so the Done
+ * column was absent with nothing on screen saying it was a choice rather than a
+ * gap. `statusShown` in lib/view.ts is the rule this drives, on both layouts.
+ */
+function ClosedToggle(): JSX.Element {
+  return (
+    <button
+      type="button"
+      /* One name, whatever the state. A toggle that renames itself to "Hide
+         closed tasks" while `aria-pressed` also says it is on is read out as
+         both at once; the pressed state is the screen reader's to announce. */
+      aria-pressed={ui.showClosed}
+      aria-label="Show closed tasks"
+      title="Show closed tasks"
+      onClick={() => setShowClosed(!ui.showClosed)}
+      class="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-xs transition-colors"
+      classList={{
+        "bg-accent-soft text-ink": ui.showClosed,
+        "text-ink-4 hover:bg-hover hover:text-ink-2": !ui.showClosed,
+      }}
+    >
+      {/* The glyph does not change with the state, the chip does. Tinting it
+          with the accent read as a status that exists: 2.99:1 against the
+          check `StatusIcon` draws on top, in the light theme, which is under
+          every real status in the workspace. */}
+      <StatusIcon type="closed" color="var(--color-low)" size={12} />
+      <span>Closed</span>
+    </button>
+  );
+}
+
 /** One button, one menu. Four always-visible chips said "Status" twice next to
  *  the status filter, which is the kind of thing that reads as clutter. */
 function GroupPicker(): JSX.Element {
@@ -1150,6 +1407,65 @@ function GroupPicker(): JSX.Element {
             setUi("groupBy", id as (typeof options)[number]);
             setAnchor(null);
           }}
+          onClose={() => setAnchor(null)}
+        />
+      </Show>
+    </>
+  );
+}
+
+/**
+ * Which Custom Fields this list draws as columns.
+ *
+ * The subtask column picker's pattern: selecting toggles and leaves the menu
+ * open, because picking two columns is one trip. The catalogue is read when
+ * the picker opens — the same lazy bargain the filter menu makes — and the
+ * choice lives in `field-prefs`, per list, per browser.
+ */
+function FieldsPicker(props: { listId: string }): JSX.Element {
+  const [anchor, setAnchor] = createSignal<{ x: number; y: number } | null>(null);
+  const chosen = () => columnsFor(props.listId);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Choose field columns"
+        onClick={(event) => {
+          loadDisplayFields();
+          const rect = event.currentTarget.getBoundingClientRect();
+          setAnchor({ x: rect.right - 240, y: rect.bottom + 6 });
+        }}
+        class="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-xs transition-colors"
+        classList={{
+          "bg-accent-soft text-ink": chosen().length > 0,
+          "text-ink-4 hover:bg-hover hover:text-ink-2": chosen().length === 0,
+        }}
+      >
+        {/* Three columns of unequal height: a table's silhouette, not the
+            board glyph next door. */}
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M3 2.8h10M3 6h6M3 9.2h10M3 12.4h4"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span>Fields{chosen().length > 0 ? ` ${chosen().length}` : ""}</span>
+      </button>
+
+      <Show when={anchor()}>
+        <Menu
+          anchor={anchor() ?? { x: 0, y: 0 }}
+          width={240}
+          placeholder="Show field…"
+          items={displayFields().map((field) => ({
+            id: field.id,
+            label: field.name.trim(),
+            hint: chosen().includes(field.id) ? "✓" : undefined,
+          }))}
+          onSelect={(id) => toggleColumn(props.listId, id)}
           onClose={() => setAnchor(null)}
         />
       </Show>

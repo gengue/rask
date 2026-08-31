@@ -155,9 +155,14 @@ don't reintroduce `useLiveQuery`.
   fails after a round-trip to ClickUp, which is how a five-second assertion in
   `render-stability.spec.ts` started timing out on loaded runners and CI went red
   at random for a week. `apps/api/test/clickup-base.test.ts` sweeps for it.
-- **Never invent a ClickUp endpoint.** The v2 spec is vendored at
-  `packages/clickup-client/openapi/clickup-v2.json`. Not in there means it does not
-  exist.
+- **Never invent a ClickUp endpoint.** Both specs are vendored:
+  `packages/clickup-client/openapi/clickup-v2.json` is the API the client speaks;
+  `clickup-v3.json` is the separate surface that carries Docs, Chat and audit logs
+  and that nothing here calls yet. Not in either means it does not exist — but the
+  reverse does not hold, and the v3 file is where that bites. Its `parent_type`
+  enum for Docs omits the value the workspace actually uses: a Doc hanging off a
+  task comes back as `parent.type: 1`, and the live 400 lists `1, 4, 5, 6, 7, 12,
+  TASK, …`. Read a real 400 before concluding a documented enum is the whole set.
 - **Register authenticated routes on `api`, not `app`.** A route on `app` is public;
   `apps/api/test/auth.test.ts` walks the route table and asserts everything outside
   a five-name allow-list answers 401.
