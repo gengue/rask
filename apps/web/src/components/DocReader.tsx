@@ -1,10 +1,36 @@
-import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js";
-import { type Assignee, api, type DocPage } from "../lib/api.ts";
+import {
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  type JSX,
+  lazy,
+  Show,
+  Suspense,
+} from "solid-js";
+import { ApiError, type Assignee, api, type DocPage } from "../lib/api.ts";
 import { formatRelative } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { heldValue } from "../lib/resource.ts";
 import { members } from "../lib/session.ts";
+import { pushToast } from "../lib/toast.ts";
 import { AvatarStack } from "./Avatar.tsx";
+
+/**
+ * Lazy, for the reason `TaskDetail` loads it lazily: CodeMirror and its lezer
+ * grammars are about 1.1MB of the source that went into the bundle, the largest
+ * thing in it by a distance, and none of it is needed to *read* a Doc.
+ *
+ * This was a static import for one commit, which quietly undid the split for
+ * the whole app — `routes.tsx` imports this file eagerly, so the editor rode
+ * along on first paint of every page. What caught it was
+ * `render-stability.spec.ts`, which holds the module's request to prove the
+ * page stays mounted while the chunk downloads; with the import static, the
+ * held request was the initial page load and `goto` timed out instead.
+ */
+const MarkdownEditor = lazy(() =>
+  import("./MarkdownEditor.tsx").then((m) => ({ default: m.MarkdownEditor })),
+);
 
 /**
  * One ClickUp Doc, read live.
@@ -19,7 +45,7 @@ import { AvatarStack } from "./Avatar.tsx";
  * characters, which as one column is a scrollbar nobody can aim.
  */
 export function DocReader(props: { docId: string }): JSX.Element {
-  const [doc] = createResource(
+  const [doc, { refetch }] = createResource(
     () => props.docId,
     (id) => api.doc(id).then((r) => r.doc),
   );
@@ -51,6 +77,28 @@ export function DocReader(props: { docId: string }): JSX.Element {
           {(updated) => (
             <span class="shrink-0 text-ink-4 text-xs">{formatRelative(updated())}</span>
           )}
+        </Show>
+        {/*
+          In the header rather than at the foot of the page index, which is
+          where it would seem to belong. The index only draws once a Doc has
+          more than one page — a one-page Doc names its page after itself, so
+          the column would repeat the title beside it — and a control that
+          appears only after you already have two pages cannot be the one that
+          gets you the second.
+        */}
+        <Show when={loaded()}>
+          <NewPage
+            docId={props.docId}
+            /* A sibling of the page being read, not a child of it: the release
+               notes Doc is 24 dated pages under one root, and standing on
+               "November 7" and asking for a new page means the next entry
+               beside it, not one nested inside it. */
+            parentId={current()?.parentId ?? null}
+            onCreated={async (id) => {
+              await refetch();
+              setPicked(id);
+            }}
+          />
         </Show>
       </header>
 
@@ -97,10 +145,107 @@ export function DocReader(props: { docId: string }): JSX.Element {
               </p>
             }
           >
-            {(page) => <Page page={page()} />}
+            {(page) => <Page page={page()} docId={props.docId} onAppended={refetch} />}
           </Show>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Adding a page to the Doc.
+ *
+ * A name and nothing else, and the page it makes is empty. Writing into it is
+ * `Append`'s job below — which is not a corner cut but the same rule the API
+ * keeps: one endpoint per shape of change, so a page cannot be created and
+ * overwritten in one breath. Two obvious steps beat one form that has to decide
+ * how much of a page you are allowed to author before it exists.
+ *
+ * No optimistic row. A created page has no place in the Doc's order until the
+ * Doc is read again, so the id comes back, the Doc is refetched, and the reader
+ * lands on the new page once it is really there.
+ */
+function NewPage(props: {
+  docId: string;
+  parentId: string | null;
+  onCreated: (id: string) => Promise<void>;
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false);
+  const [name, setName] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  let input!: HTMLInputElement;
+
+  const close = (): void => {
+    setName("");
+    setOpen(false);
+  };
+
+  const submit = async (): Promise<void> => {
+    const value = name().trim();
+    if (!value || busy()) return;
+
+    setBusy(true);
+    try {
+      const { id } = await api.createDocPage(props.docId, {
+        name: value,
+        ...(props.parentId ? { parentId: props.parentId } : {}),
+      });
+      close();
+      await props.onCreated(id);
+    } catch (error) {
+      // A toast, as the append does it, carrying ClickUp's own refusal. The box
+      // stays open with the name still in it.
+      pushToast({
+        tone: "error",
+        title: "Could not add that page",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div class="ml-auto shrink-0">
+      <Show
+        when={open()}
+        fallback={
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(true);
+              // After the box exists. `open` is what renders it, and focusing
+              // in the same tick would reach for an input that is not there.
+              queueMicrotask(() => input?.focus());
+            }}
+            class="h-7 rounded-[5px] px-2 text-ink-3 text-md hover:bg-hover hover:text-ink"
+          >
+            New page
+          </button>
+        }
+      >
+        <input
+          ref={input}
+          value={name()}
+          disabled={busy()}
+          placeholder="Page name"
+          onInput={(event) => setName(event.currentTarget.value)}
+          /* Stopped here for the reason MarkdownEditor stops its own: the shell
+             reads a bare Escape as "close what is open" and would take the Doc
+             down instead of the box. */
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") void submit();
+            if (event.key === "Escape") close();
+          }}
+          /* Clicking away is "never mind". Nothing has been written yet, so
+             there is nothing to lose by closing — unlike the entry composer,
+             where blur is what commits. */
+          onBlur={() => !busy() && close()}
+          class="h-7 w-52 rounded-[5px] border border-line-strong bg-elevated px-2 text-ink text-md placeholder:text-ink-4 focus:outline-none"
+        />
+      </Show>
     </div>
   );
 }
@@ -154,7 +299,7 @@ function PageIcon(props: { page: DocPage }): JSX.Element {
  * reason — a 1200px line of prose is one your eye loses the start of on the way
  * back. Tables and images still take the full width inside it.
  */
-function Page(props: { page: DocPage }): JSX.Element {
+function Page(props: { page: DocPage; docId: string; onAppended: () => void }): JSX.Element {
   const directory = createMemo(() => new Map(members().map((user) => [user.id, user])));
   const faces = createMemo((): Assignee[] =>
     [...props.page.authors, ...props.page.contributors]
@@ -220,7 +365,134 @@ function Page(props: { page: DocPage }): JSX.Element {
             innerHTML={renderMarkdown(props.page.content)}
           />
         </Show>
+
+        <Append docId={props.docId} pageId={props.page.id} onAppended={props.onAppended} />
       </div>
     </article>
+  );
+}
+
+/**
+ * Adding an entry to the end of a page.
+ *
+ * Append and nothing else. The API has no route that replaces a page and this
+ * is why: a request carrying only the new block cannot overwrite what somebody
+ * else wrote in ClickUp's own editor while this page sat open, and there is no
+ * webhook for a Doc that would let Rask notice if it had. Editing what is
+ * already there stays in ClickUp until that is answered — `docs/doc-editing.md`
+ * has the argument.
+ *
+ * No optimistic paint. The Doc is refetched instead, which is one ClickUp
+ * request either way and shows ClickUp's own rendering of what it stored rather
+ * than the browser's guess at it. A Doc body is never mirrored, so a guess here
+ * would be the only copy of the text anybody sees and there would be nothing to
+ * correct it.
+ */
+function Append(props: { docId: string; pageId: string; onAppended: () => void }): JSX.Element {
+  const [open, setOpen] = createSignal(false);
+  const [sending, setSending] = createSignal(false);
+
+  /*
+   * The text of the attempt in flight, or the one that just failed.
+   *
+   * MarkdownEditor commits on blur *and* on Cmd-Enter, and Cmd-Enter does both:
+   * it calls `onCommit` and then blurs, which calls it again. A description
+   * PATCH does not care — the same value written twice is the same value. The
+   * same paragraph appended twice to somebody's Doc is somebody's Doc with the
+   * paragraph in it twice, and there is no delete-page endpoint to tidy up
+   * with. So the send is keyed on the text: one post per distinct draft,
+   * whatever fires it.
+   *
+   * It doubles as the guard against re-sending on the way out of a failure.
+   * Click away from a composer that just failed and blur commits the same text
+   * again; that is a retry nobody asked for, and if the failure was a 502 that
+   * ClickUp had already applied it is a duplicate. Retrying is the button's
+   * job, and the button is what clears this.
+   */
+  let attempted: string | null = null;
+
+  const send = async (text: string): Promise<void> => {
+    const content = text.trim();
+    if (!content || sending() || content === attempted) return;
+
+    attempted = content;
+    setSending(true);
+    try {
+      await api.appendDocPage(props.docId, props.pageId, content);
+      attempted = null;
+      setOpen(false);
+      props.onAppended();
+    } catch (error) {
+      // A toast rather than a line under the editor, as every other
+      // write-through failure in the app does it — the detail is ClickUp's own
+      // words, and "you do not have edit access to this Doc" is the one people
+      // will hit. The composer stays open with the text still in it.
+      pushToast({
+        tone: "error",
+        title: "Could not add that entry",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /*
+   * Clicking this blurs the editor first, which commits and sends on its own;
+   * by the time the click lands the send is either in flight or deduped. What
+   * is left for the handler is the case blur cannot cover: the same text
+   * failing and the person wanting it tried again without editing it.
+   */
+  const add = (): void => {
+    const text = attempted;
+    if (!text || sending()) return;
+    attempted = null;
+    void send(text);
+  };
+
+  return (
+    <div class="pt-6">
+      <Show
+        when={open()}
+        fallback={
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            class="h-7 rounded-[5px] px-2 text-ink-3 text-md hover:bg-hover hover:text-ink"
+          >
+            Add an entry
+          </button>
+        }
+      >
+        <div class="rounded-[5px] border border-line/70 px-3 py-2">
+          {/* Its own boundary. A lazy component suspends to the nearest one,
+              and without this that is the router's, wrapped around the whole
+              route — opening the composer would blank the Doc for the length
+              of the chunk download. */}
+          <Suspense fallback={<div class="py-1 text-ink-4 text-base">Loading editor…</div>}>
+            <MarkdownEditor
+              value=""
+              placeholder="Add to the end of this page…"
+              autofocus
+              onCommit={(value) => void send(value)}
+              /* Escape restores the empty document and closes, which is the same
+               "never mind" the task panel's editors mean by it. */
+              onCancel={() => setOpen(false)}
+            />
+          </Suspense>
+          <div class="flex items-baseline justify-end gap-3 pt-2 text-ink-4 text-xs">
+            <span>{sending() ? "Adding…" : "⌘↵ to add"}</span>
+            <button
+              type="button"
+              onClick={add}
+              disabled={sending()}
+              class="h-6 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </Show>
+    </div>
   );
 }

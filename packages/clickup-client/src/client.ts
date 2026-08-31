@@ -23,6 +23,7 @@ import {
   clickUpAttachmentUpload,
   clickUpComment,
   clickUpCustomField,
+  clickUpDocPage,
   clickUpFolder,
   clickUpList,
   clickUpSpace,
@@ -999,6 +1000,96 @@ export class ClickUpClient {
     ).then(flattenDocPages);
   }
 
+  /**
+   * Adds a block to the end of a page, without sending the page back.
+   *
+   * The mode and the format are written in here rather than taken as
+   * arguments, for the reason `searchDocs` spells its parent type as a word:
+   * the other value this field accepts is `replace`, and a mode that arrives
+   * as a parameter is a mode a caller can get wrong exactly once.
+   *
+   * Append is the only write in this set that cannot lose text, and that is a
+   * property of the request rather than of any check around it: the body
+   * carries the new block and nothing else, so there is no stale copy of the
+   * page in flight and nothing a concurrent edit in ClickUp's own collaborative
+   * editor can be overwritten by. Two simultaneous appends both land, in an
+   * order nobody promised. Replace has neither property — see
+   * `docs/doc-editing.md`.
+   *
+   * Nothing is parsed out of the answer because the vendored spec declares no
+   * schema for it at all. `getDocPage` is what says what the page now holds.
+   *
+   * ponytail: rides the shared 5xx retry, so a 502 that ClickUp returned after
+   * applying the append would append the block twice. `maxRetries` is per
+   * client and `clientFor` hands out one, so silencing it here means a second
+   * client per token — not worth it for a failure this narrow whose damage is
+   * a duplicated paragraph the author can see and delete. If duplicates ever
+   * turn up, the upgrade is a single-page read on the failure path
+   * (`getPagePublic`, not wrapped yet) comparing `date_updated` against the
+   * value read before the write, which tells "it never landed" from "it landed
+   * and the gateway died".
+   */
+  /**
+   * A new page in a Doc that already exists.
+   *
+   * The other additive write, and the one the release notes Doc actually wants:
+   * its 24 dated entries are child pages of one root page, not blocks appended
+   * to a running one. A create cannot lose anything by construction — it
+   * addresses a page that does not exist yet — which is what puts it in the
+   * same slice as `appendToDocPage` and both of them ahead of replace.
+   *
+   * `parent_page_id` is omitted rather than sent null for a page at the root of
+   * the Doc; the field is documented as absent on those, and this is the v3
+   * surface, where sending a shape it did not describe is how the parent type
+   * enum went wrong.
+   *
+   * Nothing else goes in the body. `name` and `sub_title` and `content` all
+   * default to `""` upstream, so every key present is a field being written:
+   * sending `sub_title: undefined` through `JSON.stringify` drops it, but
+   * sending it empty would set it, and a page whose subtitle was silently
+   * blanked at birth is not something anybody would trace back to here.
+   *
+   * The body it is born with is left empty on purpose. Writing into it is
+   * `appendToDocPage`'s job, which keeps one endpoint per shape of change and
+   * means a page can never be created and overwritten in the same breath.
+   */
+  createDocPage(
+    workspaceId: string,
+    docId: string,
+    input: { name: string; parentPageId?: string },
+  ): Promise<ClickUpDocPage> {
+    return this.request(
+      clickUpDocPage,
+      "POST",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages`,
+      {
+        body: input.parentPageId
+          ? { name: input.name, parent_page_id: input.parentPageId }
+          : { name: input.name },
+      },
+    );
+  }
+
+  async appendToDocPage(
+    workspaceId: string,
+    docId: string,
+    pageId: string,
+    markdown: string,
+  ): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "PUT",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+      {
+        body: {
+          content: markdown,
+          content_edit_mode: "append",
+          content_format: "text/md",
+        },
+      },
+    );
+  }
+
   // --- Webhooks -----------------------------------------------------------
 
   createWebhook(
@@ -1193,13 +1284,23 @@ function withoutListPageLies<T extends { checklists?: unknown }>(task: T): T {
  * Reading order, in other words — the same order the Doc has in ClickUp. The
  * index is sparse (1 and 3, not 0 and 1), so it is only ever compared, never
  * used as a position.
+ *
+ * A child inherits `parent_page_id` from the nesting when it did not carry one.
+ * Flattening throws the shape away and `parent_page_id` is all that is left to
+ * rebuild it from: the reader indents by it and a new page is created as a
+ * sibling under it, so a child that arrives nested and unlabelled would draw
+ * flat and file its siblings at the root of the Doc. The workspace has only
+ * ever answered flat, where the field is always set — this is for the shape
+ * the spec declares and nobody has seen, which is the same reason `pages` is
+ * parsed at all.
  */
-function flattenDocPages(pages: ClickUpDocPage[]): ClickUpDocPage[] {
+function flattenDocPages(pages: ClickUpDocPage[], parentId?: string): ClickUpDocPage[] {
   return [...pages]
     .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
     .flatMap((page) => {
       const { pages: children, ...rest } = page;
-      return [rest, ...flattenDocPages(children ?? [])];
+      const placed = rest.parent_page_id ? rest : { ...rest, parent_page_id: parentId ?? null };
+      return [placed, ...flattenDocPages(children ?? [], page.id)];
     });
 }
 

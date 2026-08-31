@@ -216,6 +216,8 @@ export interface DocPage {
   content: string;
   /** How deep the page sits. The list is flat and in reading order. */
   depth: number;
+  /** The page this one hangs off, or null at the Doc's root. What a new sibling is created under. */
+  parentId: string | null;
   /** The page's emoji, when it has one. */
   icon: string | null;
   /** Banner across the top of the page. A public ClickUp attachments URL. */
@@ -835,6 +837,40 @@ export const api = {
    * read live. Costs one ClickUp request no matter how many pages the Doc has.
    */
   doc: (docId: string) => request<{ doc: Doc }>(`/api/docs/${docId}`),
+
+  /**
+   * Adds a block to the end of a page.
+   *
+   * Append and never replace, which is the route's name rather than an argument
+   * here: a request that carries only the new block cannot overwrite what
+   * somebody else wrote in ClickUp's editor while this page was open, and there
+   * is no webhook for a Doc that would let us notice if it did.
+   *
+   * Answers nothing worth reading. The caller refetches the Doc, which is the
+   * only way to see what ClickUp actually stored.
+   */
+  appendDocPage: (docId: string, pageId: string, content: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}/append`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  /**
+   * A new, empty page in a Doc.
+   *
+   * `parentId` is the page it hangs off — the reader sends the current page's
+   * own parent, which makes the new one its sibling. Omitted puts it at the
+   * Doc's root.
+   *
+   * Answers the new page's id and nothing else, because a page has no place in
+   * the Doc's shape until the Doc is read again. The caller refetches and then
+   * has something to select.
+   */
+  createDocPage: (docId: string, input: { name: string; parentId?: string }) =>
+    request<{ id: string }>(`/api/docs/${docId}/pages`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   createTimeEntry: (taskId: string, entry: NewTimeEntry) =>
     request<{ entry: TimeEntry }>(`/api/tasks/${taskId}/time-entries`, {

@@ -16,10 +16,15 @@ import { RateLimiter } from "../src/rate-limit.ts";
 
 function makeClient(responses: Array<{ status?: number; body: unknown }>) {
   const calls: string[] = [];
+  const sent: Array<{ method: string; body: unknown }> = [];
   const queue = [...responses];
 
-  const fetchImpl = (async (input: string | URL | Request) => {
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(String(input));
+    sent.push({
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+    });
     const next = queue.shift();
     if (!next) throw new Error(`unexpected request: ${input}`);
     return new Response(JSON.stringify(next.body), {
@@ -35,7 +40,7 @@ function makeClient(responses: Array<{ status?: number; body: unknown }>) {
     sleep: async () => {},
   });
 
-  return { client, calls };
+  return { client, calls, sent };
 }
 
 /** The shape the live workspace answers with, trimmed to what is read. */
@@ -143,6 +148,44 @@ describe("getDocPages", () => {
     // child's body twice.
     expect(pages.every((page) => !("pages" in page))).toBe(true);
   });
+
+  /*
+   * Flattening throws the shape away, and `parent_page_id` is all that is left
+   * to rebuild it from — the reader indents by it and a new page is created as
+   * a sibling under it. A nested child that arrived without one would draw flat
+   * and file its siblings at the root of the Doc.
+   */
+  test("gives a nested child the parent the nesting implied", async () => {
+    const { client } = makeClient([
+      {
+        body: [
+          {
+            id: "root",
+            name: "Parent",
+            order_index: 1,
+            pages: [{ id: "child", name: "Child", order_index: 1 }],
+          },
+        ],
+      },
+    ]);
+
+    const pages = await client.getDocPages("529", "d1");
+
+    expect(pages.map((page) => [page.id, page.parent_page_id])).toEqual([
+      ["root", null],
+      ["child", "root"],
+    ]);
+  });
+
+  test("leaves a parent ClickUp named alone", async () => {
+    const { client } = makeClient([
+      { body: [{ id: "a", name: "A", parent_page_id: "elsewhere", order_index: 1 }] },
+    ]);
+
+    const pages = await client.getDocPages("529", "d1");
+
+    expect(pages[0]?.parent_page_id).toBe("elsewhere");
+  });
 });
 
 describe("listAllDocs", () => {
@@ -209,5 +252,102 @@ describe("archived Docs", () => {
       expect(query.get("deleted")).toBe("false");
     }
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe("appendToDocPage", () => {
+  /*
+   * The mode is the whole safety property of this method, so it is the thing
+   * worth pinning. `content_edit_mode` defaults to `replace` in the spec, which
+   * means a body that forgets to say `append` does not fail — it silently
+   * overwrites the page with the one paragraph somebody meant to add to it.
+   * There is no delete-page endpoint to undo that with, and no webhook that
+   * would have told Rask the page had changed under it in the first place.
+   */
+  test("sends the block as an append, in markdown, and never as a replace", async () => {
+    const { client, calls, sent } = makeClient([{ body: {} }]);
+
+    await client.appendToDocPage("529", "gh-96615", "p1", "## November 7\n\nShipped.");
+
+    expect(new URL(calls[0] ?? "").pathname).toBe("/api/v3/workspaces/529/docs/gh-96615/pages/p1");
+    expect(sent[0]?.method).toBe("PUT");
+    expect(sent[0]?.body).toEqual({
+      content: "## November 7\n\nShipped.",
+      content_edit_mode: "append",
+      content_format: "text/md",
+    });
+  });
+
+  /*
+   * No `name` and no `sub_title`. Both are writable on this endpoint and both
+   * default to `""` in the spec, so sending the object with either key present
+   * and empty would rename the page to nothing as a side effect of adding a
+   * paragraph to it.
+   */
+  test("touches nothing but the content", async () => {
+    const { client, sent } = makeClient([{ body: {} }]);
+
+    await client.appendToDocPage("529", "d1", "p1", "text");
+
+    const body = sent[0]?.body as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["content", "content_edit_mode", "content_format"]);
+  });
+
+  test("throws on a refusal rather than reporting a write that did not happen", async () => {
+    const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
+
+    await expect(client.appendToDocPage("529", "d1", "p1", "text")).rejects.toThrow();
+  });
+});
+
+describe("createDocPage", () => {
+  const CREATED = { id: "p9", doc_id: "gh-96615", name: "November 21 - 2025", content: "" };
+
+  test("posts the new page under the parent it was given", async () => {
+    const { client, calls, sent } = makeClient([{ status: 201, body: CREATED }]);
+
+    const page = await client.createDocPage("529", "gh-96615", {
+      name: "November 21 - 2025",
+      parentPageId: "root",
+    });
+
+    expect(new URL(calls[0] ?? "").pathname).toBe("/api/v3/workspaces/529/docs/gh-96615/pages");
+    expect(sent[0]?.method).toBe("POST");
+    expect(sent[0]?.body).toEqual({ name: "November 21 - 2025", parent_page_id: "root" });
+    expect(page.id).toBe("p9");
+  });
+
+  /*
+   * Absent, not null. `parent_page_id` is documented as simply missing on a
+   * page at the root of a Doc, and this is the v3 surface — the one whose
+   * parent-type enum turned out to be short a value the workspace uses. Sending
+   * it a shape it never described is how that bites.
+   */
+  test("omits the parent entirely for a page at the Doc's root", async () => {
+    const { client, sent } = makeClient([{ status: 201, body: CREATED }]);
+
+    await client.createDocPage("529", "gh-96615", { name: "Top" });
+
+    expect(sent[0]?.body).toEqual({ name: "Top" });
+    expect(Object.keys(sent[0]?.body as object)).not.toContain("parent_page_id");
+  });
+
+  /*
+   * `name`, `sub_title` and `content` all default to `""` upstream, so every
+   * key present is a field being written. A body that carried `sub_title` empty
+   * would blank the subtitle of a page as a side effect of naming it.
+   */
+  test("writes nothing it was not asked to write", async () => {
+    const { client, sent } = makeClient([{ status: 201, body: CREATED }]);
+
+    await client.createDocPage("529", "gh-96615", { name: "Top", parentPageId: "root" });
+
+    expect(Object.keys(sent[0]?.body as object).sort()).toEqual(["name", "parent_page_id"]);
+  });
+
+  test("throws on a refusal rather than reporting a page that does not exist", async () => {
+    const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
+
+    await expect(client.createDocPage("529", "d1", { name: "Top" })).rejects.toThrow();
   });
 });
