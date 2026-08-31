@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import type { Me, Space } from "../lib/api.ts";
+import type { DocRef, ListRef, Me, Space } from "../lib/api.ts";
 import { celebrate } from "../lib/celebration.tsx";
 import { inboxPredicate, inboxSeenAt, inboxTruncated } from "../lib/inbox.ts";
 import { useLiveTasks } from "../lib/live.ts";
@@ -15,6 +15,7 @@ import {
 import { signOut } from "../lib/signed-out.ts";
 import { connected } from "../lib/sse.ts";
 import { setTheme, THEMES, themeChoice, themeLabel } from "../lib/theme.ts";
+import { pathToDoc, pathToList } from "../lib/tree-path.ts";
 import { Avatar } from "./Avatar.tsx";
 import { LogoCompact } from "./Logo.tsx";
 import { Menu } from "./Menu.tsx";
@@ -42,6 +43,8 @@ import { Menu } from "./Menu.tsx";
 export function Sidebar(props: {
   me: Me | null;
   spaces: Space[];
+  /** Docs that hang off the Workspace rather than any Space. Their own section. */
+  docs: DocRef[];
   /** Drawer state. Ignored above `dock`, where the sidebar is always in flow. */
   open: boolean;
   onSearch: () => void;
@@ -145,6 +148,19 @@ export function Sidebar(props: {
           Workspace
         </div>
         <For each={props.spaces}>{(space) => <SpaceNode space={space} />}</For>
+
+        {/*
+          Below the tree, not inside it. These Docs have no Space to sit under —
+          ClickUp files them at the Workspace — and in the workspace this was
+          built against there are more of them than every Space-level Doc put
+          together. A section of their own is the only place they fit.
+        */}
+        <Show when={props.docs.length > 0}>
+          <div class="mt-4 px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em]">
+            Docs
+          </div>
+          <For each={props.docs}>{(doc) => <DocItem doc={doc} />}</For>
+        </Show>
       </div>
 
       <Show when={props.me}>
@@ -173,7 +189,10 @@ export function Sidebar(props: {
 }
 
 function SpaceNode(props: { space: Space }): JSX.Element {
-  const empty = () => props.space.folders.length === 0 && props.space.lists.length === 0;
+  const empty = () =>
+    props.space.folders.length === 0 &&
+    props.space.lists.length === 0 &&
+    props.space.docs.length === 0;
 
   return (
     <div>
@@ -189,7 +208,8 @@ function SpaceNode(props: { space: Space }): JSX.Element {
       <Show when={isOpen(props.space.id)}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
           <For each={props.space.folders}>{(folder) => <FolderNode folder={folder} />}</For>
-          <For each={props.space.lists}>{(list) => <ListItem id={list.id} name={list.name} />}</For>
+          <For each={props.space.lists}>{(list) => <ListItem list={list} />}</For>
+          <For each={props.space.docs}>{(doc) => <DocItem doc={doc} />}</For>
         </div>
       </Show>
     </div>
@@ -197,8 +217,10 @@ function SpaceNode(props: { space: Space }): JSX.Element {
 }
 
 function FolderNode(props: {
-  folder: { id: string; name: string; lists: Array<{ id: string; name: string }> };
+  folder: { id: string; name: string; lists: ListRef[]; docs: DocRef[] };
 }): JSX.Element {
+  const empty = () => props.folder.lists.length === 0 && props.folder.docs.length === 0;
+
   return (
     <div>
       <button
@@ -206,21 +228,60 @@ function FolderNode(props: {
         onClick={() => toggleOpen(props.folder.id)}
         class="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink"
       >
-        <Chevron open={isOpen(props.folder.id)} muted={props.folder.lists.length === 0} />
+        <Chevron open={isOpen(props.folder.id)} muted={empty()} />
         <span class="truncate text-md">{props.folder.name}</span>
       </button>
       <Show when={isOpen(props.folder.id)}>
         <div class="ml-[13px] border-line/60 border-l pl-1.5">
-          <For each={props.folder.lists}>
-            {(list) => <ListItem id={list.id} name={list.name} />}
-          </For>
+          <For each={props.folder.lists}>{(list) => <ListItem list={list} />}</For>
+          <For each={props.folder.docs}>{(doc) => <DocItem doc={doc} />}</For>
         </div>
       </Show>
     </div>
   );
 }
 
-function ListItem(props: { id: string; name: string }): JSX.Element {
+/**
+ * A Doc in the tree.
+ *
+ * No pin and no chevron: a Doc is one thing to open, and the pinned strip is
+ * about lists somebody works out of. The icon is a page rather than the list
+ * glyph so the two kinds of row are told apart without reading them.
+ */
+function DocItem(props: { doc: DocRef }): JSX.Element {
+  const params = useParams({ strict: false });
+  const active = () => (params() as { docId?: string }).docId === props.doc.id;
+
+  return (
+    <A
+      to="/doc/$docId"
+      params={{ docId: props.doc.id }}
+      class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-2 pl-2 text-md ${
+        active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+      }`}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        fill="none"
+        class="shrink-0 text-ink-4"
+        aria-hidden="true"
+      >
+        <path
+          d="M4 2.5h5L12 5.5v8h-8z"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linejoin="round"
+        />
+        <path d="M8.6 2.6v3h3.2" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+      </svg>
+      <span class="truncate">{props.doc.name}</span>
+    </A>
+  );
+}
+
+function ListItem(props: { list: ListRef }): JSX.Element {
   /*
    * The route's own `listId`, not `matchRoute`.
    *
@@ -235,39 +296,40 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
    * same on `/list/$listId` and `/list/$listId/view/$viewId`.
    */
   const params = useParams({ strict: false });
-  const active = () => (params() as { listId?: string }).listId === props.id;
+  const active = () => (params() as { listId?: string }).listId === props.list.id;
 
   return (
-    <div class="group/list relative">
-      <A
-        to="/list/$listId"
-        params={{ listId: props.id }}
-        // One string, not classList: `A` is a component, so Solid hands it
-        // `classList` as an inert prop and nothing ever applies it. Every list
-        // link rendered at full-brightness ink with no hover, active or not.
-        class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-7 pl-2 text-md ${
-          active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
-        }`}
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 16 16"
-          fill="none"
-          class="shrink-0 text-ink-4"
-          aria-hidden="true"
+    <>
+      <div class="group/list relative">
+        <A
+          to="/list/$listId"
+          params={{ listId: props.list.id }}
+          // One string, not classList: `A` is a component, so Solid hands it
+          // `classList` as an inert prop and nothing ever applies it. Every list
+          // link rendered at full-brightness ink with no hover, active or not.
+          class={`flex h-7 items-center gap-2 rounded-[5px] py-2 pr-7 pl-2 text-md ${
+            active() ? "row-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+          }`}
         >
-          <path
-            d="M3 4.5h10M3 8h10M3 11.5h6"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-          />
-        </svg>
-        <span class="truncate">{props.name}</span>
-      </A>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            class="shrink-0 text-ink-4"
+            aria-hidden="true"
+          >
+            <path
+              d="M3 4.5h10M3 8h10M3 11.5h6"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span class="truncate">{props.list.name}</span>
+        </A>
 
-      {/*
+        {/*
         Outside the link, not inside it: a button nested in an anchor is invalid
         and the click would navigate before the star ever fired.
 
@@ -275,8 +337,22 @@ function ListItem(props: { id: string; name: string }): JSX.Element {
         forty pieces of chrome saying nothing, while an on one is the answer to
         "is this pinned".
       */}
-      <PinButton id={props.id} name={props.name} />
-    </div>
+        <PinButton id={props.list.id} name={props.list.name} />
+      </div>
+
+      {/*
+      A List's Docs, indented under it and always shown rather than behind a
+      chevron of their own. Almost no List has any — 27 across the workspace
+      against 833 tasks in one List alone — so a collapsed row would be a
+      toggle that is empty nearly everywhere it appears, and the whole subtree
+      is already hidden behind the Space's.
+    */}
+      <Show when={props.list.docs.length > 0}>
+        <div class="ml-[13px] border-line/60 border-l pl-1.5">
+          <For each={props.list.docs}>{(doc) => <DocItem doc={doc} />}</For>
+        </div>
+      </Show>
+    </>
   );
 }
 
@@ -344,7 +420,12 @@ function PinnedLists(props: { spaces: Space[] }): JSX.Element {
         <div class="px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em]">
           Pinned
         </div>
-        <For each={all()}>{(list) => <ListItem id={list.id} name={list.name} />}</For>
+        {/* Docs are deliberately not carried into the pinned strip: a pin is
+            about a list somebody works out of, and the Doc is one click away
+            in the tree. */}
+        <For each={all()}>
+          {(list) => <ListItem list={{ id: list.id, name: list.name, docs: [] }} />}
+        </For>
       </div>
     </Show>
   );
@@ -474,21 +555,11 @@ function useRevealActiveList(spaces: () => Space[]): void {
   const params = useParams({ strict: false });
 
   createEffect(() => {
-    const listId = (params() as { listId?: string }).listId;
-    if (!listId) return;
-
-    for (const space of spaces()) {
-      if (space.lists.some((list) => list.id === listId)) {
-        revealPath([space.id]);
-        return;
-      }
-      for (const folder of space.folders) {
-        if (folder.lists.some((list) => list.id === listId)) {
-          revealPath([space.id, folder.id]);
-          return;
-        }
-      }
-    }
+    const { listId, docId } = params() as { listId?: string; docId?: string };
+    // A Doc as readily as a List: both are rows in this tree, and a link to
+    // either one lands on a sidebar that cannot show where you are without it.
+    const path = listId ? pathToList(spaces(), listId) : docId ? pathToDoc(spaces(), docId) : null;
+    if (path) revealPath(path);
   });
 }
 

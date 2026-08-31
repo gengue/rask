@@ -7,6 +7,8 @@ import {
   type ClickUpChecklist,
   type ClickUpComment,
   type ClickUpCustomField,
+  type ClickUpDoc,
+  type ClickUpDocPage,
   type ClickUpFolder,
   type ClickUpList,
   type ClickUpSpace,
@@ -30,6 +32,8 @@ import {
   clickUpUser,
   clickUpWebhook,
   createdComment,
+  docPagesResponse,
+  docsSearchResponse,
   listViewsResponse,
   runningTimeEntryResponse,
   taskPage,
@@ -55,6 +59,19 @@ import {
  * and they are the empty ones that cost ClickUp nothing to answer.
  */
 const VIEW_PAGE_BATCH = 4;
+
+/**
+ * How many Docs one task can hold before this stops asking for the rest.
+ *
+ * The search pages by cursor and `searchDocs` does not follow it. A task with
+ * more than fifty Docs on it is not a shape anyone has, and the endpoint's own
+ * ceiling is a hundred.
+ */
+const DOC_SEARCH_LIMIT = 50;
+
+/** The index walk's page size and its stop, which is 5000 Docs. */
+const DOC_INDEX_PAGE = 100;
+const DOC_INDEX_MAX_PAGES = 50;
 
 export const CLICKUP_API_BASE = "https://api.clickup.com/api";
 
@@ -870,6 +887,104 @@ export class ClickUpClient {
     );
   }
 
+  // --- Docs ---------------------------------------------------------------
+
+  /*
+   * Docs are the one thing Rask reads from ClickUp's *v3* API.
+   *
+   * Nothing special is needed to reach it: `baseUrl` is the host plus `/api`
+   * and every path here carries its own version, so `/v3/...` sits beside the
+   * `/v2/...` above with the same auth header, the same limiter and the same
+   * retry. The two are separate surfaces, not separate clients — v3's spec is
+   * vendored next to v2's, at `openapi/clickup-v3.json`.
+   *
+   * They do not answer alike, though. A v2 list endpoint wraps its rows in a
+   * named key or in `data`; these answer with a bare array, or with `docs` and
+   * a `next_cursor` rather than a page number.
+   */
+
+  /**
+   * Docs under one parent — for Rask, the Docs written inside one task.
+   *
+   * `parentType` is spelled as the word rather than the number even though
+   * both are accepted, because the number is `1` and a bare 1 in a query
+   * string is the kind of thing somebody later reads as a boolean.
+   *
+   * Unpaginated on purpose: a `parentId` this narrow answers with the handful
+   * of Docs on one thing. `listAllDocs` is the one that follows the cursor.
+   */
+  searchDocs(
+    workspaceId: string,
+    params: { parentId: string; parentType: "TASK" | "SPACE" | "FOLDER" | "LIST" | "WORKSPACE" },
+  ): Promise<ClickUpDoc[]> {
+    return this.request(docsSearchResponse, "GET", `/v3/workspaces/${workspaceId}/docs`, {
+      query: {
+        parent_id: params.parentId,
+        parent_type: params.parentType,
+        limit: DOC_SEARCH_LIMIT,
+      },
+    }).then((r) => r.docs ?? []);
+  }
+
+  /**
+   * Every page of a Doc, with its content, in one request.
+   *
+   * `max_page_depth: -1` is what makes that true — the default walks one level
+   * and a Doc's sub-pages would come back as names with nothing in them. The
+   * flatten afterwards is for the same reason: the spec says a page may carry
+   * its own `pages`, so a nested one that this returned untouched would be a
+   * page the reader never sees.
+   *
+   * Markdown rather than HTML because the panel renders it through the same
+   * sanitizer as every task description, and because `text/plain` throws the
+   * tables away.
+   */
+  /**
+   * Every Doc in the workspace, following the cursor to the end.
+   *
+   * Unfiltered rather than one walk per parent type. `parent_type` is a filter,
+   * not a required argument, and the rows carry their own parent — so five
+   * scoped walks would be five times the requests for the same answer.
+   *
+   * This is an index, not content: names and parents, which is what the tree
+   * needs. Reading a Doc is `getDocPages`, and that only happens when somebody
+   * opens one. Measured against the workspace, 329 Docs cost four requests.
+   */
+  async listAllDocs(workspaceId: string): Promise<ClickUpDoc[]> {
+    const all: ClickUpDoc[] = [];
+    let cursor: string | undefined;
+
+    /*
+     * A bound rather than `while (cursor)`. The cursor comes from ClickUp and
+     * the loop's exit depends on it eventually coming back empty; a server that
+     * keeps answering with one costs a request every time round, against a
+     * budget the whole app shares. Fifty pages is 5000 Docs.
+     */
+    for (let page = 0; page < DOC_INDEX_MAX_PAGES; page++) {
+      const answer = await this.request(
+        docsSearchResponse,
+        "GET",
+        `/v3/workspaces/${workspaceId}/docs`,
+        { query: { limit: DOC_INDEX_PAGE, cursor } },
+      );
+      const docs = answer.docs ?? [];
+      all.push(...docs);
+      cursor = answer.next_cursor ?? undefined;
+      if (!cursor || docs.length === 0) break;
+    }
+
+    return all;
+  }
+
+  getDocPages(workspaceId: string, docId: string): Promise<ClickUpDocPage[]> {
+    return this.request(
+      docPagesResponse,
+      "GET",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages`,
+      { query: { max_page_depth: -1, content_format: "text/md" } },
+    ).then(flattenDocPages);
+  }
+
   // --- Webhooks -----------------------------------------------------------
 
   createWebhook(
@@ -1056,6 +1171,22 @@ function withoutListPageLies<T extends { checklists?: unknown }>(task: T): T {
   if (!("checklists" in task)) return task;
   const { checklists: _dropped, ...rest } = task;
   return rest as T;
+}
+
+/**
+ * Depth-first, parents before their children, siblings in `order_index` order.
+ *
+ * Reading order, in other words — the same order the Doc has in ClickUp. The
+ * index is sparse (1 and 3, not 0 and 1), so it is only ever compared, never
+ * used as a position.
+ */
+function flattenDocPages(pages: ClickUpDocPage[]): ClickUpDocPage[] {
+  return [...pages]
+    .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+    .flatMap((page) => {
+      const { pages: children, ...rest } = page;
+      return [rest, ...flattenDocPages(children ?? [])];
+    });
 }
 
 /** Full jitter, capped at 30s. Keeps a fleet of workers from retrying in lockstep. */

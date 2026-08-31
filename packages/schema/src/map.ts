@@ -3,6 +3,7 @@ import type {
   ClickUpChecklist,
   ClickUpComment,
   ClickUpCustomField,
+  ClickUpDoc,
   ClickUpFolder,
   ClickUpList,
   ClickUpSpace,
@@ -277,6 +278,28 @@ export function mapFolder(folder: ClickUpFolder, spaceId: string) {
     orderindex: folder.orderindex ?? null,
     hidden: folder.hidden ?? false,
     archived: folder.archived ?? false,
+  };
+}
+
+/**
+ * A Doc row for the index. Contents are never mapped here — see the `docs`
+ * table for why the body stays live.
+ *
+ * ClickUp allows an unnamed Doc and its own UI shows those as "Doc"; the
+ * fallback lives here rather than in the sidebar so the tree never has to draw
+ * a blank row.
+ */
+export type MappedDoc = ReturnType<typeof mapDoc>;
+
+export function mapDoc(doc: ClickUpDoc, teamId: string) {
+  return {
+    id: doc.id,
+    teamId,
+    name: doc.name?.trim() || "Doc",
+    parentId: doc.parent?.id ?? null,
+    parentType: doc.parent?.type ?? null,
+    dateUpdated: doc.date_updated ?? null,
+    archived: doc.archived ?? false,
   };
 }
 
