@@ -117,22 +117,6 @@ export function TaskRow(props: {
           that nobody could see and that turns invisible on a light background. */}
       <span class="flex-1 truncate text-md text-ink">{props.task.name}</span>
 
-      <Show when={props.columns.length}>
-        {/* Chosen columns shed with the tags: they answer a question the
-            filter can also answer, and the four columns that never shed are
-            already the ones a narrow row is scanned for. A cell reads the raw
-            JSON the row carries; `fieldCellText` is the decoder. */}
-        <div class="flex shrink-0 items-center gap-3 @max-row-full:hidden">
-          <For each={props.columns}>
-            {(field) => (
-              <span class="w-[110px] truncate text-right text-xs text-ink-3" title={field.name}>
-                {fieldCellText(field.type, field.typeConfig, props.task.customValues?.[field.id])}
-              </span>
-            )}
-          </For>
-        </div>
-      </Show>
-
       <Show when={props.showList && props.task.listName}>
         {/* My Tasks spans 243 lists. Without this a row gives no clue which
             project it belongs to, and grouping by status does not help. */}
@@ -171,13 +155,48 @@ export function TaskRow(props: {
         </div>
       </Show>
 
-      <Show when={due()}>
-        {(label) => (
-          <span class={`w-[72px] shrink-0 text-right text-xs ${DUE_TONE[label().tone]}`}>
-            {label().text}
-          </span>
-        )}
+      <Show when={props.columns.length}>
+        {/*
+         * After the tags and the list name, not before them.
+         *
+         * A column is only a column if it lines up down the page, and
+         * everything to the right of this point is fixed width — the cells
+         * themselves, the due date, the avatar stack. Everything to the left
+         * is not: a row with two tag chips and a row with none put their tags
+         * at different widths, and drawn ahead of them the values jittered
+         * left and right by whatever each row happened to be tagged with.
+         *
+         * They still shed with the tags below --container-row-full: they
+         * answer a question the filter can also answer, and the four that
+         * never shed are the ones a narrow row is scanned for. A cell reads
+         * the raw JSON the row carries; `fieldCellText` is the decoder.
+         */}
+        <div class="flex shrink-0 items-center gap-3 @max-row-full:hidden">
+          <For each={props.columns}>
+            {(field) => (
+              <span class="w-[110px] truncate text-right text-xs text-ink-3" title={field.name}>
+                {fieldCellText(field.type, field.typeConfig, props.task.customValues?.[field.id])}
+              </span>
+            )}
+          </For>
+        </div>
       </Show>
+
+      {/*
+       * The slot is always here, empty on a task with no due date.
+       *
+       * It was a `<Show>`, so a row without a date closed the gap and pulled
+       * everything to its left 84px to the right — invisible while tags were
+       * the only thing there, obvious the moment a field column was, since
+       * half the rows in a list have no date and the column came apart on
+       * exactly those. The 72px was already spent either way: the comment
+       * above counts due among the four that never shed.
+       */}
+      <span class="w-[72px] shrink-0 text-right text-xs">
+        <Show when={due()}>
+          {(label) => <span class={DUE_TONE[label().tone]}>{label().text}</span>}
+        </Show>
+      </span>
 
       <div class="shrink-0">
         <AvatarStack users={props.task.assignees} />
