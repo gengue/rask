@@ -109,11 +109,21 @@ function entry(over: Record<string, unknown> = {}) {
   };
 }
 
-/** Sunday 00:00 of a fixed week, Bogotá time (UTC-5): Aug 23–29, 2026. */
+/**
+ * Sunday 00:00 of a fixed week, Bogotá time (UTC-5): Aug 23–29, 2026.
+ *
+ * Any test placing entries inside this week must also ask for it with
+ * `ANCHORED` — the route defaults to the server clock's current week, so a
+ * bare `WEEKQ()` only agreed with these fixtures while the suite happened to
+ * run during that one week of August 2026, and every fixture-driven test went
+ * red the Sunday after.
+ */
 const SUNDAY_BOGOTA = Date.UTC(2026, 7, 23, 5, 0, 0);
 const TZ_BOGOTA = -300;
 
 const WEEKQ = (over = "") => `/timesheet/week?tz=${encodeURIComponent(String(TZ_BOGOTA))}${over}`;
+/** The fixed fixture week, named explicitly so the tests survive real time. */
+const ANCHORED = () => WEEKQ(`&start=${SUNDAY_BOGOTA}`);
 
 beforeEach(async () => {
   await db.delete(tasks).where(eq(tasks.id, TASK));
@@ -145,7 +155,7 @@ describe("GET /timesheet/week", () => {
     ]);
     const { app } = mount(client);
 
-    const response = await app.request(WEEKQ());
+    const response = await app.request(ANCHORED());
     const { rows, start } = (await response.json()) as {
       rows: Array<{ days: Array<{ durationMs: number } | null> }>;
       start: number;
@@ -164,7 +174,7 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [first, second] } }]);
     const { app } = mount(client);
 
-    const response = await app.request(WEEKQ());
+    const response = await app.request(ANCHORED());
     const { rows } = (await response.json()) as {
       rows: Array<{ days: Array<{ durationMs: number } | null>; totalMs: number }>;
     };
@@ -181,15 +191,19 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [live] } }]);
     const { app } = mount(client);
 
+    // No anchor here, on purpose: the running entry's cell exists only in the
+    // week containing now, so this test rides the real clock and reads the
+    // week boundary out of the answer instead of assuming one.
     const response = await app.request(WEEKQ());
     const payload = (await response.json()) as {
+      start: number;
       rows: Array<{
         days: Array<{ durationMs: number; running: boolean } | null>;
         totalMs: number;
       }>;
     };
     const row = payload.rows[0];
-    const todayIndex = Math.floor((now - SUNDAY_BOGOTA) / 86_400_000);
+    const todayIndex = Math.floor((now - payload.start) / 86_400_000);
 
     const todayCell = row?.days[todayIndex];
     expect(todayCell).not.toBeNull();
@@ -235,7 +249,7 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [entry({ start: String(lastWeek) })] } }]);
     const { app } = mount(client);
 
-    const response = await app.request(WEEKQ());
+    const response = await app.request(ANCHORED());
     const { rows } = (await response.json()) as { rows: Array<object> };
 
     // The fold must neither clip it into column 0 nor crash on the negative
@@ -255,7 +269,7 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [light, heavy] } }]);
     const { app } = mount(client);
 
-    const response = await app.request(WEEKQ());
+    const response = await app.request(ANCHORED());
     const { rows } = (await response.json()) as { rows: Array<{ taskId: string }> };
 
     expect(rows.map((row) => row.taskId)).toEqual([TASK, OTHER]);
@@ -281,7 +295,7 @@ describe("GET /timesheet/week", () => {
     const { app } = mount(client);
 
     try {
-      const response = await app.request(WEEKQ());
+      const response = await app.request(ANCHORED());
       const { rows } = (await response.json()) as {
         rows: Array<{
           taskName: string;
@@ -314,7 +328,7 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [stranger] } }]);
     const { app, repaired } = mount(client);
 
-    const response = await app.request(WEEKQ());
+    const response = await app.request(ANCHORED());
     const { rows } = (await response.json()) as {
       rows: Array<{ taskId: string; taskName: string; location: string | null }>;
     };
