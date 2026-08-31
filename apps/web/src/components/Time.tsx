@@ -1,11 +1,11 @@
 import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js";
 import { ApiError, api, type NewTimeEntry, type TimeEntry } from "../lib/api.ts";
+import { parseDuration } from "../lib/duration.ts";
 import {
   formatClock,
   formatDuration,
   formatRelative,
   fromDateInput,
-  parseDuration,
   toDateInput,
 } from "../lib/format.ts";
 import { reconcileStorage } from "../lib/reconcile-storage.ts";
@@ -259,7 +259,7 @@ function LogForm(props: {
       pushToast({
         tone: "error",
         title: "That is not a length I can read",
-        detail: "Try 1h 30m, 1:30, or 90.",
+        detail: "Try 1h 30m, 1:30, or 1.5.",
       });
       return;
     }
@@ -420,7 +420,7 @@ function Editor(props: {
       pushToast({
         tone: "error",
         title: "That is not a length I can read",
-        detail: "Try 1h 30m, 1:30, or 90.",
+        detail: "Try 1h 30m, 1:30, or 1.5.",
       });
       return;
     }

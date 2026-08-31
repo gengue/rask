@@ -1,12 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { parseDuration, startFor } from "../src/lib/duration.ts";
+import { formatDuration } from "../src/lib/format.ts";
 
 /**
  * The two rules that decide what a manual time entry says. Both write somebody's
- * paid week, so every shape the modal advertises is pinned here — including the
+ * paid week, so every shape the app advertises is pinned here — including the
  * ones that must come back null, since a parser that guesses is worse than one
  * that refuses.
+ *
+ * `parseDuration` answers for all three boxes that take a length: the "Add
+ * time" dialog, the inline log form, and the entry editor. The last two used to
+ * have a parser of their own in `format.ts`; the cases it covered are kept
+ * below so its callers cannot quietly lose anything they had.
  */
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 
 describe("parseDuration", () => {
   test("units, spaced or not", () => {
@@ -46,13 +55,50 @@ describe("parseDuration", () => {
     expect(parseDuration("")).toBeNull();
     expect(parseDuration("   ")).toBeNull();
     expect(parseDuration("abc")).toBeNull();
+    expect(parseDuration("about an hour")).toBeNull();
     // A negative term is a typo, not a subtraction.
     expect(parseDuration("2h -30m")).toBeNull();
+    expect(parseDuration("-30m")).toBeNull();
     expect(parseDuration(":30")).toBeNull();
     expect(parseDuration("1:60")).toBeNull();
+    expect(parseDuration("1:75")).toBeNull();
     expect(parseDuration("2h 30")).toBeNull();
     expect(parseDuration("h")).toBeNull();
     expect(parseDuration("2d")).toBeNull();
+  });
+
+  /*
+   * Carried over from the parser this one replaced, which lived in `format.ts`
+   * and served the inline log form and the entry editor. Everything below used
+   * to pass there and still has to pass here, because those two forms now type
+   * into this function.
+   */
+  test("round-trips what formatDuration prints", () => {
+    // The entry editor seeds its box with `formatDuration` and parses whatever
+    // comes back, so a total that will not survive the round trip is an entry
+    // nobody can put a note on without retyping the length.
+    for (const ms of [45 * MINUTE, 2 * HOUR, 90 * MINUTE, 7 * HOUR + 13 * MINUTE]) {
+      expect(parseDuration(formatDuration(ms) ?? "")).toBe(ms);
+    }
+  });
+
+  test("still reads the shapes the old parser took", () => {
+    expect(parseDuration("1h 30m")).toBe(90 * MINUTE);
+    expect(parseDuration("1h30m")).toBe(90 * MINUTE);
+    expect(parseDuration("1:30")).toBe(90 * MINUTE);
+    expect(parseDuration("90m")).toBe(90 * MINUTE);
+    expect(parseDuration("1.5h")).toBe(90 * MINUTE);
+    expect(parseDuration("  2H 15M ")).toBe(2 * HOUR + 15 * MINUTE);
+    expect(parseDuration("0")).toBe(0);
+  });
+
+  test("a bare number is the one thing the collapse changed", () => {
+    // `90` was ninety minutes to the old parser and is ninety hours to this
+    // one. Pinned rather than left implied: it is the only input in the app
+    // whose meaning moved, and the toast beside both boxes now says `1.5`
+    // instead of `90` because of it.
+    expect(parseDuration("90")).toBe(90 * HOUR);
+    expect(parseDuration("90")).not.toBe(90 * MINUTE);
   });
 });
 

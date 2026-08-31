@@ -1,11 +1,11 @@
 /**
- * Reading and placing a hand-written interval — the arithmetic behind the
- * "Add time" modal.
+ * Reading and placing a hand-written interval — the arithmetic behind every
+ * box in the app that takes a length of time.
  *
  * Pure on purpose, and in a module of its own: this is what writes somebody's
  * timesheet, and the two functions below are the only place either decision is
  * made. A component that renders one of them cannot be unit-tested without a
- * DOM; these can, so the rules live here and the modal only draws them.
+ * DOM; these can, so the rules live here and the forms only draw them.
  */
 
 const HOUR_MS = 3_600_000;
@@ -36,12 +36,13 @@ const UNIT_TERM = /(\d+(?:\.\d+)?)([hms])/g;
  * could not understand that" and "you worked no time" is a row of somebody's
  * paid week, so the caller disables Save instead of writing a zero.
  *
- * ponytail: `parseDuration` in `format.ts` reads a bare number as *minutes*,
- * because it grew up next to the inline log form where `90` meant an hour and a
- * half. Two parsers with two answers for `2.5` is one parser too many; the
- * modal shows the parsed length back before you can save it, which is what
- * keeps the disagreement from costing anybody hours. Collapse them into this
- * one the day the owner picks a single meaning for a bare number.
+ * There was a second parser in `format.ts` that read a bare number as
+ * *minutes*, because it grew up next to the inline log form where `90` meant an
+ * hour and a half. Two parsers with two answers for `2.5` is one parser too
+ * many, so it is gone and every box in the app reads from this one. What the
+ * old callers gained: seconds, `h:mm:ss`, and a refusal where they used to
+ * accept. What they lost: `90` no longer means ninety minutes, which is why
+ * both of their toasts now offer `1.5` rather than `90` as the third example.
  */
 export function parseDuration(input: string): number | null {
   const text = input.trim().toLowerCase();
