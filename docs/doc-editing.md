@@ -7,8 +7,8 @@ endpoints to expose, in what order, and why none of them belong in the outbox.
 Slices one and two have shipped — the two additive writes. `appendToDocPage`
 and `createDocPage` in the client, `POST /api/docs/:docId/pages/:pageId/append`
 and `POST /api/docs/:docId/pages`, the entry composer at the foot of a page and
-the New page control in the `DocReader` header. Rask can write into a Doc; it
-still cannot rewrite one. Everything after this is a design note, and the
+the two ways to add a page in `DocReader`. Rask can write into a Doc; it still
+cannot rewrite one. Everything after this is a design note, and the
 numbers in it come from the vendored v3 spec and from the code as it stands.
 
 ## Summary
@@ -19,8 +19,9 @@ numbers in it come from the vendored v3 spec and from the code as it stands.
 2. Then **create page** (`POST .../pages`). That is the endpoint the release
    notes Doc actually needs — see below; the guess that it needed append is only
    half right. **Shipped.**
-3. **Replace** waits behind a fidelity probe and a conflict check. It may never
-   be worth it.
+3. **Replace** — the probe has now been run and it came back clean. See
+   "The probe, run" below. What still gates it is the conflict check, and one
+   unresolved question the API cannot answer.
 4. **Create Doc** (`POST /docs`) last, or not at all. It writes a row the `docs`
    index does not learn about until the nightly hierarchy pass.
 
@@ -60,12 +61,11 @@ check". It is lossy on its own, and the worst case for it is the most ordinary
 edit anyone would want: fixing a typo. Small intended change, large unintended
 one.
 
-**Before replace ships, someone has to run the probe:** read a real page of the
-release notes Doc as `text/md`, write it back unchanged with
-`content_edit_mode: replace`, and diff what ClickUp then renders against what it
-rendered before. If that is lossless for the blocks the workspace actually uses,
-replace is a conversation. If it is not, the honest shape of this feature is:
-*Rask can write into a Doc; it cannot rewrite one.*
+**The probe has been run — see "The probe, run" near the end.** Short version:
+the API round trip is byte-stable, including a one-word edit, across three
+replace cycles. The lossiness argument above is weaker than it looked. What it
+does not settle is whether ClickUp's *render* survives, because the API will not
+show a render at any format.
 
 ## The release notes Doc wants a new page, not an append
 
@@ -225,9 +225,10 @@ outcome. That is worth having and it is not the same as being safe.
   duplicate.
 - Nothing in `Docs.tsx`. That section is a reader inside a scroll of other
   things; the writing use lives in the full reader.
-- `parentId` on `DocPageDto` waits for slice two. `ClickUpDocPage` carries
-  `parent_page_id` and the DTO drops it, and nothing in an append needs it —
-  it is create-page that has to know where a new page hangs.
+- `DocPageDto` does not carry the parent id, and should not. The browser
+  creates a page under the page whose "+" was pressed, so it already holds the
+  id; a copy on every row would be a field nothing reads. `parent_page_id` still
+  matters server-side — `depth` is walked from it.
 
 **Tests** — `apps/api/test/docs.test.ts` already stubs a client, so these go
 beside what is there. This is a write that can lose text, so they are not
@@ -274,16 +275,32 @@ Create page, and two things it turned up that the recommendation had not.
 index. That is wrong, and the index's own comment says why: it only draws once a
 Doc has more than one page, because a one-page Doc names its page after itself
 and the column would repeat the title beside it. A control that appears only
-after you already have two pages cannot be the one that gets you the second. It
-sits in the header instead.
+after you already have two pages cannot be the one that gets you the second.
 
-**A new page is a sibling, not a child.** The reader sends the *current page's*
-`parentId`, not its id. Standing on "November 7" and asking for a new page means
-the next entry beside it; a child of it would nest the release notes one level
-deeper every entry. `parentId` is on `DocPageDto` for exactly this and is not
-interchangeable with `depth` — depth is derived and collapses to 0 for a parent
-the walk never saw, so creating under "whatever was at depth 0" would file a
-page somewhere nobody pointed at.
+**Do not guess the parent. This one shipped wrong first.** The original rule was
+"a sibling of the page you are reading" — send the current page's parent id.
+Standing on "November 7" that gives the next entry beside it, which is right.
+Standing on the Doc's own first page it gives the *root*, and pages asked for
+while simply looking at a Doc were filed outside the tree they belonged to. It
+happened in the live workspace within a day.
+
+Guessing was never the right shape here, and the reason is in the spec:
+
+```
+editPagePublic: ['name', 'sub_title', 'content', 'content_edit_mode', 'content_format']
+```
+
+No `parent_page_id`, no `order_index`, no move endpoint, no reorder endpoint,
+**no delete endpoint anywhere on the Docs surface**. `parent_page_id` is
+write-once. A page filed in the wrong place cannot be moved or removed from
+Rask at all, and ClickUp's own drag-and-drop runs on its internal API, not this
+one. The single moment the parent is decidable is the moment the page is
+created; a control that guesses spends that moment on a coin flip.
+
+So it asks. Every row of the index carries a `+` meaning "inside this one", the
+header button is the root slot, and the name box opens **in the index at the
+indent the page will occupy** — the placement is shown, not described. Opening
+it is also what reveals the index on a one-page Doc.
 
 **The page is born empty.** Name only; the body is `appendToDocPage`'s job. One
 endpoint per shape of change means a page cannot be created and overwritten in
@@ -308,9 +325,47 @@ this was latent — but `pages` is parsed at all for precisely the shape nobody
 has seen, and the fix belongs in the same place: the flatten knows the parent,
 so a child inherits it.
 
+## The probe, run
+
+Against the live workspace, on `gh-81835/gh-45695` (8627 characters of
+markdown — headings, tables, mermaid diagrams), copied into a throwaway Doc so
+nothing real was written to:
+
+```
+replace, unchanged  : sent 8627 -> read 8627  IDENTICAL
+replace, one word   : sent 8628 -> read 8628  IDENTICAL
+replace, restored   : sent 8627 -> read 8627  IDENTICAL
+```
+
+Create-then-read was byte-identical too. So the markdown round trip is a stable
+fixed point, and the "replace is lossy on its own" argument is weaker than it
+was written above.
+
+Two things the probe could not close, and neither is a formality:
+
+**The render is invisible to the API.** `content_format=text/html` answers 400,
+as does anything but `text/md` and `text/plain`. So markdown is the highest
+fidelity the public API offers in either direction, and whether ClickUp's
+*rendered* page survives a replace cannot be measured from here — only by
+looking at both Docs in ClickUp.
+
+**One concrete signal of loss.** That page's mermaid diagrams come back as
+` ```plain ` code fences. If ClickUp renders them as diagrams and the export
+says `plain`, writing that back may flatten them. Ambiguous — the source may
+genuinely be `plain` — and it is exactly the kind of thing only eyes on the
+render will settle.
+
+The conflict check is unaffected by any of this and still required: there is no
+webhook for a Doc, so a replace built on a stale read still discards whatever
+was written in between, and the compare-and-swap above is still the only
+defence available.
+
 ## What is still not built
 
-- **Replace**, behind the fidelity probe above. Nothing has changed about it.
+- **Replace**, now gated on eyes-on-the-render plus the conflict check rather
+  than on the probe.
+- **Reparenting or reordering a page.** Not deferred — impossible. There is no
+  endpoint for it, and there is no delete either.
 - **`POST /docs`**, still behind the index question: a Doc created through Rask
   is invisible to `GET /api/docs/:id` and to the sidebar until the next
   hierarchy pass, which runs at boot and nightly.

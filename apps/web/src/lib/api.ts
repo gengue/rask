@@ -216,8 +216,6 @@ export interface DocPage {
   content: string;
   /** How deep the page sits. The list is flat and in reading order. */
   depth: number;
-  /** The page this one hangs off, or null at the Doc's root. What a new sibling is created under. */
-  parentId: string | null;
   /** The page's emoji, when it has one. */
   icon: string | null;
   /** Banner across the top of the page. A public ClickUp attachments URL. */
@@ -858,9 +856,13 @@ export const api = {
   /**
    * A new, empty page in a Doc.
    *
-   * `parentId` is the page it hangs off — the reader sends the current page's
-   * own parent, which makes the new one its sibling. Omitted puts it at the
-   * Doc's root.
+   * `parentId` is the page it hangs off — the reader sends the page whose "+"
+   * was pressed, so the new one lands inside it. Omitted puts it at the Doc's
+   * root, which is what the header button sends.
+   *
+   * Worth knowing before changing this: `parent_page_id` is write-once. v3 has
+   * no move endpoint and no delete endpoint, so a page filed in the wrong place
+   * cannot be put right from Rask at all.
    *
    * Answers the new page's id and nothing else, because a page has no place in
    * the Doc's shape until the Doc is read again. The caller refetches and then

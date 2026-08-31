@@ -75,6 +75,26 @@ export function DocReader(props: { docId: string }): JSX.Element {
    */
   const [addingUnder, setAddingUnder] = createSignal<string | null | undefined>(undefined);
 
+  /*
+   * Opening a box closes any other, and does it on pointer-down.
+   *
+   * The input closes itself on blur, which reorders the column — every row
+   * below the old box moves up by its height. On a plain click the pointer is
+   * then over a different row by the time the mouse comes up, so the click
+   * never lands on the "+" that was pressed and the first press only ever
+   * dismisses. Taking the pointer-down (and keeping focus off the button)
+   * means the press that opens a box is the press you made.
+   */
+  const openBoxUnder = (parent: string | null) => (event: MouseEvent) => {
+    event.preventDefault();
+    setAddingUnder(parent);
+  };
+
+  const created = async (id: string): Promise<void> => {
+    await refetch();
+    setPicked(id);
+  };
+
   // `heldValue`, never `doc()`: this resource talks to ClickUp, so a plain read
   // would throw a 502 up to the router's boundary and blank the app.
   const loaded = () => heldValue(doc);
@@ -94,22 +114,26 @@ export function DocReader(props: { docId: string }): JSX.Element {
           )}
         </Show>
         {/*
-          "At the root", said in the label rather than inferred from wherever
-          the reader happens to be standing. The per-page "+" in the index is
-          the other half; between them there is no rule to guess.
+          The root slot. The per-page "+" in the index is the other one, and
+          between them there is no rule to guess — but neither button is where
+          the placement is actually communicated. The box opens in the index at
+          the indent the page will occupy, and that is what says where it goes.
+          The label only has to distinguish this from the "+", hence "at root".
 
           It stays in the header because the index hides on a one-page Doc, and
           a control that only appears once you have two pages cannot be the one
           that gets you the second. Opening it is also what makes the index
-          appear, so you can see where the page is about to go.
+          appear.
         */}
         <Show when={loaded()}>
           <button
             type="button"
+            onMouseDown={openBoxUnder(null)}
             onClick={() => setAddingUnder(null)}
+            title="Add a page at the root of this Doc"
             class="ml-auto h-7 shrink-0 rounded-[5px] px-2 text-ink-3 text-md hover:bg-hover hover:text-ink"
           >
-            New page
+            New page at root
           </button>
         </Show>
       </header>
@@ -148,15 +172,18 @@ export function DocReader(props: { docId: string }): JSX.Element {
                       <span class="truncate">{page.name}</span>
                     </button>
                     {/* Reveals on hover like the rest of the row controls in
-                        the app, but stays put once its box is open — otherwise
-                        moving the pointer to type dismisses the affordance you
-                        are typing under. */}
+                        the app, and on focus as well — hover alone leaves it
+                        unreachable by keyboard, which for the only control that
+                        files a page in the right place is not a detail. It also
+                        stays put once its box is open, or moving the pointer to
+                        type dismisses the affordance you are typing under. */}
                     <button
                       type="button"
+                      onMouseDown={openBoxUnder(page.id)}
                       onClick={() => setAddingUnder(page.id)}
                       title={`Add a page inside "${page.name}"`}
                       aria-label={`Add a page inside ${page.name}`}
-                      class={`h-6 w-6 shrink-0 rounded-[5px] text-ink-4 leading-none hover:bg-hover hover:text-ink ${
+                      class={`h-6 w-6 shrink-0 rounded-[5px] text-ink-4 leading-none hover:bg-hover hover:text-ink focus-visible:opacity-100 ${
                         addingUnder() === page.id ? "" : "opacity-0 group-hover:opacity-100"
                       }`}
                     >
@@ -169,10 +196,7 @@ export function DocReader(props: { docId: string }): JSX.Element {
                       parentId={page.id}
                       depth={page.depth + 1}
                       onClose={() => setAddingUnder(undefined)}
-                      onCreated={async (id) => {
-                        await refetch();
-                        setPicked(id);
-                      }}
+                      onCreated={created}
                     />
                   </Show>
                 </>
@@ -186,10 +210,7 @@ export function DocReader(props: { docId: string }): JSX.Element {
                 parentId={null}
                 depth={0}
                 onClose={() => setAddingUnder(undefined)}
-                onCreated={async (id) => {
-                  await refetch();
-                  setPicked(id);
-                }}
+                onCreated={created}
               />
             </Show>
           </nav>

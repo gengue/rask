@@ -639,15 +639,17 @@ describe("POST /docs/:docId/pages", () => {
 });
 
 /**
- * `parentId` on a page, which is what a new sibling is created under.
+ * A nested page's depth, which is what the index indents by.
  *
- * Not the same answer as `depth`, and the difference is the whole reason it is
- * sent: depth is derived and collapses to 0 for a parent the walk never saw, so
- * creating a page under "whatever was at depth 0" would file it somewhere
- * nobody pointed at.
+ * `getDocPages` flattens, and `parent_page_id` is all that survives the
+ * flattening to say what the shape was. A sub-page that arrives nested and
+ * carries no `parent_page_id` of its own would come out at depth 0 and draw as
+ * a sibling of the page it lives inside — a Doc that quietly looks flatter than
+ * it is. The client fills the parent in from the nesting; this is the half of
+ * that which the browser actually sees.
  */
-describe("page parentId", () => {
-  test("carries the page a child hangs off, and null at the root", async () => {
+describe("nested page depth", () => {
+  test("indents a child that only the nesting identified as one", async () => {
     await db.insert(docsTable).values({ id: OPEN_DOC, teamId: TEAM, name: "Doc", parentType: 4 });
     const { client } = stub([
       {
@@ -663,12 +665,12 @@ describe("page parentId", () => {
     ]);
 
     const body = (await (await mount(client).request(`/docs/${OPEN_DOC}`)).json()) as {
-      doc: { pages: Array<{ id: string; parentId: string | null; depth: number }> };
+      doc: { pages: Array<{ id: string; depth: number }> };
     };
 
-    expect(body.doc.pages.map((page) => [page.id, page.parentId])).toEqual([
-      ["root", null],
-      ["nov", "root"],
+    expect(body.doc.pages.map((page) => [page.id, page.depth])).toEqual([
+      ["root", 0],
+      ["nov", 1],
     ]);
   });
 });
