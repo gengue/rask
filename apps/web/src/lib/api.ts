@@ -443,6 +443,7 @@ export type ResolvedRef =
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
   | { kind: "space"; spaceId: string; name: string }
+  | { kind: "doc"; docId: string; name: string }
   | { kind: "unknown" };
 
 export interface TaskQuery {

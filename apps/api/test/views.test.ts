@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createTestDb, listViews, tasks } from "@rask/schema";
+import { createTestDb, docs, listViews, tasks } from "@rask/schema";
 import { eq } from "drizzle-orm";
 import { findListView, listTasks, listViewsFor, resolveRefs } from "../src/queries.ts";
 
@@ -15,6 +15,7 @@ import { findListView, listTasks, listViewsFor, resolveRefs } from "../src/queri
 const db = createTestDb();
 
 const LIST = "api-views-test-list";
+const DOC = "api-views-test-doc";
 const OTHER = "api-views-test-other";
 
 function view(over: Partial<typeof listViews.$inferInsert>) {
@@ -127,6 +128,21 @@ describe("resolveRefs", () => {
       listId: LIST,
       name: "Ventura AI list",
     });
+  });
+
+  test("identifies a Doc, past the page id its URL trails it with", async () => {
+    // /529/v/dc/gh-doc/gh-page — the page is the first candidate and matches
+    // nothing, so the Doc behind it is what the URL resolves to.
+    await db.delete(docs).where(eq(docs.id, DOC));
+    await db.insert(docs).values({ id: DOC, teamId: "529", name: "Release notes" });
+
+    expect(await resolveRefs(db, ["api-views-test-page", DOC, "529"])).toEqual({
+      kind: "doc",
+      docId: DOC,
+      name: "Release notes",
+    });
+
+    await db.delete(docs).where(eq(docs.id, DOC));
   });
 });
 
