@@ -1,4 +1,13 @@
-import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js";
+import {
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  type JSX,
+  lazy,
+  Show,
+  Suspense,
+} from "solid-js";
 import { ApiError, type Assignee, api, type DocPage } from "../lib/api.ts";
 import { formatRelative } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
@@ -6,7 +15,22 @@ import { heldValue } from "../lib/resource.ts";
 import { members } from "../lib/session.ts";
 import { pushToast } from "../lib/toast.ts";
 import { AvatarStack } from "./Avatar.tsx";
-import { MarkdownEditor } from "./MarkdownEditor.tsx";
+
+/**
+ * Lazy, for the reason `TaskDetail` loads it lazily: CodeMirror and its lezer
+ * grammars are about 1.1MB of the source that went into the bundle, the largest
+ * thing in it by a distance, and none of it is needed to *read* a Doc.
+ *
+ * This was a static import for one commit, which quietly undid the split for
+ * the whole app — `routes.tsx` imports this file eagerly, so the editor rode
+ * along on first paint of every page. What caught it was
+ * `render-stability.spec.ts`, which holds the module's request to prove the
+ * page stays mounted while the chunk downloads; with the import static, the
+ * held request was the initial page load and `goto` timed out instead.
+ */
+const MarkdownEditor = lazy(() =>
+  import("./MarkdownEditor.tsx").then((m) => ({ default: m.MarkdownEditor })),
+);
 
 /**
  * One ClickUp Doc, read live.
@@ -441,15 +465,21 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
         }
       >
         <div class="rounded-[5px] border border-line/70 px-3 py-2">
-          <MarkdownEditor
-            value=""
-            placeholder="Add to the end of this page…"
-            autofocus
-            onCommit={(value) => void send(value)}
-            /* Escape restores the empty document and closes, which is the same
+          {/* Its own boundary. A lazy component suspends to the nearest one,
+              and without this that is the router's, wrapped around the whole
+              route — opening the composer would blank the Doc for the length
+              of the chunk download. */}
+          <Suspense fallback={<div class="py-1 text-ink-4 text-base">Loading editor…</div>}>
+            <MarkdownEditor
+              value=""
+              placeholder="Add to the end of this page…"
+              autofocus
+              onCommit={(value) => void send(value)}
+              /* Escape restores the empty document and closes, which is the same
                "never mind" the task panel's editors mean by it. */
-            onCancel={() => setOpen(false)}
-          />
+              onCancel={() => setOpen(false)}
+            />
+          </Suspense>
           <div class="flex items-baseline justify-end gap-3 pt-2 text-ink-4 text-xs">
             <span>{sending() ? "Adding…" : "⌘↵ to add"}</span>
             <button
