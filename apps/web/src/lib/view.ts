@@ -439,14 +439,23 @@ export function loadFilterFields(): void {
  */
 export function loadDisplayFields(): void {
   const listId = viewListId();
-  if (!listId || displayFieldCache.has(listId)) return;
+  if (!listId) return;
+  const cached = displayFieldCache.get(listId);
+  if (cached) {
+    // Re-set rather than early-return alone: a failed fetch for another list
+    // may have blanked the signal since the effect above last filled it.
+    setDisplayFields(cached);
+    return;
+  }
   void api
     .displayFields(listId)
     .then((fields) => {
       displayFieldCache.set(listId, fields);
       if (viewListId() === listId) setDisplayFields(fields);
     })
-    .catch(() => setDisplayFields([]));
+    // Guarded like the success path: list A's late failure must not blank the
+    // catalogue list B is drawing its columns from.
+    .catch(() => viewListId() === listId && setDisplayFields([]));
 }
 
 /** The chosen columns as definitions, in the order they were chosen. */
@@ -479,7 +488,11 @@ export const columnFetchKey = globalMemo(() => {
   const seen = fetchedColumns.get(listId) ?? new Set<string>();
   for (const id of columnsFor(listId)) seen.add(id);
   fetchedColumns.set(listId, seen);
-  return [...seen].sort().join(",");
+  // The server unions these with the filter's ids and caps the set at 50, and
+  // its zod ceiling rejects the raw parameter a little past that — so a union
+  // allowed to grow unbounded would eventually 400 every fetch for the list.
+  // Trimmed here to the same 50, sorted first so the trim is deterministic.
+  return [...seen].sort().slice(0, 50).join(",");
 });
 
 export function columnFetchIds(): string[] {

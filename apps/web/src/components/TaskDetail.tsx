@@ -1104,7 +1104,10 @@ function FieldToggle(props: {
       class="flex size-5 shrink-0 items-center justify-center rounded-[5px] transition-opacity hover:bg-hover"
       classList={{
         "text-accent opacity-100": props.pressed,
-        "text-ink-4 opacity-0 hover:text-ink-2 group-hover/cf:opacity-100": !props.pressed,
+        // `focus-visible` too: a tab stop that stays invisible is a button a
+        // keyboard user presses blind, same reveal the comment actions use.
+        "text-ink-4 opacity-0 hover:text-ink-2 focus-visible:opacity-100 group-hover/cf:opacity-100":
+          !props.pressed,
       }}
     >
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">

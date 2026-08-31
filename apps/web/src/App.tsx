@@ -1031,8 +1031,13 @@ export function AppShell(): JSX.Element {
                 <ClosedToggle />
                 <GroupPicker />
                 {/* Columns are a per-list choice, so the picker only appears
-                    where there is a list to choose for. */}
-                <Show when={viewListId()}>{(listId) => <FieldsPicker listId={listId()} />}</Show>
+                    where there is a list to choose for — and not on the board,
+                    whose cards draw no columns; a control that visibly does
+                    nothing is worse than one that is not there. The choice
+                    survives and returns with the list layout. */}
+                <Show when={!boardLayout() && viewListId()}>
+                  {(listId) => <FieldsPicker listId={listId()} />}
+                </Show>
               </Show>
             </header>
 

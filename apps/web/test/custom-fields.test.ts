@@ -218,4 +218,8 @@ describe("arrangeDetailFields", () => {
   test("more pins than the limit still all show", () => {
     expect(arrange({ pinned: ["b", "d"], limit: 1 })).toEqual(["b", "d"]);
   });
+
+  test("a field two racing tabs left in both sets renders once, as pinned", () => {
+    expect(arrange({ pinned: ["a"], hidden: ["a"], showAll: true })).toEqual(["a", "b", "c", "d"]);
+  });
 });

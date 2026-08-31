@@ -171,7 +171,14 @@ export function arrangeDetailFields<T extends { id: string; display: string }>(
   const pinned = fields.filter((field) => opts.pinned.has(field.id));
   const rest = fields.filter((field) => !opts.pinned.has(field.id) && !opts.hidden.has(field.id));
   if (opts.showAll) {
-    return [...pinned, ...rest, ...fields.filter((field) => opts.hidden.has(field.id))];
+    // `!pinned` too: the two sets exclude each other in the UI, but two tabs
+    // racing their localStorage writes can leave a field in both, and a row
+    // rendered twice is worse than honouring the pin.
+    return [
+      ...pinned,
+      ...rest,
+      ...fields.filter((field) => opts.hidden.has(field.id) && !opts.pinned.has(field.id)),
+    ];
   }
   const filled = rest.filter((field) => field.display !== "—");
   return [...pinned, ...filled.slice(0, Math.max(0, opts.limit - pinned.length))];
