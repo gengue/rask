@@ -40,29 +40,27 @@ const MarkdownEditor = lazy(() =>
  * One ClickUp Doc, read live.
  *
  * A Doc arrives whole — every page with its body, in one request — so paging
- * between them costs nothing once it lands. That is why the page list here is a
- * signal rather than a route parameter: there is no fetch behind a click, and a
- * URL per page would mean a round trip per page for a Doc already in hand.
+ * between them costs nothing once it lands. Which page is being read still
+ * belongs in the URL: it was a signal here for a while, and the cost was that
+ * every page of a Doc shared one address, so no link could name one and a
+ * ClickUp `/v/dc/{doc}/{page}` had nowhere to put the page it carried. The
+ * signal is `DocView`'s search param now; the click is a navigation and costs
+ * no more fetches than it did.
  *
  * One page at a time rather than all of them stacked, because these get long:
  * the release-notes Doc this was built against is 25 pages and 154 000
  * characters, which as one column is a scrollbar nobody can aim.
  */
-export function DocReader(props: { docId: string }): JSX.Element {
+export function DocReader(props: {
+  docId: string;
+  /** Undefined for "whichever is first". See `current`. */
+  pageId: string | undefined;
+  onPick: (pageId: string) => void;
+}): JSX.Element {
   const [doc, { refetch }] = createResource(
     () => props.docId,
     (id) => api.doc(id).then((r) => r.doc),
   );
-
-  /*
-   * The page the reader picked, by id, and null for "whichever is first".
-   *
-   * By id rather than by index so that a refetch which reorders or drops pages
-   * cannot silently move somebody onto a different page than the one they were
-   * reading. Null resolves to the first page every time it is read, which is
-   * also what makes switching Docs land at the top without an effect to reset.
-   */
-  const [picked, setPicked] = createSignal<string | null>(null);
 
   /*
    * Where a new page is about to go: `undefined` for "not adding", `null` for
@@ -96,7 +94,7 @@ export function DocReader(props: { docId: string }): JSX.Element {
 
   const created = async (id: string): Promise<void> => {
     await refetch();
-    setPicked(id);
+    props.onPick(id);
   };
 
   /** The page a delete is in flight for, so a second press cannot start one. */
@@ -112,8 +110,9 @@ export function DocReader(props: { docId: string }): JSX.Element {
    * index is 240px of rows that look alike — twenty-five of them on the Doc
    * this was built against, named "November 7 - 2025" and its neighbours.
    *
-   * `picked` needs no reset. It is read by id and resolves to the first page
-   * when the id is gone, which is exactly where a reader should land.
+   * The URL needs no reset. The page is addressed by id and resolves to the
+   * first page when the id is gone, which is exactly where a reader should
+   * land — a stale `?page=` in the bar is what a deleted page deserves.
    */
   const remove = async (page: DocPage): Promise<void> => {
     if (deleting()) return;
@@ -148,7 +147,14 @@ export function DocReader(props: { docId: string }): JSX.Element {
   // would throw a 502 up to the router's boundary and blank the app.
   const loaded = () => heldValue(doc);
   const pages = () => loaded()?.pages ?? [];
-  const current = () => pages().find((page) => page.id === picked()) ?? pages()[0];
+  /*
+   * By id rather than by index so that a refetch which reorders or drops pages
+   * cannot silently move somebody onto a different page than the one they were
+   * reading. An id that matches nothing — a deleted page, a page id from a
+   * ClickUp URL for a different Doc — falls back to the first page rather than
+   * to an empty reader.
+   */
+  const current = () => pages().find((page) => page.id === props.pageId) ?? pages()[0];
 
   return (
     <div class="flex h-full min-h-0 flex-col">
@@ -203,7 +209,7 @@ export function DocReader(props: { docId: string }): JSX.Element {
                   <div class="group flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => setPicked(page.id)}
+                      onClick={() => props.onPick(page.id)}
                       /*
                        * Indented by depth, which is how the Doc is actually
                        * shaped: these 24 dated pages are children of one root

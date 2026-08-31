@@ -27,7 +27,7 @@ import { TimesheetTable } from "./components/TimesheetTable.tsx";
 import { ListPicker, NotFound } from "./components/Unresolved.tsx";
 import { UnsupportedView, ViewTabs } from "./components/ViewTabs.tsx";
 import { api, type ResolvedRef, type Task, type View } from "./lib/api.ts";
-import { parseClickUpPath } from "./lib/clickup-url.ts";
+import { docPageId, parseClickUpPath } from "./lib/clickup-url.ts";
 import {
   applyView,
   clearListViews,
@@ -89,6 +89,14 @@ interface AppSearch {
   expanded?: boolean;
   /** Why the OAuth callback refused, when it did. See `components/Login.tsx`. */
   signin?: string;
+  /**
+   * Which page of the open Doc is being read. See `DocView`.
+   *
+   * A search param rather than a second path segment because that is what the
+   * rest of the app already does with "what is open inside this route" — see
+   * `task` above — and it keeps `/doc/$docId` one route instead of two.
+   */
+  page?: string;
 }
 
 /** What `?expanded=` may say for the answer to be yes. */
@@ -111,6 +119,7 @@ const rootRoute = createRootRoute({
     // both arrive already coerced and the string forms are for what it cannot.
     expanded: TRUTHY.has(search.expanded) ? true : undefined,
     signin: typeof search.signin === "string" ? search.signin : undefined,
+    page: typeof search.page === "string" ? search.page : undefined,
   }),
 });
 
@@ -178,9 +187,34 @@ const docRoute = createRoute({
   component: DocView,
 });
 
+/**
+ * The reader is controlled from the URL rather than from a signal inside it.
+ *
+ * A Doc arrives whole, so paging costs no fetch and a signal was enough to read
+ * one — but it made every page of every Doc share one address. A link to
+ * "November 7 - 2025" opened the Doc at its first page, which is also what a
+ * pasted ClickUp `/v/dc/{doc}/{page}` did, and there was no way to link to a
+ * page at all. `replace`, because walking an index of twenty-five pages should
+ * not bury the view you came from under twenty-five back presses.
+ */
 function DocView(): JSX.Element {
   const params = useParams({ from: docRoute.id });
-  return <DocReader docId={params().docId} />;
+  const search = useSearch({ from: docRoute.id });
+  const navigate = useNavigate();
+  return (
+    <DocReader
+      docId={params().docId}
+      pageId={search().page}
+      onPick={(page) =>
+        navigate({
+          to: "/doc/$docId",
+          params: { docId: params().docId },
+          search: { page },
+          replace: true,
+        })
+      }
+    />
+  );
 }
 
 const clickUpRoute = createRoute({
@@ -698,12 +732,20 @@ function ClickUpView(): JSX.Element {
       case "list":
         void navigate({ to: "/list/$listId", params: { listId: found.listId }, replace: true });
         break;
-      case "doc":
-        // A Doc URL carries the page after the Doc — /v/dc/{doc}/{page} — but a
-        // Doc arrives whole and the reader picks pages from a signal, so there
-        // is nothing to pass on: the Doc opens on its first page.
-        void navigate({ to: "/doc/$docId", params: { docId: found.docId }, replace: true });
+      case "doc": {
+        // A Doc URL carries the page after the Doc — /v/dc/{doc}/{page} — and
+        // whoever followed one came for that page, not for the Doc's first.
+        // The page id resolves to nothing in the mirror, so it rides along as
+        // the search param the reader reads and lands wherever it lands.
+        const page = docPageId(from, found.docId);
+        void navigate({
+          to: "/doc/$docId",
+          params: { docId: found.docId },
+          search: { page },
+          replace: true,
+        });
         break;
+      }
       default:
         setViewTitle(found.kind === "unknown" ? "Not found" : found.name);
     }

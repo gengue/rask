@@ -107,3 +107,20 @@ function decodeSegment(segment: string): string {
     return segment;
   }
 }
+
+/**
+ * The page id a Doc URL was opened at, if it carried one.
+ *
+ * `/{team}/v/dc/{doc}/{page}` puts the page behind the Doc, and the resolver
+ * above deliberately throws it away: it looks up ids and a page id is not one
+ * the mirror holds. But the reader can open on a page without knowing anything
+ * about it beyond the id, so the segment is worth keeping — read positionally,
+ * off the Doc id the lookup did match, so no new route shape is assumed.
+ */
+export function docPageId(input: string, docId: string): string | undefined {
+  const segments = pathname(input).split("/").map(decodeSegment);
+  const at = segments.indexOf(docId);
+  // `|| undefined` and not `??`: a trailing slash leaves an empty segment, and
+  // an empty page id would put `?page=` in the bar for a Doc opened at no page.
+  return at < 0 ? undefined : segments[at + 1] || undefined;
+}
