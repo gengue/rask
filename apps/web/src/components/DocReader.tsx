@@ -283,8 +283,17 @@ export function DocReader(props: { docId: string }): JSX.Element {
           <Show
             when={loaded() && current()}
             fallback={
+              /* Three states, not two. A Doc that has loaded and holds no pages
+                 became reachable when delete shipped — ClickUp's own answer for
+                 a page with children has not been checked, so deleting one may
+                 empty a Doc in a single press — and "Loading…" for a Doc that
+                 has finished loading reads as a request that hung. */
               <p class="px-6 py-4 text-ink-4 text-md">
-                {doc.state === "errored" ? "Could not read this Doc from ClickUp." : "Loading…"}
+                {doc.state === "errored"
+                  ? "Could not read this Doc from ClickUp."
+                  : loaded()
+                    ? "This Doc has no pages."
+                    : "Loading…"}
               </p>
             }
           >

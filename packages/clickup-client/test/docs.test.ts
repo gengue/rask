@@ -261,8 +261,8 @@ describe("appendToDocPage", () => {
    * worth pinning. `content_edit_mode` defaults to `replace` in the spec, which
    * means a body that forgets to say `append` does not fail — it silently
    * overwrites the page with the one paragraph somebody meant to add to it.
-   * There is no delete-page endpoint to undo that with, and no webhook that
-   * would have told Rask the page had changed under it in the first place.
+   * The only thing that undoes that is deleting the page, and no webhook would
+   * have told Rask the page changed under it in the first place.
    */
   test("sends the block as an append, in markdown, and never as a replace", async () => {
     const { client, calls, sent } = makeClient([{ body: {} }]);
@@ -349,5 +349,33 @@ describe("createDocPage", () => {
     const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
 
     await expect(client.createDocPage("529", "d1", { name: "Top" })).rejects.toThrow();
+  });
+});
+
+/**
+ * The one call in this client that destroys text, and the one endpoint that is
+ * not in `openapi/clickup-v3.json` at all.
+ *
+ * Both halves are pinned because nothing else would catch either drifting. The
+ * path has no spec entry to check it against — it was read off a live 204 —
+ * and the 204 itself is unique here: every other endpoint answers with a body,
+ * so `request` grew a branch for this one and a regression in it would look
+ * like a delete that failed while the page was already gone.
+ */
+describe("deleteDocPage", () => {
+  test("addresses the page on v3, and treats an empty 204 as the success it is", async () => {
+    const { client, calls, sent } = makeClient([{ status: 204, body: undefined }]);
+
+    await client.deleteDocPage("529", "gh-96615", "p1");
+
+    expect(new URL(calls[0] ?? "").pathname).toBe("/api/v3/workspaces/529/docs/gh-96615/pages/p1");
+    expect(sent[0]?.method).toBe("DELETE");
+    expect(sent[0]?.body).toBeNull();
+  });
+
+  test("throws on a refusal rather than reporting a page that is still there", async () => {
+    const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
+
+    await expect(client.deleteDocPage("529", "gh-96615", "p1")).rejects.toThrow();
   });
 });
