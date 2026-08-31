@@ -16,10 +16,15 @@ import { RateLimiter } from "../src/rate-limit.ts";
 
 function makeClient(responses: Array<{ status?: number; body: unknown }>) {
   const calls: string[] = [];
+  const sent: Array<{ method: string; body: unknown }> = [];
   const queue = [...responses];
 
-  const fetchImpl = (async (input: string | URL | Request) => {
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(String(input));
+    sent.push({
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+    });
     const next = queue.shift();
     if (!next) throw new Error(`unexpected request: ${input}`);
     return new Response(JSON.stringify(next.body), {
@@ -35,7 +40,7 @@ function makeClient(responses: Array<{ status?: number; body: unknown }>) {
     sleep: async () => {},
   });
 
-  return { client, calls };
+  return { client, calls, sent };
 }
 
 /** The shape the live workspace answers with, trimmed to what is read. */
@@ -209,5 +214,50 @@ describe("archived Docs", () => {
       expect(query.get("deleted")).toBe("false");
     }
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe("appendToDocPage", () => {
+  /*
+   * The mode is the whole safety property of this method, so it is the thing
+   * worth pinning. `content_edit_mode` defaults to `replace` in the spec, which
+   * means a body that forgets to say `append` does not fail — it silently
+   * overwrites the page with the one paragraph somebody meant to add to it.
+   * There is no delete-page endpoint to undo that with, and no webhook that
+   * would have told Rask the page had changed under it in the first place.
+   */
+  test("sends the block as an append, in markdown, and never as a replace", async () => {
+    const { client, calls, sent } = makeClient([{ body: {} }]);
+
+    await client.appendToDocPage("529", "gh-96615", "p1", "## November 7\n\nShipped.");
+
+    expect(new URL(calls[0] ?? "").pathname).toBe("/api/v3/workspaces/529/docs/gh-96615/pages/p1");
+    expect(sent[0]?.method).toBe("PUT");
+    expect(sent[0]?.body).toEqual({
+      content: "## November 7\n\nShipped.",
+      content_edit_mode: "append",
+      content_format: "text/md",
+    });
+  });
+
+  /*
+   * No `name` and no `sub_title`. Both are writable on this endpoint and both
+   * default to `""` in the spec, so sending the object with either key present
+   * and empty would rename the page to nothing as a side effect of adding a
+   * paragraph to it.
+   */
+  test("touches nothing but the content", async () => {
+    const { client, sent } = makeClient([{ body: {} }]);
+
+    await client.appendToDocPage("529", "d1", "p1", "text");
+
+    const body = sent[0]?.body as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["content", "content_edit_mode", "content_format"]);
+  });
+
+  test("throws on a refusal rather than reporting a write that did not happen", async () => {
+    const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
+
+    await expect(client.appendToDocPage("529", "d1", "p1", "text")).rejects.toThrow();
   });
 });

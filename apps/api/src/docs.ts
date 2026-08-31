@@ -4,7 +4,9 @@ import { isPlaceholder } from "@rask/clickup-client/vocabulary";
 import { type Db, docs, tasks } from "@rask/schema";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
+import { z } from "zod";
 import type { SessionUser } from "./auth.ts";
+import { upstream } from "./upstream.ts";
 
 /**
  * The Docs written inside a task, read live from ClickUp.
@@ -19,6 +21,17 @@ import type { SessionUser } from "./auth.ts";
  *
  * This is also the only place Rask touches ClickUp's v3 API. See
  * `searchDocs` for why that needs no separate client.
+ *
+ * The one write here goes straight through to ClickUp rather than into the
+ * outbox, and for a reason that follows from all of the above. The outbox
+ * exists so a write can be *shown* before it lands: the mirror is updated and
+ * a row queued in one transaction, and the browser paints from the mirror. No
+ * Doc body is mirrored, so there is nothing to paint optimistically and
+ * nothing for the worker to repair when ClickUp refuses — and the outbox's
+ * retry would append the same paragraph twice, which is the argument `time.ts`
+ * makes about starting the same timer twice. So it waits for ClickUp, as the
+ * attachment upload does. `docs/doc-editing.md` has the rest, including why
+ * whole-body replace is not here.
  */
 
 type Env = { Variables: { user: SessionUser } };
@@ -115,6 +128,16 @@ function toDto(doc: ClickUpDoc, pages: ClickUpDocPage[]): DocDto {
   };
 }
 
+/**
+ * What an append is allowed to carry.
+ *
+ * Capped at a comment rather than at a description: this is one entry being
+ * added to a page, not the page. Empty is refused because ClickUp accepts it
+ * and answers 200 having done nothing, which reads to the user as a write that
+ * silently failed.
+ */
+const appendInput = z.object({ content: z.string().min(1).max(50_000) });
+
 export function docsRoutes(deps: DocsDeps) {
   const { db, clientFor } = deps;
   const app = new Hono<Env>();
@@ -209,6 +232,61 @@ export function docsRoutes(deps: DocsDeps) {
       const message = error instanceof Error ? error.message : "ClickUp call failed";
       return c.json({ error: message }, 502);
     }
+  });
+
+  /**
+   * Adds a block to the end of a page.
+   *
+   * A route that can only append, rather than a PUT carrying the mode it wants.
+   * The name is the safety property: there is no string a client can send that
+   * turns this into a replace, and replace is the one that loses text — both
+   * somebody's concurrent edit, since a Doc has no webhook to warn us, and
+   * whatever the markdown round trip cannot spell. ClickUp says that second
+   * part itself, in `getPagePublic`'s own description.
+   *
+   * The Doc is checked against the mirrored index first, exactly as the read
+   * above checks it and for the same reason: the id arrives from the caller and
+   * decides what this server writes on the caller's token. That also refuses an
+   * archived Doc for free — `DOC_LIVE_ONLY` keeps archived and deleted Docs out
+   * of both reads, so one never reaches the index and a write aimed at it
+   * answers 404 without a request leaving the machine.
+   *
+   * The page id cannot be checked, because pages are not mirrored. The blast
+   * radius is a page inside a Doc the caller has already proved they can read.
+   *
+   * Nothing is echoed back. The browser re-reads the Doc, which is one ClickUp
+   * request either way and repaints from ClickUp's own rendering of what it
+   * stored rather than from an optimistic guess — the point of not mirroring
+   * the body in the first place.
+   */
+  app.post("/docs/:docId/pages/:pageId/append", async (c) => {
+    const user = c.get("user");
+    const docId = c.req.param("docId");
+    const pageId = c.req.param("pageId");
+
+    const body = appendInput.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: z.prettifyError(body.error) }, 400);
+
+    const [row] = await db
+      .select({ id: docs.id })
+      .from(docs)
+      .where(and(eq(docs.id, docId), eq(docs.teamId, user.teamId)))
+      .limit(1);
+    if (!row) return c.json({ error: "not found" }, 404);
+
+    const client = await clientFor(user.id);
+    if (!client) return c.json({ error: "no ClickUp token" }, 409);
+
+    try {
+      await client.appendToDocPage(user.teamId, docId, pageId, body.data.content);
+    } catch (error) {
+      // 4xx that is not 401 is an answer the person should read — "you do not
+      // have edit access to this Doc" is the one they will actually hit.
+      const { status, error: message } = upstream(error);
+      return c.json({ error: message }, status);
+    }
+
+    return c.json({ ok: true });
   });
 
   return app;

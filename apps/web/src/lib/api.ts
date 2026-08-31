@@ -836,6 +836,23 @@ export const api = {
    */
   doc: (docId: string) => request<{ doc: Doc }>(`/api/docs/${docId}`),
 
+  /**
+   * Adds a block to the end of a page.
+   *
+   * Append and never replace, which is the route's name rather than an argument
+   * here: a request that carries only the new block cannot overwrite what
+   * somebody else wrote in ClickUp's editor while this page was open, and there
+   * is no webhook for a Doc that would let us notice if it did.
+   *
+   * Answers nothing worth reading. The caller refetches the Doc, which is the
+   * only way to see what ClickUp actually stored.
+   */
+  appendDocPage: (docId: string, pageId: string, content: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}/append`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
   createTimeEntry: (taskId: string, entry: NewTimeEntry) =>
     request<{ entry: TimeEntry }>(`/api/tasks/${taskId}/time-entries`, {
       method: "POST",

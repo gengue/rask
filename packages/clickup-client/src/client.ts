@@ -999,6 +999,55 @@ export class ClickUpClient {
     ).then(flattenDocPages);
   }
 
+  /**
+   * Adds a block to the end of a page, without sending the page back.
+   *
+   * The mode and the format are written in here rather than taken as
+   * arguments, for the reason `searchDocs` spells its parent type as a word:
+   * the other value this field accepts is `replace`, and a mode that arrives
+   * as a parameter is a mode a caller can get wrong exactly once.
+   *
+   * Append is the only write in this set that cannot lose text, and that is a
+   * property of the request rather than of any check around it: the body
+   * carries the new block and nothing else, so there is no stale copy of the
+   * page in flight and nothing a concurrent edit in ClickUp's own collaborative
+   * editor can be overwritten by. Two simultaneous appends both land, in an
+   * order nobody promised. Replace has neither property — see
+   * `docs/doc-editing.md`.
+   *
+   * Nothing is parsed out of the answer because the vendored spec declares no
+   * schema for it at all. `getDocPage` is what says what the page now holds.
+   *
+   * ponytail: rides the shared 5xx retry, so a 502 that ClickUp returned after
+   * applying the append would append the block twice. `maxRetries` is per
+   * client and `clientFor` hands out one, so silencing it here means a second
+   * client per token — not worth it for a failure this narrow whose damage is
+   * a duplicated paragraph the author can see and delete. If duplicates ever
+   * turn up, the upgrade is a single-page read on the failure path
+   * (`getPagePublic`, not wrapped yet) comparing `date_updated` against the
+   * value read before the write, which tells "it never landed" from "it landed
+   * and the gateway died".
+   */
+  async appendToDocPage(
+    workspaceId: string,
+    docId: string,
+    pageId: string,
+    markdown: string,
+  ): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "PUT",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+      {
+        body: {
+          content: markdown,
+          content_edit_mode: "append",
+          content_format: "text/md",
+        },
+      },
+    );
+  }
+
   // --- Webhooks -----------------------------------------------------------
 
   createWebhook(
