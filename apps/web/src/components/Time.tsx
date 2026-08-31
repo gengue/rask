@@ -13,6 +13,7 @@ import { heldValue } from "../lib/resource.ts";
 import { elapsed, isTracking, running, stopTimer, toggleTimer } from "../lib/timer.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Avatar } from "./Avatar.tsx";
+import { TimeEntryModal } from "./TimeEntryModal.tsx";
 
 /**
  * Time tracked on a task.
@@ -520,12 +521,17 @@ export function RunningTimer(props: { onOpen: (taskId: string) => void }): JSX.E
 }
 
 /**
- * Start and stop, in the property rail at the top of a task.
+ * The tracked total, and the two things you do with it, in the property rail.
  *
  * The entry log further down is a record you go looking for; starting a timer
- * is something you do on the way past, so it belongs with status and priority
- * rather than below the subtasks. The row doubles as the readout: the tracked
- * total when nothing is running, the live counter when something is.
+ * and writing down an hour you already worked are both things you do on the way
+ * past, so they belong with status and priority rather than below the subtasks.
+ *
+ * Two controls, not one. The row used to be a single button that toggled the
+ * timer, which left the total — the thing the row is actually showing — with
+ * nothing to click. Now the readout opens "Add time" and the timer keeps a
+ * button of its own; the two answer to different verbs and a mis-click costs a
+ * dismissable dialog rather than an interval nobody meant to start.
  */
 export function TimeControl(props: {
   taskId: string;
@@ -538,69 +544,92 @@ export function TimeControl(props: {
    * member's hours are missing from a sum and present here.
    */
   timeSpent: number | null;
+  /** Fired once ClickUp has taken a manual entry, so the task can be re-read. */
+  onLogged?: () => void;
 }): JSX.Element {
   const tracking = () => isTracking(props.taskId);
+  const [adding, setAdding] = createSignal(false);
 
   return (
-    <button
-      type="button"
-      onClick={() => void toggleTimer({ id: props.taskId, name: props.taskName })}
-      /* Distinct from the floating pill's "Stop the running timer". Two
-         controls doing the same thing may share a page; two controls answering
-         to the same name may not. */
-      aria-label={tracking() ? "Stop tracking this task" : "Start tracking this task"}
-      class="-mx-1.5 flex h-6 w-full items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
-    >
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <circle
-          cx="8"
-          cy="8"
-          r="6.1"
-          stroke="currentColor"
-          stroke-width="1.4"
-          class={tracking() ? "text-high" : "text-ink-4"}
-        />
+    <div class="-mx-1.5 flex h-6 w-full items-center gap-1">
+      <button
+        type="button"
+        onClick={() => void toggleTimer({ id: props.taskId, name: props.taskName })}
+        /* Distinct from the floating pill's "Stop the running timer". Two
+           controls doing the same thing may share a page; two controls
+           answering to the same name may not. */
+        aria-label={tracking() ? "Stop tracking this task" : "Start tracking this task"}
+        title={tracking() ? "Stop  t" : "Start  t"}
+        class="flex size-6 shrink-0 items-center justify-center rounded-[5px] hover:bg-hover"
+      >
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle
+            cx="8"
+            cy="8"
+            r="6.1"
+            stroke="currentColor"
+            stroke-width="1.4"
+            class={tracking() ? "text-high" : "text-ink-4"}
+          />
+          {/* Play when idle, stop when running — the ring stays either way, so
+              the control keeps its shape while the verb inside it changes. */}
+          <Show
+            when={tracking()}
+            fallback={<path d="M6.6 5.3 11 8l-4.4 2.7z" fill="currentColor" class="text-ink-4" />}
+          >
+            <rect
+              x="5.9"
+              y="5.9"
+              width="4.2"
+              height="4.2"
+              rx="0.8"
+              fill="currentColor"
+              class="text-high"
+            />
+          </Show>
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setAdding(true)}
+        aria-label="Add time to this task"
+        class="group/add flex h-6 flex-1 items-center gap-2 rounded-[5px] px-1.5 text-left hover:bg-hover"
+      >
         <Show
           when={tracking()}
           fallback={
-            <path
-              d="M8 4.6V8l2.4 1.6"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-              class="text-ink-4"
-            />
+            <span class="text-base text-ink-2" classList={{ "text-ink-4": !props.timeSpent }}>
+              {formatDuration(props.timeSpent) ?? "None"}
+            </span>
           }
         >
-          <rect
-            x="5.9"
-            y="5.9"
-            width="4.2"
-            height="4.2"
-            rx="0.8"
-            fill="currentColor"
-            class="text-high"
-          />
+          <span class="text-base text-high tabular-nums">{formatClock(elapsed())}</span>
+          {/* The counter replacing the total used to read as the total vanishing
+              — a start "blinked" hours away. Both, so nothing disappears. */}
+          <Show when={props.timeSpent}>
+            <span class="text-ink-4 text-xs">+ {formatDuration(props.timeSpent)}</span>
+          </Show>
         </Show>
-      </svg>
 
-      <Show
-        when={tracking()}
-        fallback={
-          <span class="text-base text-ink-2" classList={{ "text-ink-4": !props.timeSpent }}>
-            {formatDuration(props.timeSpent) ?? "None"}
-          </span>
-        }
-      >
-        <span class="text-base text-high tabular-nums">{formatClock(elapsed())}</span>
-        {/* The counter replacing the total used to read as the total vanishing
-            — a start "blinked" hours away. Both, so nothing disappears. */}
-        <Show when={props.timeSpent}>
-          <span class="text-ink-4 text-xs">+ {formatDuration(props.timeSpent)}</span>
-        </Show>
+        {/* Hidden until the control is reached, since the number beside it is
+            the row's actual content. On focus as well as hover: tabbing here
+            has to say what Enter will do. */}
+        <span class="ml-auto shrink-0 text-ink-4 text-xs opacity-0 group-focus-visible/add:opacity-100 group-hover/add:opacity-100">
+          Add time
+        </span>
+      </button>
+
+      <Show when={adding()}>
+        <TimeEntryModal
+          taskId={props.taskId}
+          taskName={props.taskName}
+          // Today, because the rail is where you land after finishing the work.
+          day={toDateInput(Date.now())}
+          onClose={() => setAdding(false)}
+          onSaved={() => props.onLogged?.()}
+        />
       </Show>
-
-      <span class="ml-auto shrink-0 text-ink-4 text-xs">{tracking() ? "Stop" : "Start  t"}</span>
-    </button>
+    </div>
   );
 }
