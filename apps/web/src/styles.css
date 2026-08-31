@@ -162,6 +162,16 @@
 .prose-rask > * + * {
   margin-top: 1.1em;
 }
+/* Folding a Doc page by its headings puts each heading's content in a div of
+   its own, and the rule above only reaches direct children, so it is repeated
+   one level in. An empty one is a heading with nothing under it — a gap there
+   would read as content that failed to render. */
+.prose-rask .rask-fold-body > * + * {
+  margin-top: 1.1em;
+}
+.prose-rask .rask-fold-body:empty {
+  display: none;
+}
 .prose-rask h1,
 .prose-rask h2,
 .prose-rask h3 {
