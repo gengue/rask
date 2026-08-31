@@ -5,6 +5,7 @@ import {
   For,
   type JSX,
   lazy,
+  onMount,
   Show,
   Suspense,
 } from "solid-js";
@@ -60,6 +61,40 @@ export function DocReader(props: { docId: string }): JSX.Element {
    */
   const [picked, setPicked] = createSignal<string | null>(null);
 
+  /*
+   * Where a new page is about to go: `undefined` for "not adding", `null` for
+   * the Doc's root, a page id for inside that page.
+   *
+   * Asked rather than inferred, and that is not a nicety. `parent_page_id` is
+   * write-once — `editPagePublic` takes `name`, `sub_title`, `content`,
+   * `content_edit_mode` and `content_format`, and there is no move endpoint and
+   * no delete endpoint anywhere in v3 — so a page created in the wrong place
+   * cannot be put right from Rask at all. The earlier version guessed "sibling
+   * of whatever you are reading", which on the Doc's own first page means the
+   * root, and quietly filed pages outside the tree they belonged to.
+   */
+  const [addingUnder, setAddingUnder] = createSignal<string | null | undefined>(undefined);
+
+  /*
+   * Opening a box closes any other, and does it on pointer-down.
+   *
+   * The input closes itself on blur, which reorders the column — every row
+   * below the old box moves up by its height. On a plain click the pointer is
+   * then over a different row by the time the mouse comes up, so the click
+   * never lands on the "+" that was pressed and the first press only ever
+   * dismisses. Taking the pointer-down (and keeping focus off the button)
+   * means the press that opens a box is the press you made.
+   */
+  const openBoxUnder = (parent: string | null) => (event: MouseEvent) => {
+    event.preventDefault();
+    setAddingUnder(parent);
+  };
+
+  const created = async (id: string): Promise<void> => {
+    await refetch();
+    setPicked(id);
+  };
+
   // `heldValue`, never `doc()`: this resource talks to ClickUp, so a plain read
   // would throw a 502 up to the router's boundary and blank the app.
   const loaded = () => heldValue(doc);
@@ -79,60 +114,105 @@ export function DocReader(props: { docId: string }): JSX.Element {
           )}
         </Show>
         {/*
-          In the header rather than at the foot of the page index, which is
-          where it would seem to belong. The index only draws once a Doc has
-          more than one page — a one-page Doc names its page after itself, so
-          the column would repeat the title beside it — and a control that
-          appears only after you already have two pages cannot be the one that
-          gets you the second.
+          The root slot. The per-page "+" in the index is the other one, and
+          between them there is no rule to guess — but neither button is where
+          the placement is actually communicated. The box opens in the index at
+          the indent the page will occupy, and that is what says where it goes.
+          The label only has to distinguish this from the "+", hence "at root".
+
+          It stays in the header because the index hides on a one-page Doc, and
+          a control that only appears once you have two pages cannot be the one
+          that gets you the second. Opening it is also what makes the index
+          appear.
         */}
         <Show when={loaded()}>
-          <NewPage
-            docId={props.docId}
-            /* A sibling of the page being read, not a child of it: the release
-               notes Doc is 24 dated pages under one root, and standing on
-               "November 7" and asking for a new page means the next entry
-               beside it, not one nested inside it. */
-            parentId={current()?.parentId ?? null}
-            onCreated={async (id) => {
-              await refetch();
-              setPicked(id);
-            }}
-          />
+          <button
+            type="button"
+            onMouseDown={openBoxUnder(null)}
+            onClick={() => setAddingUnder(null)}
+            title="Add a page at the root of this Doc"
+            class="ml-auto h-7 shrink-0 rounded-[5px] px-2 text-ink-3 text-md hover:bg-hover hover:text-ink"
+          >
+            New page at root
+          </button>
         </Show>
       </header>
 
       <div class="flex min-h-0 flex-1">
         {/*
-        The page index, and only when there is more than one page: a one-page
-        Doc names its page after itself, so the column would be a single row
-        repeating the title beside it.
+        The page index, hidden on a one-page Doc because it names its page
+        after itself and the column would repeat the title beside it — but
+        shown while a page is being added, whatever the count, so you can see
+        where it is about to land before you commit to a parent you cannot
+        change afterwards.
       */}
-        <Show when={pages().length > 1}>
+        <Show when={pages().length > 1 || addingUnder() !== undefined}>
           <nav class="w-60 shrink-0 overflow-y-auto border-line/70 border-r px-2 py-3">
             <For each={pages()}>
               {(page) => (
-                <button
-                  type="button"
-                  onClick={() => setPicked(page.id)}
-                  /*
-                   * Indented by depth, which is how the Doc is actually shaped:
-                   * these 24 dated pages are children of one root page, and a
-                   * flat list of 25 siblings says the opposite. 12px a level,
-                   * matching the tree in the app sidebar.
-                   */
-                  style={{ "padding-left": `${8 + page.depth * 12}px` }}
-                  class={`flex h-7 w-full items-center gap-1.5 rounded-[5px] pr-2 text-left text-md ${
-                    current()?.id === page.id
-                      ? "row-selected text-ink"
-                      : "text-ink-2 hover:bg-hover hover:text-ink"
-                  }`}
-                >
-                  <PageIcon page={page} />
-                  <span class="truncate">{page.name}</span>
-                </button>
+                <>
+                  <div class="group flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPicked(page.id)}
+                      /*
+                       * Indented by depth, which is how the Doc is actually
+                       * shaped: these 24 dated pages are children of one root
+                       * page, and a flat list of 25 siblings says the opposite.
+                       * 12px a level, matching the tree in the app sidebar.
+                       */
+                      style={{ "padding-left": `${8 + page.depth * 12}px` }}
+                      class={`flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] pr-1 text-left text-md ${
+                        current()?.id === page.id
+                          ? "row-selected text-ink"
+                          : "text-ink-2 hover:bg-hover hover:text-ink"
+                      }`}
+                    >
+                      <PageIcon page={page} />
+                      <span class="truncate">{page.name}</span>
+                    </button>
+                    {/* Reveals on hover like the rest of the row controls in
+                        the app, and on focus as well — hover alone leaves it
+                        unreachable by keyboard, which for the only control that
+                        files a page in the right place is not a detail. It also
+                        stays put once its box is open, or moving the pointer to
+                        type dismisses the affordance you are typing under. */}
+                    <button
+                      type="button"
+                      onMouseDown={openBoxUnder(page.id)}
+                      onClick={() => setAddingUnder(page.id)}
+                      title={`Add a page inside "${page.name}"`}
+                      aria-label={`Add a page inside ${page.name}`}
+                      class={`h-6 w-6 shrink-0 rounded-[5px] text-ink-4 leading-none hover:bg-hover hover:text-ink focus-visible:opacity-100 ${
+                        addingUnder() === page.id ? "" : "opacity-0 group-hover:opacity-100"
+                      }`}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <Show when={addingUnder() === page.id}>
+                    <NewPageBox
+                      docId={props.docId}
+                      parentId={page.id}
+                      depth={page.depth + 1}
+                      onClose={() => setAddingUnder(undefined)}
+                      onCreated={created}
+                    />
+                  </Show>
+                </>
               )}
             </For>
+
+            {/* Root-level, at the bottom where a new top-level page would land. */}
+            <Show when={addingUnder() === null}>
+              <NewPageBox
+                docId={props.docId}
+                parentId={null}
+                depth={0}
+                onClose={() => setAddingUnder(undefined)}
+                onCreated={created}
+              />
+            </Show>
           </nav>
         </Show>
 
@@ -154,32 +234,32 @@ export function DocReader(props: { docId: string }): JSX.Element {
 }
 
 /**
- * Adding a page to the Doc.
+ * The name box for a page about to be created, sitting where the page will go.
  *
- * A name and nothing else, and the page it makes is empty. Writing into it is
- * `Append`'s job below — which is not a corner cut but the same rule the API
- * keeps: one endpoint per shape of change, so a page cannot be created and
- * overwritten in one breath. Two obvious steps beat one form that has to decide
- * how much of a page you are allowed to author before it exists.
+ * In the index at the parent's own indent rather than in a dialog, because the
+ * one thing this control has to communicate is *where* — `parent_page_id` is
+ * write-once (`editPagePublic` accepts `name`, `sub_title`, `content`,
+ * `content_edit_mode`, `content_format`, and v3 has no move endpoint and no
+ * delete endpoint), so a page filed in the wrong place cannot be moved or
+ * removed from Rask afterwards. Showing the slot it will occupy is cheaper
+ * than any amount of labelling.
  *
- * No optimistic row. A created page has no place in the Doc's order until the
- * Doc is read again, so the id comes back, the Doc is refetched, and the reader
- * lands on the new page once it is really there.
+ * A name and nothing else; the page is born empty. Writing into it is
+ * `Append`'s job, which is the same rule the API keeps — one endpoint per
+ * shape of change, so a page cannot be created and overwritten in one breath.
  */
-function NewPage(props: {
+function NewPageBox(props: {
   docId: string;
   parentId: string | null;
+  depth: number;
+  onClose: () => void;
   onCreated: (id: string) => Promise<void>;
 }): JSX.Element {
-  const [open, setOpen] = createSignal(false);
   const [name, setName] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   let input!: HTMLInputElement;
 
-  const close = (): void => {
-    setName("");
-    setOpen(false);
-  };
+  onMount(() => input.focus());
 
   const submit = async (): Promise<void> => {
     const value = name().trim();
@@ -191,11 +271,11 @@ function NewPage(props: {
         name: value,
         ...(props.parentId ? { parentId: props.parentId } : {}),
       });
-      close();
+      props.onClose();
       await props.onCreated(id);
     } catch (error) {
-      // A toast, as the append does it, carrying ClickUp's own refusal. The box
-      // stays open with the name still in it.
+      // A toast, as every other write-through failure in the app does it,
+      // carrying ClickUp's own refusal. The box stays open with the name in it.
       pushToast({
         tone: "error",
         title: "Could not add that page",
@@ -207,45 +287,27 @@ function NewPage(props: {
   };
 
   return (
-    <div class="ml-auto shrink-0">
-      <Show
-        when={open()}
-        fallback={
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(true);
-              // After the box exists. `open` is what renders it, and focusing
-              // in the same tick would reach for an input that is not there.
-              queueMicrotask(() => input?.focus());
-            }}
-            class="h-7 rounded-[5px] px-2 text-ink-3 text-md hover:bg-hover hover:text-ink"
-          >
-            New page
-          </button>
-        }
-      >
-        <input
-          ref={input}
-          value={name()}
-          disabled={busy()}
-          placeholder="Page name"
-          onInput={(event) => setName(event.currentTarget.value)}
-          /* Stopped here for the reason MarkdownEditor stops its own: the shell
-             reads a bare Escape as "close what is open" and would take the Doc
-             down instead of the box. */
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === "Enter") void submit();
-            if (event.key === "Escape") close();
-          }}
-          /* Clicking away is "never mind". Nothing has been written yet, so
-             there is nothing to lose by closing — unlike the entry composer,
-             where blur is what commits. */
-          onBlur={() => !busy() && close()}
-          class="h-7 w-52 rounded-[5px] border border-line-strong bg-elevated px-2 text-ink text-md placeholder:text-ink-4 focus:outline-none"
-        />
-      </Show>
+    <div style={{ "padding-left": `${8 + props.depth * 12}px` }} class="py-0.5">
+      <input
+        ref={input}
+        value={name()}
+        disabled={busy()}
+        placeholder={busy() ? "Adding…" : "Page name"}
+        onInput={(event) => setName(event.currentTarget.value)}
+        /* Stopped here for the reason MarkdownEditor stops its own: the shell
+           reads a bare Escape as "close what is open" and would take the Doc
+           down instead of the box. */
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") void submit();
+          if (event.key === "Escape") props.onClose();
+        }}
+        /* Clicking away is "never mind". Nothing has been written yet, so there
+           is nothing to lose by closing — unlike the entry composer below,
+           where blur is what commits. */
+        onBlur={() => !busy() && props.onClose()}
+        class="h-7 w-full rounded-[5px] border border-line-strong bg-elevated px-2 text-ink text-md placeholder:text-ink-4 focus:outline-none"
+      />
     </div>
   );
 }

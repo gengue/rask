@@ -63,16 +63,6 @@ export interface DocPageDto {
    * two ways to say the same thing.
    */
   depth: number;
-  /**
-   * The page this one hangs off, or null at the root of the Doc.
-   *
-   * `depth` says how far in to indent it; this says what it is indented *under*,
-   * which is what a new sibling needs to be created with. The two are not the
-   * same answer: depth is derived and collapses to 0 for a parent the walk
-   * never saw, and creating a page under "whatever was at depth 0" would put it
-   * somewhere nobody pointed at.
-   */
-  parentId: string | null;
   /** The page's emoji, when it has one. */
   icon: string | null;
   /** Banner across the top of the page. A public ClickUp attachments URL. */
@@ -93,8 +83,7 @@ export interface DocDto {
 }
 
 /**
- * The page list, flat and in reading order, each one knowing how deep it sits
- * and what it sits under.
+ * The page list, flat and in reading order, each one knowing how deep it sits.
  *
  * Depth is walked from `parent_page_id` rather than counted while flattening,
  * so a page whose parent ClickUp did not include still lands somewhere sane:
@@ -102,10 +91,9 @@ export interface DocDto {
  * because the chain comes from ClickUp and a cycle in it would hang the
  * request.
  *
- * `parentId` is that same field passed through untouched, and the two are not
- * interchangeable: depth is derived and collapses to 0 for a parent the walk
- * never saw, so creating a page under "whatever was at depth 0" would file it
- * somewhere nobody pointed at.
+ * The parent id itself is not sent on. The browser creates a page under the
+ * page whose "+" was pressed, so it already holds the id it needs; a second
+ * copy on every row would be a field nothing reads and nothing keeps honest.
  */
 function toPages(pages: ClickUpDocPage[]): DocPageDto[] {
   const parentOf = new Map(pages.map((page) => [page.id, page.parent_page_id ?? null]));
@@ -125,7 +113,6 @@ function toPages(pages: ClickUpDocPage[]): DocPageDto[] {
     name: page.name?.trim() || "Untitled",
     content: page.content ?? "",
     depth: depthOf(page.id),
-    parentId: page.parent_page_id ?? null,
     icon: docPageIcon(page),
     cover: page.cover?.image_url ?? null,
     updated: page.date_updated?.toISOString() ?? null,
