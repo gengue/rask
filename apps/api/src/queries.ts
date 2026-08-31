@@ -405,6 +405,17 @@ export async function getTaskDetail(db: Db, taskId: string) {
     await Promise.all([
       listComments(db, taskId),
 
+      /*
+       * Every definition, left-joined to this task's values — not the values
+       * inner-joined to their definitions, which is what this was.
+       *
+       * A row in `task_custom_values` only exists once somebody has set the
+       * field, so driving from there meant a task showed exactly the fields it
+       * already had. The panel's own promise — "expanded, the blanks come too,
+       * because that is the only way to set one" — could not be kept: there
+       * were no blanks, and a task nobody had touched offered nothing to fill
+       * in. Every field is a blank until it isn't.
+       */
       db
         .select({
           id: customFieldDefs.id,
@@ -413,9 +424,14 @@ export async function getTaskDetail(db: Db, taskId: string) {
           typeConfig: customFieldDefs.typeConfig,
           value: taskCustomValues.value,
         })
-        .from(taskCustomValues)
-        .innerJoin(customFieldDefs, eq(customFieldDefs.id, taskCustomValues.fieldId))
-        .where(eq(taskCustomValues.taskId, taskId))
+        .from(customFieldDefs)
+        .leftJoin(
+          taskCustomValues,
+          and(
+            eq(taskCustomValues.fieldId, customFieldDefs.id),
+            eq(taskCustomValues.taskId, taskId),
+          ),
+        )
         // Same reason as the comments below: names are not unique, ids are.
         .orderBy(asc(customFieldDefs.name), asc(customFieldDefs.id)),
 
@@ -995,7 +1011,7 @@ export interface FilterField {
 export async function listFilterFields(db: Db, listId: string): Promise<FilterField[]> {
   const fields = await listDisplayFields(db, listId);
   return fields
-    .filter((field) => field.type === "drop_down")
+    .filter((field) => field.usedHere && field.type === "drop_down")
     .map((field) => ({
       id: field.id,
       name: field.name,
@@ -1010,29 +1026,60 @@ export interface DisplayField {
   type: string;
   /** ClickUp's own shape, verbatim — `formatFieldValue` in apps/web reads it. */
   typeConfig: unknown;
+  /** Whether some task in this List already carries a value for it. */
+  usedHere: boolean;
 }
 
 /**
- * Every Custom Field with a value somewhere in one List, for the column picker
- * — all types, since a column only has to render, not offer choices.
+ * Every Custom Field the workspace knows, flagged by whether this List uses it.
+ *
+ * Not "every field with a value here", which is what this asked at first and
+ * what made the column picker read "No matches" on 243 of the 249 lists in the
+ * workspace. A field is offered by ClickUp on every task in its scope whether
+ * or not anybody has filled it in, and a picker that waits for a value before
+ * it will offer the column is a picker you cannot use to start filling one in.
+ *
+ * The `exists` probe stays, demoted from a filter to a flag: `listFilterFields`
+ * needs it — a facet whose every option matches nothing is worse than no facet
+ * — and the picker sorts on it, so the fields this list actually uses come
+ * first and the rest are a search away.
+ *
+ * ponytail: the flag is the whole notion of scope we have. ClickUp scopes a
+ * field to a Space, a Folder or a List, and `task.custom_fields` says which
+ * apply to each task — `packages/schema/src/map.ts` drops the ones with no
+ * value, so the mirror cannot answer "applies here" for a field nobody has
+ * filled in, and this offers the workspace's fields rather than none. The
+ * upgrade is to keep that applicability at ingest; the day a workspace has
+ * enough fields for the picker to feel long is the day to do it.
  */
 export async function listDisplayFields(db: Db, listId: string): Promise<DisplayField[]> {
-  return db
+  const rows = await db
     .select({
       id: customFieldDefs.id,
       name: customFieldDefs.name,
       type: customFieldDefs.type,
       typeConfig: customFieldDefs.typeConfig,
-    })
-    .from(customFieldDefs)
-    .where(
-      sql`exists (
+      /*
+       * `${customFieldDefs}.${sql.identifier("id")}`, not `${customFieldDefs.id}`.
+       *
+       * The outer query joins nothing, so Drizzle writes the bare form as
+       * `"id"` — and the subquery joins `tasks`, which has an `id` of its own.
+       * Unqualified it bound to `t.id`, making the predicate `v.field_id =
+       * t.id`, which matches nothing, so every field came back unused and the
+       * filter menu lost all its facets. Same trap as `assigneesJson` above.
+       */
+      usedHere: sql<boolean>`exists (
         select 1 from ${taskCustomValues} v
         join ${tasks} t on t.id = v.task_id
-        where v.field_id = ${customFieldDefs.id} and t.list_id = ${listId}
+        where v.field_id = ${customFieldDefs}.${sql.identifier("id")} and t.list_id = ${listId}
       )`,
-    )
+    })
+    .from(customFieldDefs)
     .orderBy(asc(customFieldDefs.name), asc(customFieldDefs.id));
+
+  // Used-here first, name order kept within each group — Array.sort is stable,
+  // so the ordering above carries through rather than being re-stated here.
+  return rows.sort((a, b) => Number(b.usedHere) - Number(a.usedHere));
 }
 
 interface RawOption {

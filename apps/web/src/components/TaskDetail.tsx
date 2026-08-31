@@ -1107,9 +1107,17 @@ function FieldToggle(props: {
       class="flex size-5 shrink-0 items-center justify-center rounded-[5px] transition-opacity hover:bg-hover"
       classList={{
         "text-accent opacity-100": props.pressed,
-        // `focus-visible` too: a tab stop that stays invisible is a button a
-        // keyboard user presses blind, same reveal the comment actions use.
-        "text-ink-4 opacity-0 hover:text-ink-2 focus-visible:opacity-100 group-hover/cf:opacity-100":
+        /*
+         * Faint, not absent.
+         *
+         * These were `opacity-0` until hover, which is the house style for a
+         * row action you already know is there — and nobody knew these were.
+         * The first person to look for "where do I hide a field" found a
+         * property strip with no controls on it at all. A third of an opacity
+         * is enough to say something is clickable without competing with the
+         * value beside it; hover and keyboard focus still bring it up full.
+         */
+        "text-ink-4 opacity-30 hover:text-ink-2 focus-visible:opacity-100 group-hover/cf:opacity-100":
           !props.pressed,
       }}
     >

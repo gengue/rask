@@ -482,6 +482,8 @@ export interface DisplayField {
   type: string;
   /** ClickUp's own shape, verbatim — `formatFieldValue` reads it. */
   typeConfig: unknown;
+  /** Whether this list already uses it. The server sorts these first. */
+  usedHere: boolean;
 }
 
 export class ApiError extends Error {
