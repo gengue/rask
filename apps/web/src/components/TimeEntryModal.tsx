@@ -10,11 +10,13 @@ import { pushToast } from "../lib/toast.ts";
  * Two ways in — the tracked-time readout on a task, and a day cell on the
  * timesheet — and one dialog, because they are the same sentence with a
  * different day already filled in. Both save through
- * `POST /api/tasks/:id/time-entries`, which is a live call rather than an
- * outbox row for the reason starting a timer is: ClickUp stamps the interval
- * from the payload, and a write that drains three minutes late would still be
- * right, but a write that never drains would be a day of somebody's hours
- * sitting in a queue nobody reads.
+ * `POST /api/tasks/:id/time-entries`, which waits for ClickUp rather than
+ * queuing an outbox row. Not for the reason a timer start does — this payload
+ * carries its own interval, so a late drain would still record the right hours
+ * — but because there is no `time_entries` table for a queued row to be
+ * optimistic against, and because the outbox's retry plus its `STALE_SENDING`
+ * reclaim would cheerfully log the same afternoon twice. `apps/api/src/time.ts`
+ * has the whole argument.
  *
  * Length is the only thing typed. The start instant is derived (`startFor`),
  * because a manual entry is answering "how long", and asking for a clock time
@@ -140,8 +142,13 @@ export function TimeEntryModal(props: {
 
         {/* The parsed length, said back before it can be saved. This is the
             whole safety net for a free-form box whose bare numbers are hours:
-            typing `90` shows `90h` and nobody saves that by accident. */}
-        <p class="h-4 pt-1.5 text-xs" classList={{ "text-urgent": unreadable() }}>
+            typing `90` shows `90h` and nobody saves that by accident.
+
+            A fixed strip, so the dialog does not grow the first time a line
+            appears in it and move Save out from under the pointer — but tall
+            enough for the line it holds: `text-xs` inherits the body's 1.5
+            ratio, so an 11px word wants 16.5px and `h-4` gave it ten. */}
+        <p class="h-6 pt-1.5 text-xs" classList={{ "text-urgent": unreadable() }}>
           <Show
             when={unreadable()}
             fallback={

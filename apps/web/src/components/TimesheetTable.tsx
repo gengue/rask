@@ -55,8 +55,15 @@ const MONTHS = [
  * Local getters, unlike the UTC ones the labels used to read. `start` is the
  * epoch of the viewer's own Sunday midnight, so east of UTC its UTC date is the
  * Saturday before — the whole header row was a day behind in those zones.
+ *
+ * ponytail: the *numbers* in the columns are still bucketed by the server with
+ * a fixed 24h step (`timesheet.ts`), so in the two weeks a year that hold a
+ * clock change its boundaries sit an hour off the dates named here. An hour of
+ * one week's work lands one column over, twice a year; fixing it properly means
+ * teaching the route calendar days, which is a server change and a wider one
+ * than a clickable cell. Exported for its test.
  */
-function columnDate(weekStart: number, day: number): Date {
+export function columnDate(weekStart: number, day: number): Date {
   const d = new Date(weekStart);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + day);
 }
@@ -278,7 +285,6 @@ export function TimesheetTable(): JSX.Element {
                     {(row) => (
                       <SheetRow
                         weekStart={data().start}
-                        now={data().now}
                         row={row}
                         onAddTime={(day) =>
                           setAdding({
@@ -336,7 +342,6 @@ export function TimesheetTable(): JSX.Element {
 
 function SheetRow(props: {
   weekStart: number;
-  now: number;
   row: TimesheetRow;
   /** The day column that was clicked, 0 = Sunday. */
   onAddTime: (day: number) => void;

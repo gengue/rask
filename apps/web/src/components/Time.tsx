@@ -1,13 +1,7 @@
 import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js";
 import { ApiError, api, type NewTimeEntry, type TimeEntry } from "../lib/api.ts";
-import { parseDuration } from "../lib/duration.ts";
-import {
-  formatClock,
-  formatDuration,
-  formatRelative,
-  fromDateInput,
-  toDateInput,
-} from "../lib/format.ts";
+import { parseDuration, startFor } from "../lib/duration.ts";
+import { formatClock, formatDuration, formatRelative, toDateInput } from "../lib/format.ts";
 import { reconcileStorage } from "../lib/reconcile-storage.ts";
 import { heldValue } from "../lib/resource.ts";
 import { elapsed, isTracking, running, stopTimer, toggleTimer } from "../lib/timer.ts";
@@ -222,21 +216,7 @@ export function TimeEntries(props: { taskId: string }): JSX.Element {
   );
 }
 
-/**
- * When a manual entry begins, given the day picked and how long it ran.
- *
- * Anchored to its *end* on the current day — "log 2h" means the two hours just
- * worked, not two hours starting now — while a past day pins the entry to noon,
- * since nobody remembers the minute and noon keeps it on the date they picked
- * in every timezone ClickUp might render it in. Exported for its test: this is
- * the arithmetic that writes somebody's timesheet.
- */
-export function entryStart(day: string, durationMs: number, now: number): number | null {
-  if (day === toDateInput(now)) return now - durationMs;
-  return fromDateInput(day);
-}
-
-/** Length, day, note. The day defaults to today; `entryStart` places the interval. */
+/** Length, day, note. The day defaults to today; `startFor` places the interval. */
 function LogForm(props: {
   onCancel: () => void;
   onSubmit: (input: NewTimeEntry) => void;
@@ -264,7 +244,11 @@ function LogForm(props: {
       return;
     }
 
-    const start = entryStart(day() || today, durationMs, Date.now());
+    // `startFor`, the same rule the "Add time" dialog places an interval by.
+    // This form used to carry one of its own, which anchored a past day at noon
+    // and today at `now - duration` — and that second branch filed the hours
+    // under *yesterday* whenever the entry was longer than the day was old.
+    const start = startFor(day() || today, durationMs, Date.now());
     if (start === null) return;
 
     props.onSubmit({
