@@ -563,6 +563,13 @@ const HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
  * the line. Hidden until the heading is hovered or the button is tabbed to,
  * except when the section is folded — then it is the only thing on screen
  * saying there is anything under it.
+ *
+ * The glyph is small and the target is not: 24px wide by a full line tall,
+ * which is the same box the "+" in the page index uses and the smallest one
+ * WCAG will call a target. The first version drew a 10px chevron in a 16px box
+ * and people missed it. The height is `1.65em` rather than a fixed 24px
+ * because that is `.prose-rask`'s own line-height, so the button centres on the
+ * heading's first line at every heading size instead of only at one of them.
  */
 function Section(props: {
   section: DocSection;
@@ -585,7 +592,7 @@ function Section(props: {
           aria-expanded={!props.folded}
           aria-controls={bodyId()}
           aria-label={`${props.folded ? "Expand" : "Collapse"} ${props.section.text}`}
-          class="-left-5 absolute top-0 flex h-[1.6em] w-4 select-none items-center justify-center text-[10px] text-ink-4 hover:text-ink-2 focus-visible:opacity-100 group-hover:opacity-100"
+          class="-left-7 absolute top-0 flex h-[1.65em] w-6 select-none items-center justify-center rounded-[5px] text-[12px] text-ink-4 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
           classList={{ "opacity-0": !props.folded }}
         >
           {props.folded ? "▸" : "▾"}
