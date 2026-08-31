@@ -2,6 +2,7 @@ import { createCollection } from "@tanstack/solid-db";
 import { createRoot } from "solid-js";
 import { api, type Task, type TaskPage, type TaskQuery } from "./api.ts";
 import { celebrate, justClosed } from "./celebration.tsx";
+import type { FieldWrite } from "./custom-fields.ts";
 import { pushToast } from "./toast.ts";
 import { setViewLoading } from "./view.ts";
 
@@ -158,13 +159,70 @@ export function merge(rows: Task[]): void {
   }
   syncApi.begin();
   for (const row of rows) {
+    const prev = tasks.get(row.id);
     if (row.deletedAt || row.archived) {
       syncApi.write({ type: "delete", key: row.id });
     } else {
-      syncApi.write({ type: tasks.get(row.id) ? "update" : "insert", key: row.id, value: row });
+      syncApi.write({
+        type: prev ? "update" : "insert",
+        key: row.id,
+        value: keepValues(row, prev),
+      });
     }
   }
   syncApi.commit();
+}
+
+/**
+ * Keeps the stored row's `customValues` where an incoming row carries none.
+ *
+ * `customValues: null` is a statement about the read, not about the task: only
+ * a fetch that named field ids carries any, so the change feed, the inbox and
+ * a task detail all say null about tasks whose values a column is drawing and
+ * a Custom Field clause is filtering on. Letting the null through blanked
+ * those cells — the inbox's boot read alone emptied the column on every task
+ * assigned to you, seconds after the list had drawn it, which is why only some
+ * rows lost it.
+ *
+ * Here rather than at the SSE handler it was first written for: every path
+ * into the collection goes through `merge`, and only that one was fixed.
+ *
+ * `{}` is left alone. That is a read that asked and found nothing, and putting
+ * older values back over it would resurrect a field somebody just cleared.
+ */
+function keepValues(row: Task, prev: Task | undefined): Task {
+  if (row.customValues != null || prev?.customValues == null) return row;
+  return { ...row, customValues: prev.customValues };
+}
+
+/**
+ * The row's copy of one Custom Field value, after the panel has set it.
+ *
+ * The panel refetches its own detail, and the change feed pushes a row that
+ * says nothing about Custom Fields — so without this the list column and any
+ * `cf:` clause went on reading the value that was just replaced, for as long
+ * as the session held the row.
+ *
+ * It takes the write rather than a value so that `mirror` — the shape a People
+ * field is stored as, against the `{add, rem}` that goes up — is resolved here
+ * and not at the call site, the same choice `setCustomField` makes server-side.
+ * The JSON text is what `customValuesJson` sends back, so what lands here is
+ * what the next fetch would.
+ *
+ * Only for a row that already carries values: `null` there means the read
+ * never asked, and a map invented from one write would claim every other field
+ * on the task is empty — which the browser's filter would then act on.
+ */
+export function setCustomValue(taskId: string, fieldId: string, write: FieldWrite): void {
+  const row = tasks.get(taskId);
+  if (!row?.customValues) return;
+  const stored = write.mirror === undefined ? write.value : write.mirror;
+  const values = { ...row.customValues };
+  // Null clears, and the mirror clears by deleting the row — so the key goes,
+  // rather than holding the text "null" that nothing knows how to read.
+  if (stored === null) delete values[fieldId];
+  else values[fieldId] = JSON.stringify(stored);
+  merge([{ ...row, customValues: values }]);
 }
 
 /**

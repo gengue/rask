@@ -57,7 +57,7 @@ import { reconcileStorage } from "../lib/reconcile-storage.ts";
 import { heldValue } from "../lib/resource.ts";
 import { me, members } from "../lib/session.ts";
 import { pushedDetail } from "../lib/sse.ts";
-import { tasks } from "../lib/store.ts";
+import { setCustomValue, tasks } from "../lib/store.ts";
 import { pushToast } from "../lib/toast.ts";
 import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
@@ -1022,6 +1022,9 @@ function CustomFields(props: {
     try {
       await api.setField(props.taskId, fieldId, next);
       props.onChanged();
+      // The panel's own refetch says nothing to the list behind it: the row in
+      // the collection carries the value the column draws and the filter reads.
+      setCustomValue(props.taskId, fieldId, next);
     } catch (error) {
       pushToast({ tone: "error", title: "Could not set the field", detail: message(error) });
     }
