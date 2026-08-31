@@ -1193,15 +1193,16 @@ export type ResolvedRef =
   | { kind: "view"; viewId: string; listId: string | null; name: string }
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
-  | { kind: "space"; spaceId: string; name: string };
+  | { kind: "space"; spaceId: string; name: string }
+  | { kind: "doc"; docId: string; name: string };
 
 /**
  * Identifies ids pulled out of a ClickUp URL against the mirror.
  *
  * The caller passes candidates most-specific first and gets back the first one
- * that is anything at all. Four indexed lookups run in parallel rather than a
- * union, because a task id and a list id share no shape and there is nothing to
- * decide before asking.
+ * that is anything at all. The lookups run in parallel rather than as a union,
+ * because a task id and a list id share no shape and there is nothing to decide
+ * before asking.
  */
 export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | null> {
   if (ids.length === 0) return null;
@@ -1210,7 +1211,7 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
   // may not be, and the column is indexed by value, not by upper(value).
   const upper = ids.map((id) => id.toUpperCase());
 
-  const [taskRows, viewRows, listRows, folderRows, spaceRows] = await Promise.all([
+  const [taskRows, viewRows, listRows, folderRows, spaceRows, docRows] = await Promise.all([
     db
       .select({ id: tasks.id, customId: tasks.customId, listId: tasks.listId })
       .from(tasks)
@@ -1231,6 +1232,7 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
     db.select({ id: lists.id, name: lists.name }).from(lists).where(inArray(lists.id, ids)),
     db.select({ id: folders.id, name: folders.name }).from(folders).where(inArray(folders.id, ids)),
     db.select({ id: spaces.id, name: spaces.name }).from(spaces).where(inArray(spaces.id, ids)),
+    db.select({ id: docs.id, name: docs.name }).from(docs).where(inArray(docs.id, ids)),
   ]);
 
   for (const id of ids) {
@@ -1251,6 +1253,12 @@ export async function resolveRefs(db: Db, ids: string[]): Promise<ResolvedRef | 
 
     const space = spaceRows.find((row) => row.id === id);
     if (space) return { kind: "space", spaceId: space.id, name: space.name };
+
+    // Last, because a Doc id ("gh-84875") has the same shape as a view's and a
+    // view is the commoner paste. Nothing can be both: the ids come from
+    // different ClickUp id spaces.
+    const doc = docRows.find((row) => row.id === id);
+    if (doc) return { kind: "doc", docId: doc.id, name: doc.name };
   }
 
   return null;
