@@ -88,6 +88,26 @@ function mount(client: ClickUpClient | null) {
   return { app, repaired };
 }
 
+const TZ_BOGOTA = -300;
+
+/**
+ * Sunday 00:00 of the week we are in, Bogotá time (UTC-5).
+ *
+ * Derived per run rather than written down: most tests below ask for the
+ * sheet without a `?start`, which is the route's own "this week", so a fixed
+ * week rots the moment the calendar leaves it. Computed the long way on
+ * purpose — importing the route's `weekStart` would make the assertion that
+ * the window opens here test nothing.
+ */
+const SUNDAY_BOGOTA = (() => {
+  const local = new Date(Date.now() + TZ_BOGOTA * 60_000);
+  local.setUTCDate(local.getUTCDate() - local.getUTCDay());
+  local.setUTCHours(0, 0, 0, 0);
+  return local.getTime() - TZ_BOGOTA * 60_000;
+})();
+
+const HOUR_MS = 60 * 60 * 1000;
+
 /**
  * An entry in ClickUp's shape. `start` is epoch ms as ClickUp sends it — a
  * number-in-string is what the real payload carries, and keeping that here is
@@ -100,8 +120,8 @@ function entry(over: Record<string, unknown> = {}) {
     wid: TEAM,
     user: { id: 7, username: "Ada" },
     billable: false,
-    start: "1756080000000",
-    end: "1756083600000",
+    start: String(SUNDAY_BOGOTA + 26 * HOUR_MS),
+    end: String(SUNDAY_BOGOTA + 27 * HOUR_MS),
     duration: "3600000",
     description: "",
     tags: [],
@@ -109,21 +129,7 @@ function entry(over: Record<string, unknown> = {}) {
   };
 }
 
-/**
- * Sunday 00:00 of a fixed week, Bogotá time (UTC-5): Aug 23–29, 2026.
- *
- * Any test placing entries inside this week must also ask for it with
- * `ANCHORED` — the route defaults to the server clock's current week, so a
- * bare `WEEKQ()` only agreed with these fixtures while the suite happened to
- * run during that one week of August 2026, and every fixture-driven test went
- * red the Sunday after.
- */
-const SUNDAY_BOGOTA = Date.UTC(2026, 7, 23, 5, 0, 0);
-const TZ_BOGOTA = -300;
-
 const WEEKQ = (over = "") => `/timesheet/week?tz=${encodeURIComponent(String(TZ_BOGOTA))}${over}`;
-/** The fixed fixture week, named explicitly so the tests survive real time. */
-const ANCHORED = () => WEEKQ(`&start=${SUNDAY_BOGOTA}`);
 
 beforeEach(async () => {
   await db.delete(tasks).where(eq(tasks.id, TASK));
@@ -148,14 +154,14 @@ describe("GET /timesheet/week", () => {
   });
 
   test("a Monday-evening entry lands on Monday's column, not the week edge", async () => {
-    // Mon Aug 24 2026, 18:00 Bogotá = 23:00 UTC — inside day index 1.
-    const mondayEvening = Date.UTC(2026, 7, 24, 23, 0, 0);
+    // Monday 18:00 Bogotá — inside day index 1, well clear of both edges.
+    const mondayEvening = SUNDAY_BOGOTA + 42 * HOUR_MS;
     const { client } = stub([
       { body: { data: [entry({ start: String(mondayEvening), duration: "1800000" })] } },
     ]);
     const { app } = mount(client);
 
-    const response = await app.request(ANCHORED());
+    const response = await app.request(WEEKQ());
     const { rows, start } = (await response.json()) as {
       rows: Array<{ days: Array<{ durationMs: number } | null> }>;
       start: number;
@@ -168,13 +174,13 @@ describe("GET /timesheet/week", () => {
   });
 
   test("two intervals on one task and day sum into one cell", async () => {
-    const base = SUNDAY_BOGOTA + 30 * 60 * 60 * 1000; // Mon ~06:00 local
+    const base = SUNDAY_BOGOTA + 30 * HOUR_MS; // Mon ~06:00 local
     const first = entry({ id: "e1", start: String(base), duration: "3600000" });
     const second = entry({ id: "e2", start: String(base + 7_200_000), duration: "1800000" });
     const { client } = stub([{ body: { data: [first, second] } }]);
     const { app } = mount(client);
 
-    const response = await app.request(ANCHORED());
+    const response = await app.request(WEEKQ());
     const { rows } = (await response.json()) as {
       rows: Array<{ days: Array<{ durationMs: number } | null>; totalMs: number }>;
     };
@@ -191,19 +197,15 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [live] } }]);
     const { app } = mount(client);
 
-    // No anchor here, on purpose: the running entry's cell exists only in the
-    // week containing now, so this test rides the real clock and reads the
-    // week boundary out of the answer instead of assuming one.
     const response = await app.request(WEEKQ());
     const payload = (await response.json()) as {
-      start: number;
       rows: Array<{
         days: Array<{ durationMs: number; running: boolean } | null>;
         totalMs: number;
       }>;
     };
     const row = payload.rows[0];
-    const todayIndex = Math.floor((now - payload.start) / 86_400_000);
+    const todayIndex = Math.floor((now - SUNDAY_BOGOTA) / 86_400_000);
 
     const todayCell = row?.days[todayIndex];
     expect(todayCell).not.toBeNull();
@@ -249,7 +251,7 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [entry({ start: String(lastWeek) })] } }]);
     const { app } = mount(client);
 
-    const response = await app.request(ANCHORED());
+    const response = await app.request(WEEKQ());
     const { rows } = (await response.json()) as { rows: Array<object> };
 
     // The fold must neither clip it into column 0 nor crash on the negative
@@ -258,7 +260,7 @@ describe("GET /timesheet/week", () => {
   });
 
   test("rows sort heaviest first", async () => {
-    const base = SUNDAY_BOGOTA + 26 * 60 * 60 * 1000;
+    const base = SUNDAY_BOGOTA + 26 * HOUR_MS;
     const light = entry({
       id: "light",
       task: { id: OTHER, name: "Small thing" },
@@ -269,7 +271,7 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [light, heavy] } }]);
     const { app } = mount(client);
 
-    const response = await app.request(ANCHORED());
+    const response = await app.request(WEEKQ());
     const { rows } = (await response.json()) as { rows: Array<{ taskId: string }> };
 
     expect(rows.map((row) => row.taskId)).toEqual([TASK, OTHER]);
@@ -290,12 +292,12 @@ describe("GET /timesheet/week", () => {
       statusType: "custom",
     });
 
-    const base = SUNDAY_BOGOTA + 26 * 60 * 60 * 1000;
+    const base = SUNDAY_BOGOTA + 26 * HOUR_MS;
     const { client } = stub([{ body: { data: [entry({ start: String(base) })] } }]);
     const { app } = mount(client);
 
     try {
-      const response = await app.request(ANCHORED());
+      const response = await app.request(WEEKQ());
       const { rows } = (await response.json()) as {
         rows: Array<{
           taskName: string;
@@ -318,7 +320,7 @@ describe("GET /timesheet/week", () => {
   });
 
   test("a task the mirror never held still shows, upstream name and all", async () => {
-    const base = SUNDAY_BOGOTA + 26 * 60 * 60 * 1000;
+    const base = SUNDAY_BOGOTA + 26 * HOUR_MS;
     const stranger = entry({
       id: "stranger",
       task: { id: "never-mirrored", name: "Lives only in ClickUp" },
@@ -328,7 +330,7 @@ describe("GET /timesheet/week", () => {
     const { client } = stub([{ body: { data: [stranger] } }]);
     const { app, repaired } = mount(client);
 
-    const response = await app.request(ANCHORED());
+    const response = await app.request(WEEKQ());
     const { rows } = (await response.json()) as {
       rows: Array<{ taskId: string; taskName: string; location: string | null }>;
     };
