@@ -7,9 +7,17 @@ endpoints to expose, in what order, and why none of them belong in the outbox.
 Slices one and two have shipped — the two additive writes. `appendToDocPage`
 and `createDocPage` in the client, `POST /api/docs/:docId/pages/:pageId/append`
 and `POST /api/docs/:docId/pages`, the entry composer at the foot of a page and
-the two ways to add a page in `DocReader`. Rask can write into a Doc; it still
-cannot rewrite one. Everything after this is a design note, and the
-numbers in it come from the vendored v3 spec and from the code as it stands.
+the two ways to add a page in `DocReader`. Delete has shipped since —
+`deleteDocPage`, `DELETE /api/docs/:docId/pages/:pageId`, and the "×" in the
+page index behind a confirmation. Rask can write into a Doc and remove a page
+from one; it still cannot rewrite a page. Everything after this is a design
+note, and the numbers in it come from the vendored v3 spec and from the code as
+it stands.
+
+**One correction runs through this file**, and it is worth reading before the
+rest: most of this was written believing the Docs surface has no delete. It
+does. "What the spec omits" near the end has the live answers and what they
+change.
 
 ## Summary
 
@@ -24,6 +32,11 @@ numbers in it come from the vendored v3 spec and from the code as it stands.
    unresolved question the API cannot answer.
 4. **Create Doc** (`POST /docs`) last, or not at all. It writes a row the `docs`
    index does not learn about until the nightly hierarchy pass.
+
+**Delete page** is missing from this list because it was believed not to
+exist. It does, and it shipped after create: one route, one confirmation naming
+the page, no undo. It is the only write here that destroys text, and unlike the
+other three a retried delete is harmless — the second one 404s at worst.
 
 Every one of them writes straight through to ClickUp. None go in the outbox.
 
@@ -217,8 +230,8 @@ outcome. That is worth having and it is not the same as being safe.
   ⌘↵ does both — it calls `onCommit` and then blurs, which calls it again. A
   description PATCH does not care. The same paragraph appended twice to
   somebody's Doc does, and tidying that up means deleting the page and writing
-  it again. So
-  the send is keyed on the text: one post per distinct draft, whatever fires it.
+  it again. So the send is keyed on the text: one post per distinct draft,
+  whatever fires it.
 - Failures go to a toast, as every other write-through failure in the app does,
   carrying ClickUp's own words as the detail. The composer stays open with the
   text still in it, and an explicit "Add" button is what retries the same draft
@@ -265,7 +278,9 @@ optional:
   nobody has asked for.
 - **Note what the spec does not list.** `clickup-v3.json` has no delete of any
   kind. Treat that as unknown rather than settled — see "What the spec omits"
-  below, where exactly this turned out to be wrong.
+  below, where exactly this turned out to be wrong. Delete-*page* is real and
+  has since shipped; delete-*doc* is genuinely a 405, so a Doc created through
+  Rask is still only removable in ClickUp's own UI.
 
 ## Slice two, as it shipped
 
@@ -290,8 +305,8 @@ Guessing was never the right shape here, and the reason is in the spec:
 editPagePublic: ['name', 'sub_title', 'content', 'content_edit_mode', 'content_format']
 ```
 
-No `parent_page_id`, no `order_index`, no move endpoint, no reorder endpoint,
-and no reorder endpoint. `parent_page_id` is write-once, and ClickUp's own
+No `parent_page_id`, no `order_index`, no move endpoint and no reorder
+endpoint. `parent_page_id` is write-once, and ClickUp's own
 drag-and-drop runs on its internal API, not this one. A page filed in the wrong
 place can only be corrected by deleting it and making it again, which costs it
 its content and its history. The single moment the parent is decidable is the
@@ -366,7 +381,8 @@ defence available.
   than on the probe.
 - **Reparenting or reordering a page.** Not deferred — impossible. There is no
   endpoint for either, and `editPagePublic` cannot write `parent_page_id`.
-- **Deleting a page.** Possible, and not built. See below.
+  Delete-and-recreate is the only correction, and it costs the page its content
+  and its history.
 - **`POST /docs`**, still behind the index question: a Doc created through Rask
   is invisible to `GET /api/docs/:id` and to the sidebar until the next
   hierarchy pass, which runs at boot and nightly.
@@ -406,6 +422,13 @@ What this changes, and what it does not:
 - **The stakes were overstated.** "Cannot be put right from Rask at all" was
   wrong. It is delete-and-recreate — bad, since the page loses its content and
   its history, but not permanent.
-- **Rask should probably offer deletion.** It cannot today, and a page created
-  in the wrong place is currently only removable in ClickUp's UI. That is now
-  a gap rather than a limit.
+- **Rask should probably offer deletion.** It does now: `deleteDocPage`,
+  `DELETE /api/docs/:docId/pages/:pageId` behind the same `writable` guard the
+  additive writes use, and a "×" per index row behind a `window.confirm` that
+  names the page. Two things the build turned up. `request` was calling
+  `.json()` on every 2xx, and this is the only endpoint that answers with an
+  empty body — the parse error read like a malformed response rather than the
+  success it was. And an empty Doc became reachable for the first time, so the
+  reader draws "This Doc has no pages." where it used to sit on "Loading…".
+  What is still unverified: whether deleting a parent takes its children. The
+  confirmation says "may take them with it" rather than claiming either way.

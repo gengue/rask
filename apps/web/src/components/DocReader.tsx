@@ -99,6 +99,51 @@ export function DocReader(props: { docId: string }): JSX.Element {
     setPicked(id);
   };
 
+  /** The page a delete is in flight for, so a second press cannot start one. */
+  const [deleting, setDeleting] = createSignal<string | null>(null);
+
+  /*
+   * Removing a page, behind the same `window.confirm` the task menu uses.
+   *
+   * This is the only thing in the reader that destroys somebody's prose, and it
+   * is the second confirmation in the app for the same reason as the first:
+   * there is no undo Rask can reach. The dialog rather than the timesheet's
+   * two-step "Sure?" because what has to be confirmed is *which* page, and the
+   * index is 240px of rows that look alike — twenty-five of them on the Doc
+   * this was built against, named "November 7 - 2025" and its neighbours.
+   *
+   * `picked` needs no reset. It is read by id and resolves to the first page
+   * when the id is gone, which is exactly where a reader should land.
+   */
+  const remove = async (page: DocPage): Promise<void> => {
+    if (deleting()) return;
+
+    // "may take them with it" rather than a promise: ClickUp's answer for a
+    // page with children has not been checked, and the safe reading is the one
+    // that does not tell somebody their sub-pages are staying.
+    const ok = window.confirm(
+      `Delete "${page.name}"?\n\nEverything written on it goes, and a page with pages ` +
+        `under it may take them with it. Rask cannot undo this.`,
+    );
+    if (!ok) return;
+
+    setDeleting(page.id);
+    try {
+      await api.deleteDocPage(props.docId, page.id);
+      await refetch();
+    } catch (error) {
+      // A toast carrying ClickUp's own refusal, as every other write-through
+      // failure here does. "You do not have edit access" is the likely one.
+      pushToast({
+        tone: "error",
+        title: "Could not delete that page",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   // `heldValue`, never `doc()`: this resource talks to ClickUp, so a plain read
   // would throw a 502 up to the router's boundary and blank the app.
   const loaded = () => heldValue(doc);
@@ -193,6 +238,22 @@ export function DocReader(props: { docId: string }): JSX.Element {
                     >
                       +
                     </button>
+                    {/* Beside the "+", revealed the same way and reachable by
+                        keyboard for the same reason. A plain click, not a
+                        pointer-down: if a name box is open, the blur that
+                        closes it reflows the column and the press simply does
+                        not land, which for this button is the right nothing to
+                        happen. */}
+                    <button
+                      type="button"
+                      onClick={() => void remove(page)}
+                      disabled={deleting() === page.id}
+                      title={`Delete "${page.name}"`}
+                      aria-label={`Delete ${page.name}`}
+                      class="h-6 w-6 shrink-0 rounded-[5px] text-ink-4 leading-none opacity-0 hover:bg-hover hover:text-high focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      ×
+                    </button>
                   </div>
                   <Show when={addingUnder() === page.id}>
                     <NewPageBox
@@ -224,8 +285,17 @@ export function DocReader(props: { docId: string }): JSX.Element {
           <Show
             when={loaded() && current()}
             fallback={
+              /* Three states, not two. A Doc that has loaded and holds no pages
+                 became reachable when delete shipped — ClickUp's own answer for
+                 a page with children has not been checked, so deleting one may
+                 empty a Doc in a single press — and "Loading…" for a Doc that
+                 has finished loading reads as a request that hung. */
               <p class="px-6 py-4 text-ink-4 text-md">
-                {doc.state === "errored" ? "Could not read this Doc from ClickUp." : "Loading…"}
+                {doc.state === "errored"
+                  ? "Could not read this Doc from ClickUp."
+                  : loaded()
+                    ? "This Doc has no pages."
+                    : "Loading…"}
               </p>
             }
           >

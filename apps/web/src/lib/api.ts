@@ -877,6 +877,16 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
+  /**
+   * Removes a page and everything on it.
+   *
+   * The endpoint behind this is missing from ClickUp's vendored v3 spec and
+   * works anyway — `deleteDocPage` in the client carries the live check. Ask
+   * before calling it: ClickUp offers no undo Rask can reach.
+   */
+  deleteDocPage: (docId: string, pageId: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}`, { method: "DELETE" }),
+
   createTimeEntry: (taskId: string, entry: NewTimeEntry) =>
     request<{ entry: TimeEntry }>(`/api/tasks/${taskId}/time-entries`, {
       method: "POST",

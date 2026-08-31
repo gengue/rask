@@ -408,7 +408,8 @@ export function AppShell(): JSX.Element {
       case "delete": {
         closeMenu();
         /*
-         * The one confirmation in the app.
+         * One of the two confirmations in the app; deleting a Doc page in
+         * `DocReader` is the other, and it is here for the same reason.
          *
          * Everything else here is a field ClickUp can be told to change back,
          * and the outbox makes even a rejected write self-correcting. This is
