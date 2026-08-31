@@ -258,8 +258,12 @@ export function load(query: TaskQuery): Promise<TaskPageResult | null> {
   return loadPage("Could not load tasks", () => api.tasks({ limit: 500, ...query }));
 }
 
-export function loadViewTasks(viewId: string, filter = ""): Promise<TaskPageResult | null> {
-  return loadPage("Could not load this view", () => api.viewTasks(viewId, filter));
+export function loadViewTasks(
+  viewId: string,
+  filter = "",
+  fields: string[] = [],
+): Promise<TaskPageResult | null> {
+  return loadPage("Could not load this view", () => api.viewTasks(viewId, filter, fields));
 }
 
 function toApiPatch(changes: Partial<Task>): Record<string, unknown> {

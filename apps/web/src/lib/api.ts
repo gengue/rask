@@ -403,6 +403,8 @@ export interface TaskQuery {
    * crosses the wire.
    */
   filter?: string;
+  /** Custom Field ids whose values the rows should carry, for the columns. */
+  fields?: string[];
 }
 
 /** One Custom Field of a list that a filter can name, with its options. */
@@ -411,6 +413,15 @@ export interface FilterField {
   name: string;
   type: string;
   options: Array<{ value: string; label: string; color: string | null }>;
+}
+
+/** One Custom Field the column picker can offer, of any type. */
+export interface DisplayField {
+  id: string;
+  name: string;
+  type: string;
+  /** ClickUp's own shape, verbatim — `formatFieldValue` reads it. */
+  typeConfig: unknown;
 }
 
 export class ApiError extends Error {
@@ -557,12 +568,16 @@ export const api = {
     if (query.closed) params.set("closed", "1");
     if (query.limit) params.set("limit", String(query.limit));
     if (query.filter) params.set("filter", query.filter);
+    if (query.fields?.length) params.set("fields", query.fields.join(","));
 
     return requestPage(`/api/tasks?${params}`);
   },
 
   /** The Custom Fields of a list that a filter can name. Read when the menu opens. */
   filterFields: (listId: string) => request<FilterField[]>(`/api/lists/${listId}/filter-fields`),
+
+  /** Every Custom Field the column picker can offer for a list — all types. */
+  displayFields: (listId: string) => request<DisplayField[]>(`/api/lists/${listId}/display-fields`),
 
   /** The tabs above a list, in ClickUp's own order. */
   views: (listId: string) => request<ListView[]>(`/api/lists/${listId}/views`),
@@ -576,10 +591,13 @@ export const api = {
    * follows over the `view` SSE event, so this only fails against ClickUp when
    * the server has nothing remembered to answer with.
    */
-  viewTasks: (viewId: string, filter = "") =>
-    requestPage(
-      `/api/views/${viewId}/tasks${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`,
-    ),
+  viewTasks: (viewId: string, filter = "", fields: string[] = []) => {
+    const params = new URLSearchParams();
+    if (filter) params.set("filter", filter);
+    if (fields.length) params.set("fields", fields.join(","));
+    const query = params.toString();
+    return requestPage(`/api/views/${viewId}/tasks${query ? `?${query}` : ""}`);
+  },
 
   /**
    * One view by id, for a view opened at its own address.
