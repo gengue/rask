@@ -4,10 +4,12 @@ Read-only Docs shipped first: the index in `docs`, the bodies read live, a
 reader that renders them. This is the recommendation for the write half — which
 endpoints to expose, in what order, and why none of them belong in the outbox.
 
-Slice one — append — has shipped: `appendToDocPage` in the client,
-`POST /api/docs/:docId/pages/:pageId/append`, and the composer at the foot of a
-page in `DocReader`. Everything after it is still a design note, and the numbers
-in it come from the vendored v3 spec and from the code as it stands.
+Slices one and two have shipped — the two additive writes. `appendToDocPage`
+and `createDocPage` in the client, `POST /api/docs/:docId/pages/:pageId/append`
+and `POST /api/docs/:docId/pages`, the entry composer at the foot of a page and
+the New page control in the `DocReader` header. Rask can write into a Doc; it
+still cannot rewrite one. Everything after this is a design note, and the
+numbers in it come from the vendored v3 spec and from the code as it stands.
 
 ## Summary
 
@@ -16,7 +18,7 @@ in it come from the vendored v3 spec and from the code as it stands.
    validates the whole path at the lowest stakes. **Shipped.**
 2. Then **create page** (`POST .../pages`). That is the endpoint the release
    notes Doc actually needs — see below; the guess that it needed append is only
-   half right.
+   half right. **Shipped.**
 3. **Replace** waits behind a fidelity probe and a conflict check. It may never
    be worth it.
 4. **Create Doc** (`POST /docs`) last, or not at all. It writes a row the `docs`
@@ -263,3 +265,55 @@ optional:
   endpoint in `clickup-v3.json`. Anything created through Rask can only be
   removed in ClickUp's own UI. That is a real cost of every create, and it is
   another reason the first slice appends to a page that already exists.
+
+## Slice two, as it shipped
+
+Create page, and two things it turned up that the recommendation had not.
+
+**Where the control lives.** The plan put "New page" at the foot of the page
+index. That is wrong, and the index's own comment says why: it only draws once a
+Doc has more than one page, because a one-page Doc names its page after itself
+and the column would repeat the title beside it. A control that appears only
+after you already have two pages cannot be the one that gets you the second. It
+sits in the header instead.
+
+**A new page is a sibling, not a child.** The reader sends the *current page's*
+`parentId`, not its id. Standing on "November 7" and asking for a new page means
+the next entry beside it; a child of it would nest the release notes one level
+deeper every entry. `parentId` is on `DocPageDto` for exactly this and is not
+interchangeable with `depth` — depth is derived and collapses to 0 for a parent
+the walk never saw, so creating under "whatever was at depth 0" would file a
+page somewhere nobody pointed at.
+
+**The page is born empty.** Name only; the body is `appendToDocPage`'s job. One
+endpoint per shape of change means a page cannot be created and overwritten in
+one breath, and two obvious steps beat a form that has to decide how much of a
+page you may author before it exists.
+
+### Two bugs the tests found
+
+Both were caught by tests written against the recommendation, before the code
+was believed.
+
+`z.string().min(1)` passes on `"   "`. A page named with three spaces reached
+ClickUp and was stored as a row the index draws blank, which is the exact thing
+the schema's comment claimed to prevent. `.trim().min(1)` on both the page name
+and the append body — the append had the same hole.
+
+`flattenDocPages` dropped the nesting without recording it. A sub-page that
+arrives nested and carries no `parent_page_id` of its own came out with no
+parent at all, so it drew flat *and* filed its siblings at the root of the Doc.
+The workspace has only ever answered flat, where the field is always set, so
+this was latent — but `pages` is parsed at all for precisely the shape nobody
+has seen, and the fix belongs in the same place: the flatten knows the parent,
+so a child inherits it.
+
+## What is still not built
+
+- **Replace**, behind the fidelity probe above. Nothing has changed about it.
+- **`POST /docs`**, still behind the index question: a Doc created through Rask
+  is invisible to `GET /api/docs/:id` and to the sidebar until the next
+  hierarchy pass, which runs at boot and nightly.
+- **Reordering or renaming a page.** `editPagePublic` writes `name`, so a rename
+  is one field away — but it is a field on the endpoint whose other field is the
+  one that destroys pages, and nothing has asked for it yet.

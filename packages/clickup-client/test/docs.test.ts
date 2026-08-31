@@ -148,6 +148,44 @@ describe("getDocPages", () => {
     // child's body twice.
     expect(pages.every((page) => !("pages" in page))).toBe(true);
   });
+
+  /*
+   * Flattening throws the shape away, and `parent_page_id` is all that is left
+   * to rebuild it from — the reader indents by it and a new page is created as
+   * a sibling under it. A nested child that arrived without one would draw flat
+   * and file its siblings at the root of the Doc.
+   */
+  test("gives a nested child the parent the nesting implied", async () => {
+    const { client } = makeClient([
+      {
+        body: [
+          {
+            id: "root",
+            name: "Parent",
+            order_index: 1,
+            pages: [{ id: "child", name: "Child", order_index: 1 }],
+          },
+        ],
+      },
+    ]);
+
+    const pages = await client.getDocPages("529", "d1");
+
+    expect(pages.map((page) => [page.id, page.parent_page_id])).toEqual([
+      ["root", null],
+      ["child", "root"],
+    ]);
+  });
+
+  test("leaves a parent ClickUp named alone", async () => {
+    const { client } = makeClient([
+      { body: [{ id: "a", name: "A", parent_page_id: "elsewhere", order_index: 1 }] },
+    ]);
+
+    const pages = await client.getDocPages("529", "d1");
+
+    expect(pages[0]?.parent_page_id).toBe("elsewhere");
+  });
 });
 
 describe("listAllDocs", () => {
@@ -259,5 +297,57 @@ describe("appendToDocPage", () => {
     const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
 
     await expect(client.appendToDocPage("529", "d1", "p1", "text")).rejects.toThrow();
+  });
+});
+
+describe("createDocPage", () => {
+  const CREATED = { id: "p9", doc_id: "gh-96615", name: "November 21 - 2025", content: "" };
+
+  test("posts the new page under the parent it was given", async () => {
+    const { client, calls, sent } = makeClient([{ status: 201, body: CREATED }]);
+
+    const page = await client.createDocPage("529", "gh-96615", {
+      name: "November 21 - 2025",
+      parentPageId: "root",
+    });
+
+    expect(new URL(calls[0] ?? "").pathname).toBe("/api/v3/workspaces/529/docs/gh-96615/pages");
+    expect(sent[0]?.method).toBe("POST");
+    expect(sent[0]?.body).toEqual({ name: "November 21 - 2025", parent_page_id: "root" });
+    expect(page.id).toBe("p9");
+  });
+
+  /*
+   * Absent, not null. `parent_page_id` is documented as simply missing on a
+   * page at the root of a Doc, and this is the v3 surface — the one whose
+   * parent-type enum turned out to be short a value the workspace uses. Sending
+   * it a shape it never described is how that bites.
+   */
+  test("omits the parent entirely for a page at the Doc's root", async () => {
+    const { client, sent } = makeClient([{ status: 201, body: CREATED }]);
+
+    await client.createDocPage("529", "gh-96615", { name: "Top" });
+
+    expect(sent[0]?.body).toEqual({ name: "Top" });
+    expect(Object.keys(sent[0]?.body as object)).not.toContain("parent_page_id");
+  });
+
+  /*
+   * `name`, `sub_title` and `content` all default to `""` upstream, so every
+   * key present is a field being written. A body that carried `sub_title` empty
+   * would blank the subtitle of a page as a side effect of naming it.
+   */
+  test("writes nothing it was not asked to write", async () => {
+    const { client, sent } = makeClient([{ status: 201, body: CREATED }]);
+
+    await client.createDocPage("529", "gh-96615", { name: "Top", parentPageId: "root" });
+
+    expect(Object.keys(sent[0]?.body as object).sort()).toEqual(["name", "parent_page_id"]);
+  });
+
+  test("throws on a refusal rather than reporting a page that does not exist", async () => {
+    const { client } = makeClient([{ status: 403, body: { err: "no edit access" } }]);
+
+    await expect(client.createDocPage("529", "d1", { name: "Top" })).rejects.toThrow();
   });
 });

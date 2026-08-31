@@ -518,3 +518,157 @@ describe("POST /docs/:docId/pages/:pageId/append", () => {
     expect((await append(null, { content: "text" })).status).toBe(409);
   });
 });
+
+/**
+ * `POST /docs/:docId/pages`, the second additive write.
+ *
+ * A create cannot lose anything by construction — it addresses a page that does
+ * not exist yet — so what is pinned here is the guard and the body. The guard
+ * is the same one the append has, and it matters for the same reason: a Doc id
+ * arrives from the caller and decides what this server writes on the caller's
+ * token.
+ *
+ * The body is the half that is easy to get quietly wrong. `name`, `sub_title`
+ * and `content` all default to `""` upstream, so any key present is a field
+ * being written, and `parent_page_id` has to be absent rather than null for a
+ * page at the Doc's root.
+ */
+describe("POST /docs/:docId/pages", () => {
+  const mirrored = () =>
+    db.insert(docsTable).values({
+      id: OPEN_DOC,
+      teamId: TEAM,
+      name: "AI Release notes",
+      parentType: 4,
+    });
+
+  const CREATED = { id: "p9", doc_id: OPEN_DOC, name: "November 21 - 2025", content: "" };
+
+  const create = (client: ClickUpClient | null, body: unknown, docId = OPEN_DOC) =>
+    mount(client).request(`/docs/${docId}/pages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("creates the page under the parent the reader named, and answers its id", async () => {
+    await mirrored();
+    const { client, calls } = stub([{ status: 201, body: CREATED }]);
+
+    const response = await create(client, { name: "November 21 - 2025", parentId: "root" });
+    const body = (await response.json()) as { id: string };
+
+    expect(response.status).toBe(201);
+    expect(body.id).toBe("p9");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toContain(`/v3/workspaces/${TEAM}/docs/${OPEN_DOC}/pages`);
+    expect(calls[0]?.body).toEqual({ name: "November 21 - 2025", parent_page_id: "root" });
+  });
+
+  test("omits the parent for a page at the Doc's root", async () => {
+    await mirrored();
+    const { client, calls } = stub([{ status: 201, body: CREATED }]);
+
+    await create(client, { name: "Top" });
+
+    expect(calls[0]?.body).toEqual({ name: "Top" });
+  });
+
+  test("404s a Doc the index does not hold, without spending a request", async () => {
+    const { client, calls } = stub([]);
+
+    const response = await create(client, { name: "Top" }, "gh-not-mirrored");
+
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("404s a Doc that belongs to another workspace", async () => {
+    await db.insert(docsTable).values({
+      id: OPEN_DOC,
+      teamId: "some-other-team",
+      name: "Not yours",
+      parentType: 4,
+    });
+    const { client, calls } = stub([]);
+
+    const response = await create(client, { name: "Top" });
+
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  /*
+   * ClickUp accepts an empty name and stores a page called "", which the index
+   * then draws as a row with nothing in it and no way to tell which page it is.
+   */
+  test("400s a nameless page without asking ClickUp", async () => {
+    await mirrored();
+    const { client, calls } = stub([]);
+
+    expect((await create(client, { name: "" })).status).toBe(400);
+    expect((await create(client, { name: "   " })).status).toBe(400);
+    expect((await create(client, {})).status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("turns a ClickUp refusal into a 422 carrying its message", async () => {
+    await mirrored();
+    const { client } = stub([{ status: 403, body: { err: "You do not have edit access" } }]);
+
+    const response = await create(client, { name: "Top" });
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(422);
+    expect(body.error).toContain("You do not have edit access");
+  });
+
+  test("turns a ClickUp 401 into a 502, never a 401", async () => {
+    await mirrored();
+    const { client } = stub([{ status: 401, body: { err: "Token invalid" } }]);
+
+    expect((await create(client, { name: "Top" })).status).toBe(502);
+  });
+
+  test("409s when the session has no ClickUp token", async () => {
+    await mirrored();
+
+    expect((await create(null, { name: "Top" })).status).toBe(409);
+  });
+});
+
+/**
+ * `parentId` on a page, which is what a new sibling is created under.
+ *
+ * Not the same answer as `depth`, and the difference is the whole reason it is
+ * sent: depth is derived and collapses to 0 for a parent the walk never saw, so
+ * creating a page under "whatever was at depth 0" would file it somewhere
+ * nobody pointed at.
+ */
+describe("page parentId", () => {
+  test("carries the page a child hangs off, and null at the root", async () => {
+    await db.insert(docsTable).values({ id: OPEN_DOC, teamId: TEAM, name: "Doc", parentType: 4 });
+    const { client } = stub([
+      {
+        body: [
+          {
+            id: "root",
+            name: "AI Release notes",
+            order_index: 1,
+            pages: [{ id: "nov", name: "November 7", order_index: 1 }],
+          },
+        ],
+      },
+    ]);
+
+    const body = (await (await mount(client).request(`/docs/${OPEN_DOC}`)).json()) as {
+      doc: { pages: Array<{ id: string; parentId: string | null; depth: number }> };
+    };
+
+    expect(body.doc.pages.map((page) => [page.id, page.parentId])).toEqual([
+      ["root", null],
+      ["nov", "root"],
+    ]);
+  });
+});

@@ -54,6 +54,28 @@ export function DocReader(props: { docId: string }): JSX.Element {
             <span class="shrink-0 text-ink-4 text-xs">{formatRelative(updated())}</span>
           )}
         </Show>
+        {/*
+          In the header rather than at the foot of the page index, which is
+          where it would seem to belong. The index only draws once a Doc has
+          more than one page — a one-page Doc names its page after itself, so
+          the column would repeat the title beside it — and a control that
+          appears only after you already have two pages cannot be the one that
+          gets you the second.
+        */}
+        <Show when={loaded()}>
+          <NewPage
+            docId={props.docId}
+            /* A sibling of the page being read, not a child of it: the release
+               notes Doc is 24 dated pages under one root, and standing on
+               "November 7" and asking for a new page means the next entry
+               beside it, not one nested inside it. */
+            parentId={current()?.parentId ?? null}
+            onCreated={async (id) => {
+              await refetch();
+              setPicked(id);
+            }}
+          />
+        </Show>
       </header>
 
       <div class="flex min-h-0 flex-1">
@@ -103,6 +125,103 @@ export function DocReader(props: { docId: string }): JSX.Element {
           </Show>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Adding a page to the Doc.
+ *
+ * A name and nothing else, and the page it makes is empty. Writing into it is
+ * `Append`'s job below — which is not a corner cut but the same rule the API
+ * keeps: one endpoint per shape of change, so a page cannot be created and
+ * overwritten in one breath. Two obvious steps beat one form that has to decide
+ * how much of a page you are allowed to author before it exists.
+ *
+ * No optimistic row. A created page has no place in the Doc's order until the
+ * Doc is read again, so the id comes back, the Doc is refetched, and the reader
+ * lands on the new page once it is really there.
+ */
+function NewPage(props: {
+  docId: string;
+  parentId: string | null;
+  onCreated: (id: string) => Promise<void>;
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false);
+  const [name, setName] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  let input!: HTMLInputElement;
+
+  const close = (): void => {
+    setName("");
+    setOpen(false);
+  };
+
+  const submit = async (): Promise<void> => {
+    const value = name().trim();
+    if (!value || busy()) return;
+
+    setBusy(true);
+    try {
+      const { id } = await api.createDocPage(props.docId, {
+        name: value,
+        ...(props.parentId ? { parentId: props.parentId } : {}),
+      });
+      close();
+      await props.onCreated(id);
+    } catch (error) {
+      // A toast, as the append does it, carrying ClickUp's own refusal. The box
+      // stays open with the name still in it.
+      pushToast({
+        tone: "error",
+        title: "Could not add that page",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div class="ml-auto shrink-0">
+      <Show
+        when={open()}
+        fallback={
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(true);
+              // After the box exists. `open` is what renders it, and focusing
+              // in the same tick would reach for an input that is not there.
+              queueMicrotask(() => input?.focus());
+            }}
+            class="h-7 rounded-[5px] px-2 text-ink-3 text-md hover:bg-hover hover:text-ink"
+          >
+            New page
+          </button>
+        }
+      >
+        <input
+          ref={input}
+          value={name()}
+          disabled={busy()}
+          placeholder="Page name"
+          onInput={(event) => setName(event.currentTarget.value)}
+          /* Stopped here for the reason MarkdownEditor stops its own: the shell
+             reads a bare Escape as "close what is open" and would take the Doc
+             down instead of the box. */
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") void submit();
+            if (event.key === "Escape") close();
+          }}
+          /* Clicking away is "never mind". Nothing has been written yet, so
+             there is nothing to lose by closing — unlike the entry composer,
+             where blur is what commits. */
+          onBlur={() => !busy() && close()}
+          class="h-7 w-52 rounded-[5px] border border-line-strong bg-elevated px-2 text-ink text-md placeholder:text-ink-4 focus:outline-none"
+        />
+      </Show>
     </div>
   );
 }
