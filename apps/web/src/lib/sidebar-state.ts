@@ -15,6 +15,7 @@ import { createSignal } from "solid-js";
  */
 const OPEN_KEY = "rask.sidebar.open";
 const PINNED_KEY = "rask.sidebar.pinned";
+const DOCS_KEY = "rask.sidebar.docs";
 
 function read(key: string): string[] {
   try {
@@ -28,13 +29,16 @@ function read(key: string): string[] {
   }
 }
 
-function write(key: string, values: Iterable<string>): void {
+function write(key: string, value: string): void {
   try {
-    localStorage.setItem(key, JSON.stringify([...values]));
+    localStorage.setItem(key, value);
   } catch {
     // Private mode, or a full quota. The tree still works for this session.
   }
 }
+
+const writeIds = (key: string, values: Iterable<string>): void =>
+  write(key, JSON.stringify([...values]));
 
 const [openIds, setOpenIds] = createSignal<ReadonlySet<string>>(new Set(read(OPEN_KEY)));
 const [pinnedIds, setPinnedIds] = createSignal<ReadonlySet<string>>(new Set(read(PINNED_KEY)));
@@ -45,7 +49,7 @@ export function toggleOpen(id: string): void {
   const next = new Set(openIds());
   if (!next.delete(id)) next.add(id);
   setOpenIds(next);
-  write(OPEN_KEY, next);
+  writeIds(OPEN_KEY, next);
 }
 
 /**
@@ -58,7 +62,7 @@ export function revealPath(ids: readonly string[]): void {
   for (const id of ids) next.add(id);
   if (next.size === before) return;
   setOpenIds(next);
-  write(OPEN_KEY, next);
+  writeIds(OPEN_KEY, next);
 }
 
 export const pinned = pinnedIds;
@@ -69,5 +73,30 @@ export function togglePinned(id: string): void {
   const next = new Set(pinnedIds());
   if (!next.delete(id)) next.add(id);
   setPinnedIds(next);
-  write(PINNED_KEY, next);
+  writeIds(PINNED_KEY, next);
+}
+
+/**
+ * The Docs section below the tree, open unless somebody closed it.
+ *
+ * A key of its own rather than a member of the open set, and it defaults to
+ * open: the section shipped expanded, so an absent key has to read as expanded
+ * or every sidebar already remembered would come back looking like its Docs
+ * had been deleted. Stored as "0"/"1" because it is one flag, not a set.
+ */
+function readOpenFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+const [docsSectionOpen, setDocsSectionOpen] = createSignal(readOpenFlag(DOCS_KEY));
+
+export const docsOpen = docsSectionOpen;
+
+export function setDocsOpen(open: boolean): void {
+  setDocsSectionOpen(open);
+  write(DOCS_KEY, open ? "1" : "0");
 }

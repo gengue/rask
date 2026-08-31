@@ -73,6 +73,19 @@ const DOC_SEARCH_LIMIT = 50;
 const DOC_INDEX_PAGE = 100;
 const DOC_INDEX_MAX_PAGES = 50;
 
+/**
+ * Archived and deleted Docs, kept out of both reads.
+ *
+ * Sent rather than assumed. Both are documented as defaulting to false and the
+ * live endpoint does behave that way today — a folder holding one archived Doc
+ * answers empty until `archived=true` asks for it — but this is the same v3
+ * surface whose `parent_type` enum was missing a value the workspace uses, so
+ * its documented defaults are not something to hang the sidebar on. An
+ * archived Doc that slipped through would be indexed as live and stay in the
+ * tree, because `mapDoc` reads an `archived` field the list response omits.
+ */
+const DOC_LIVE_ONLY = { archived: false, deleted: false } as const;
+
 export const CLICKUP_API_BASE = "https://api.clickup.com/api";
 
 export class ClickUpError extends Error {
@@ -922,6 +935,7 @@ export class ClickUpClient {
         parent_id: params.parentId,
         parent_type: params.parentType,
         limit: DOC_SEARCH_LIMIT,
+        ...DOC_LIVE_ONLY,
       },
     }).then((r) => r.docs ?? []);
   }
@@ -965,7 +979,7 @@ export class ClickUpClient {
         docsSearchResponse,
         "GET",
         `/v3/workspaces/${workspaceId}/docs`,
-        { query: { limit: DOC_INDEX_PAGE, cursor } },
+        { query: { limit: DOC_INDEX_PAGE, cursor, ...DOC_LIVE_ONLY } },
       );
       const docs = answer.docs ?? [];
       all.push(...docs);
