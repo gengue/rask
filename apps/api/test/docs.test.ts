@@ -639,6 +639,186 @@ describe("POST /docs/:docId/pages", () => {
 });
 
 /**
+ * `PUT /docs/:docId/pages/:pageId`, the write that can lose text.
+ *
+ * Everything worth pinning here is the check in front of the write rather than
+ * the write itself. A replace carries the whole body, that body was built from
+ * a read, and a Doc has no webhook — so if the compare stops running, or runs
+ * against a page whose timestamp ClickUp did not give, an edit written five
+ * minutes ago silently takes somebody else's paragraph with it. Every test
+ * below asserts the PUT did *not* happen.
+ */
+describe("PUT /docs/:docId/pages/:pageId", () => {
+  const mirrored = () =>
+    db.insert(docsTable).values({
+      id: OPEN_DOC,
+      teamId: TEAM,
+      name: "AI Release notes",
+      parentType: 4,
+    });
+
+  /** The instant the page was last touched, as ClickUp gives it and as we send it. */
+  const AT_MS = 1_787_833_798_853;
+  const AT_ISO = "2026-08-27T12:29:58.853Z";
+
+  const put = (client: ClickUpClient | null, body: unknown, docId = OPEN_DOC) =>
+    mount(client).request(`/docs/${docId}/pages/p1`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("re-reads the page, then writes the whole body over it", async () => {
+    await mirrored();
+    const { client, calls } = stub([
+      { body: { id: "p1", name: "November 7", content: "old", date_updated: AT_MS } },
+      { body: {} },
+    ]);
+
+    const response = await put(client, { content: "# New\n\nBody.", updated: AT_ISO });
+
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(2);
+    // The compare-read comes first, and asks for the same format the write
+    // sends — comparing a timestamp read as HTML against one written as
+    // markdown would be comparing two different reads.
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toContain(`/v3/workspaces/${TEAM}/docs/${OPEN_DOC}/pages/p1`);
+    expect(calls[0]?.url).toContain("content_format=text%2Fmd");
+    expect(calls[1]?.method).toBe("PUT");
+    // `name` and `sub_title` stay out: both default to "" upstream, so a key
+    // present is a field being written, and an edit must not blank the title.
+    expect(calls[1]?.body).toEqual({
+      content: "# New\n\nBody.",
+      content_edit_mode: "replace",
+      content_format: "text/md",
+    });
+  });
+
+  /*
+   * The assertion the route exists for. ClickUp's editor is collaborative and
+   * there is no webhook for a Doc, so a page that moved since the browser read
+   * it is a page this body would overwrite without anybody being told.
+   */
+  test("409s when the page moved since the browser read it, and does not write", async () => {
+    await mirrored();
+    const { client, calls } = stub([
+      { body: { id: "p1", content: "somebody else's paragraph", date_updated: AT_MS + 1000 } },
+    ]);
+
+    const response = await put(client, { content: "mine", updated: AT_ISO });
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(409);
+    expect(body.error).toContain("edited this page");
+    expect(calls).toHaveLength(1);
+    expect(calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+
+  /*
+   * Fail closed. `date_updated` is optional on ClickUp's page DTO, and a page
+   * that came back without one is a page the compare cannot be made on — the
+   * compare being the only thing that makes this write offerable at all.
+   */
+  test("409s a page ClickUp gave no update time for, rather than writing blind", async () => {
+    await mirrored();
+    const { client, calls } = stub([{ body: { id: "p1", content: "text" } }]);
+
+    const response = await put(client, { content: "mine", updated: AT_ISO });
+
+    expect(response.status).toBe(409);
+    expect(calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+
+  /*
+   * A body without `updated` is a body carrying no check, and accepting one
+   * would make the check optional for anything that can send a request.
+   */
+  test("400s a write that carries no timestamp to compare, without asking ClickUp", async () => {
+    await mirrored();
+    const { client, calls } = stub([]);
+
+    expect((await put(client, { content: "mine" })).status).toBe(400);
+    expect((await put(client, { content: "mine", updated: "" })).status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  /*
+   * Emptying a page is what delete is for, and that route asks first. This one
+   * refusing keeps "select all, backspace, click away" from being a way to wipe
+   * a page nobody confirmed.
+   */
+  test("400s an empty body without asking ClickUp", async () => {
+    await mirrored();
+    const { client, calls } = stub([]);
+
+    expect((await put(client, { content: "   ", updated: AT_ISO })).status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("404s a Doc the index does not hold, without spending a request", async () => {
+    const { client, calls } = stub([]);
+
+    const response = await put(client, { content: "mine", updated: AT_ISO }, "gh-not-mirrored");
+
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  /*
+   * The same scoping the other writes have, and the stakes here are the
+   * highest of the four: a guessable Doc id belonging to another workspace
+   * would have a page *overwritten* on this caller's token.
+   */
+  test("404s a Doc that belongs to another workspace", async () => {
+    await db.insert(docsTable).values({
+      id: OPEN_DOC,
+      teamId: "some-other-team",
+      name: "Not yours",
+      parentType: 4,
+    });
+    const { client, calls } = stub([]);
+
+    const response = await put(client, { content: "mine", updated: AT_ISO });
+
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("turns a ClickUp refusal into a 422 carrying its message", async () => {
+    await mirrored();
+    const { client } = stub([
+      { body: { id: "p1", date_updated: AT_MS } },
+      { status: 403, body: { err: "You do not have edit access" } },
+    ]);
+
+    const response = await put(client, { content: "mine", updated: AT_ISO });
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(422);
+    expect(body.error).toContain("You do not have edit access");
+  });
+
+  /*
+   * A 401 upstream means Rask's stored token has gone bad; the browser reads a
+   * 401 of its own as its session ending and would sign the person out over an
+   * edit they tried to save.
+   */
+  test("turns a ClickUp 401 into a 502, never a 401", async () => {
+    await mirrored();
+    const { client } = stub([{ status: 401, body: { err: "Token invalid" } }]);
+
+    expect((await put(client, { content: "mine", updated: AT_ISO })).status).toBe(502);
+  });
+
+  test("409s when the session has no ClickUp token", async () => {
+    await mirrored();
+
+    expect((await put(null, { content: "mine", updated: AT_ISO })).status).toBe(409);
+  });
+});
+
+/**
  * `DELETE /docs/:docId/pages/:pageId`, the one write here that destroys text.
  *
  * The endpoint behind it is not in `openapi/clickup-v3.json` and works anyway

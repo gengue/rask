@@ -1004,34 +1004,24 @@ export class ClickUpClient {
   }
 
   /**
-   * Adds a block to the end of a page, without sending the page back.
+   * One page on its own, body included.
    *
-   * The mode and the format are written in here rather than taken as
-   * arguments, for the reason `searchDocs` spells its parent type as a word:
-   * the other value this field accepts is `replace`, and a mode that arrives
-   * as a parameter is a mode a caller can get wrong exactly once.
-   *
-   * Append is the only write in this set that cannot lose text, and that is a
-   * property of the request rather than of any check around it: the body
-   * carries the new block and nothing else, so there is no stale copy of the
-   * page in flight and nothing a concurrent edit in ClickUp's own collaborative
-   * editor can be overwritten by. Two simultaneous appends both land, in an
-   * order nobody promised. Replace has neither property — see
-   * `docs/doc-editing.md`.
-   *
-   * Nothing is parsed out of the answer because the vendored spec declares no
-   * schema for it at all. `getDocPage` is what says what the page now holds.
-   *
-   * ponytail: rides the shared 5xx retry, so a 502 that ClickUp returned after
-   * applying the append would append the block twice. `maxRetries` is per
-   * client and `clientFor` hands out one, so silencing it here means a second
-   * client per token — not worth it for a failure this narrow whose damage is
-   * a duplicated paragraph the author can see and delete. If duplicates ever
-   * turn up, the upgrade is a single-page read on the failure path
-   * (`getPagePublic`, not wrapped yet) comparing `date_updated` against the
-   * value read before the write, which tells "it never landed" from "it landed
-   * and the gateway died".
+   * The page list already carries every body, so this exists for the one thing
+   * a list read cannot answer: what ClickUp holds *now*. `replaceDocPage` sends
+   * a whole body built from a read, and the only check that keeps that from
+   * discarding somebody else's edit is a `date_updated` compare made at the
+   * moment of the write. A value taken from the list the browser has been
+   * looking at is as old as the browser is.
    */
+  getDocPage(workspaceId: string, docId: string, pageId: string): Promise<ClickUpDocPage> {
+    return this.request(
+      clickUpDocPage,
+      "GET",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+      { query: { content_format: "text/md" } },
+    );
+  }
+
   /**
    * A new page in a Doc that already exists.
    *
@@ -1073,6 +1063,35 @@ export class ClickUpClient {
     );
   }
 
+  /**
+   * Adds a block to the end of a page, without sending the page back.
+   *
+   * The mode and the format are written in here rather than taken as
+   * arguments, for the reason `searchDocs` spells its parent type as a word:
+   * the other value this field accepts is `replace`, and a mode that arrives
+   * as a parameter is a mode a caller can get wrong exactly once.
+   *
+   * Append is the only write in this set that cannot lose text, and that is a
+   * property of the request rather than of any check around it: the body
+   * carries the new block and nothing else, so there is no stale copy of the
+   * page in flight and nothing a concurrent edit in ClickUp's own collaborative
+   * editor can be overwritten by. Two simultaneous appends both land, in an
+   * order nobody promised. Replace has neither property — see
+   * `docs/doc-editing.md`.
+   *
+   * Nothing is parsed out of the answer because the vendored spec declares no
+   * schema for it at all. `getDocPage` is what says what the page now holds.
+   *
+   * ponytail: rides the shared 5xx retry, so a 502 that ClickUp returned after
+   * applying the append would append the block twice. `maxRetries` is per
+   * client and `clientFor` hands out one, so silencing it here means a second
+   * client per token — not worth it for a failure this narrow whose damage is
+   * a duplicated paragraph the author can see and delete. If duplicates ever
+   * turn up, the upgrade is a single-page read on the failure path
+   * (`getPagePublic`, not wrapped yet) comparing `date_updated` against the
+   * value read before the write, which tells "it never landed" from "it landed
+   * and the gateway died".
+   */
   async appendToDocPage(
     workspaceId: string,
     docId: string,
@@ -1087,6 +1106,53 @@ export class ClickUpClient {
         body: {
           content: markdown,
           content_edit_mode: "append",
+          content_format: "text/md",
+        },
+      },
+    );
+  }
+
+  /**
+   * Writes a page's whole body over what was there.
+   *
+   * The one write in this file that can lose text, and the mode is written in
+   * here for the same reason `appendToDocPage` writes its own: the value is the
+   * difference between adding a paragraph and overwriting a page, and a caller
+   * that passes it can pass the wrong one. Two verbs, no flag.
+   *
+   * What makes it safe enough to offer is not in this method. `content` was
+   * built by reading the page back as markdown, so a body written against a
+   * read from two minutes ago silently discards whatever was written in
+   * ClickUp's own collaborative editor in between — and there is no webhook for
+   * a Doc to tell us there was. The route (`apps/api/src/docs.ts`) re-reads the
+   * page and compares `date_updated` immediately before calling this, which is
+   * a compare-and-swap with a few hundred milliseconds still open in the
+   * middle. A check, not a lock.
+   *
+   * `name` and `sub_title` stay out of the body as they do for the append: both
+   * default to `""` upstream, so a key present is a field being written, and a
+   * page renamed to nothing as a side effect of an edit is not something anyone
+   * would trace back here.
+   *
+   * The shared 5xx retry is harmless on this one, unlike the append: the same
+   * body sent twice leaves the page holding exactly what it held after the
+   * first. What it can do is win a race it should have lost, which is what the
+   * route's compare is for.
+   */
+  async replaceDocPage(
+    workspaceId: string,
+    docId: string,
+    pageId: string,
+    markdown: string,
+  ): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "PUT",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
+      {
+        body: {
+          content: markdown,
+          content_edit_mode: "replace",
           content_format: "text/md",
         },
       },

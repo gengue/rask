@@ -4,15 +4,18 @@ Read-only Docs shipped first: the index in `docs`, the bodies read live, a
 reader that renders them. This is the recommendation for the write half — which
 endpoints to expose, in what order, and why none of them belong in the outbox.
 
-Slices one and two have shipped — the two additive writes. `appendToDocPage`
-and `createDocPage` in the client, `POST /api/docs/:docId/pages/:pageId/append`
-and `POST /api/docs/:docId/pages`, the entry composer at the foot of a page and
-the two ways to add a page in `DocReader`. Delete has shipped since —
-`deleteDocPage`, `DELETE /api/docs/:docId/pages/:pageId`, and the "×" in the
-page index behind a confirmation. Rask can write into a Doc and remove a page
-from one; it still cannot rewrite a page. Everything after this is a design
-note, and the numbers in it come from the vendored v3 spec and from the code as
-it stands.
+All four writes have now shipped. The two additive ones first —
+`appendToDocPage` and `createDocPage` in the client,
+`POST /api/docs/:docId/pages/:pageId/append` and `POST /api/docs/:docId/pages`,
+the entry composer at the foot of a page and the two ways to add a page in
+`DocReader`. Then delete: `deleteDocPage`,
+`DELETE /api/docs/:docId/pages/:pageId`, and the "×" in the page index behind a
+confirmation. Then replace, which this file spent most of its length arguing
+about: `getDocPage` and `replaceDocPage`,
+`PUT /api/docs/:docId/pages/:pageId` carrying the timestamp the browser read,
+and an "Edit" button beside a page's byline. "Slice three, as it shipped" at the
+end has what the design note here got right and what it did not. The numbers
+elsewhere come from the vendored v3 spec and from the code as it stands.
 
 **One correction runs through this file**, and it is worth reading before the
 rest: most of this was written believing the Docs surface has no delete. It
@@ -27,9 +30,10 @@ change.
 2. Then **create page** (`POST .../pages`). That is the endpoint the release
    notes Doc actually needs — see below; the guess that it needed append is only
    half right. **Shipped.**
-3. **Replace** — the probe has now been run and it came back clean. See
-   "The probe, run" below. What still gates it is the conflict check, and one
-   unresolved question the API cannot answer.
+3. **Replace** — shipped, behind the conflict check below. The probe came back
+   clean (see "The probe, run"), and the one question the API cannot answer —
+   what a replace does to ClickUp's *render* — is answered instead by keeping
+   the check honest and telling the person when it fires.
 4. **Create Doc** (`POST /docs`) last, or not at all. It writes a row the `docs`
    index does not learn about until the nightly hierarchy pass.
 
@@ -432,3 +436,52 @@ What this changes, and what it does not:
   reader draws "This Doc has no pages." where it used to sit on "Loading…".
   What is still unverified: whether deleting a parent takes its children. The
   confirmation says "may take them with it" rather than claiming either way.
+
+## Slice three, as it shipped
+
+Replace, with the compare-and-swap this file specified, and nothing about the
+shape of it changed on contact. `getDocPage` came back — it was written and
+deleted once for having no caller, and this is the caller — the route re-reads
+the page, compares `date_updated` against the value the browser sent, and
+refuses with 409 on a mismatch **and** on a page ClickUp gave no timestamp for.
+Three things worth knowing that the plan above did not say.
+
+**The empty body is refused, and for a different reason than the append's.**
+An empty append is a no-op ClickUp answers 200 to, which reads as a write that
+vanished. An empty *replace* works perfectly: it empties the page. That is
+never what somebody meant by an edit, and the thing they do mean — the page
+going away — already has a route with a confirmation in front of it. So
+`.trim().min(1)`, and the reader says so in a toast rather than spending a
+request to be told no.
+
+**409 is shared with "no ClickUp token", deliberately.** Both reach the same
+toast and neither is a status the browser acts on structurally, so the message
+is what distinguishes them. Splitting them would mean inventing a code for a
+case that is unreachable in the reader — every read would already have failed.
+
+**The reader's `Show` had to become keyed.** `Page` holds whether its body is
+open in the editor and `MarkdownEditor` takes its document once on mount, so
+with the unkeyed `Show` that was there, switching page mid-edit left one page's
+draft sitting over another page's id — and the save would have written it there.
+Keying is what makes a different page a different component.
+
+The retry hazard the append carries does not apply here: the same body sent
+twice leaves the page holding what it held after the first. What a retry can do
+is win a race it should have lost, which is what the compare is for and why the
+window between the compare-read and the PUT is still worth naming out loud.
+
+**The one-write-per-draft guard is now shared and tested.** Both writers had a
+copy of it — `MarkdownEditor` commits on blur *and* on Cmd-Enter, and Cmd-Enter
+does both — and a second copy of subtle logic is how the two drift. It lives in
+`apps/web/src/lib/doc-draft.ts` as `draftWriter`, with `apps/web/test/
+doc-draft.test.ts` pinning the two properties that matter: a given text is
+written once per composer, and a failed draft is kept unsent so a blur cannot
+repeat it while the button still can. Writing that test is what turned up that
+`retry` had quietly been made unreachable.
+
+One near-miss worth recording, because the test that caught it was written for
+exactly this. Mutating `content_edit_mode` to check the tests went red, and
+restoring it by matching on text, swapped the modes between the two methods —
+append became a replace. `appendToDocPage`'s own "never as a replace" assertion
+is what said so. Two methods, one string apart, is the whole reason both of
+them pin it.
