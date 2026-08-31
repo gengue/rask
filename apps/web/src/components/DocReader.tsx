@@ -66,12 +66,13 @@ export function DocReader(props: { docId: string }): JSX.Element {
    * the Doc's root, a page id for inside that page.
    *
    * Asked rather than inferred, and that is not a nicety. `parent_page_id` is
-   * write-once — `editPagePublic` takes `name`, `sub_title`, `content`,
-   * `content_edit_mode` and `content_format`, and there is no move endpoint and
-   * no delete endpoint anywhere in v3 — so a page created in the wrong place
-   * cannot be put right from Rask at all. The earlier version guessed "sibling
-   * of whatever you are reading", which on the Doc's own first page means the
-   * root, and quietly filed pages outside the tree they belonged to.
+   * write-once: `editPagePublic` takes `name`, `sub_title`, `content`,
+   * `content_edit_mode` and `content_format`, and v3 has no move endpoint, so
+   * nothing the public API offers can reparent a page afterwards. Deleting it
+   * and making it again is the only correction, and that costs the page its
+   * content and its history. The earlier version guessed "sibling of whatever
+   * you are reading", which on the Doc's own first page means the root, and
+   * quietly filed pages outside the tree they belonged to.
    */
   const [addingUnder, setAddingUnder] = createSignal<string | null | undefined>(undefined);
 
@@ -239,10 +240,10 @@ export function DocReader(props: { docId: string }): JSX.Element {
  * In the index at the parent's own indent rather than in a dialog, because the
  * one thing this control has to communicate is *where* — `parent_page_id` is
  * write-once (`editPagePublic` accepts `name`, `sub_title`, `content`,
- * `content_edit_mode`, `content_format`, and v3 has no move endpoint and no
- * delete endpoint), so a page filed in the wrong place cannot be moved or
- * removed from Rask afterwards. Showing the slot it will occupy is cheaper
- * than any amount of labelling.
+ * `content_edit_mode`, `content_format`, and v3 has no move endpoint), so a
+ * page filed in the wrong place can only be corrected by deleting it and
+ * making it again. Showing the slot it will occupy is cheaper than any amount
+ * of labelling.
  *
  * A name and nothing else; the page is born empty. Writing into it is
  * `Append`'s job, which is the same rule the API keeps — one endpoint per
@@ -461,9 +462,9 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
    * it calls `onCommit` and then blurs, which calls it again. A description
    * PATCH does not care — the same value written twice is the same value. The
    * same paragraph appended twice to somebody's Doc is somebody's Doc with the
-   * paragraph in it twice, and there is no delete-page endpoint to tidy up
-   * with. So the send is keyed on the text: one post per distinct draft,
-   * whatever fires it.
+   * paragraph in it twice, and tidying that up means deleting the page and
+   * writing it again. So the send is keyed on the text: one post per distinct
+   * draft, whatever fires it.
    *
    * It doubles as the guard against re-sending on the way out of a failure.
    * Click away from a composer that just failed and blur commits the same text
