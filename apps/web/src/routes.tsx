@@ -698,6 +698,12 @@ function ClickUpView(): JSX.Element {
       case "list":
         void navigate({ to: "/list/$listId", params: { listId: found.listId }, replace: true });
         break;
+      case "doc":
+        // A Doc URL carries the page after the Doc — /v/dc/{doc}/{page} — but a
+        // Doc arrives whole and the reader picks pages from a signal, so there
+        // is nothing to pass on: the Doc opens on its first page.
+        void navigate({ to: "/doc/$docId", params: { docId: found.docId }, replace: true });
+        break;
       default:
         setViewTitle(found.kind === "unknown" ? "Not found" : found.name);
     }

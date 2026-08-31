@@ -9,7 +9,10 @@ import {
   Show,
   Suspense,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { ApiError, type Assignee, api, type DocPage } from "../lib/api.ts";
+import { isFolded, toggleFold } from "../lib/doc-fold.ts";
+import { type DocSection, hiddenSections, splitSections } from "../lib/doc-sections.ts";
 import { formatRelative } from "../lib/format.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { heldValue } from "../lib/resource.ts";
@@ -66,14 +69,13 @@ export function DocReader(props: { docId: string }): JSX.Element {
    * the Doc's root, a page id for inside that page.
    *
    * Asked rather than inferred, and that is not a nicety. `parent_page_id` is
-   * write-once — `editPagePublic` takes `name`, `sub_title`, `content`,
-   * `content_edit_mode` and `content_format`, and v3 has no move endpoint — so
-   * a page created in the wrong place cannot be moved. Delete exists, so it can
-   * be undone, but only by destroying the page and making it again somewhere
-   * else, which costs whatever was written on it in between. The earlier
-   * version guessed "sibling of whatever you are reading", which on the Doc's
-   * own first page means the root, and quietly filed pages outside the tree
-   * they belonged to.
+   * write-once: `editPagePublic` takes `name`, `sub_title`, `content`,
+   * `content_edit_mode` and `content_format`, and v3 has no move endpoint, so
+   * nothing the public API offers can reparent a page afterwards. Deleting it
+   * and making it again is the only correction, and that costs the page its
+   * content and its history. The earlier version guessed "sibling of whatever
+   * you are reading", which on the Doc's own first page means the root, and
+   * quietly filed pages outside the tree they belonged to.
    */
   const [addingUnder, setAddingUnder] = createSignal<string | null | undefined>(undefined);
 
@@ -312,9 +314,9 @@ export function DocReader(props: { docId: string }): JSX.Element {
  * one thing this control has to communicate is *where* — `parent_page_id` is
  * write-once (`editPagePublic` accepts `name`, `sub_title`, `content`,
  * `content_edit_mode`, `content_format`, and v3 has no move endpoint), so a
- * page filed in the wrong place cannot be moved. It can be deleted and made
- * again, which is a worse fix than it sounds: it costs whatever was written on
- * it. Showing the slot it will occupy is cheaper than any amount of labelling.
+ * page filed in the wrong place can only be corrected by deleting it and
+ * making it again. Showing the slot it will occupy is cheaper than any amount
+ * of labelling.
  *
  * A name and nothing else; the page is born empty. Writing into it is
  * `Append`'s job, which is the same rule the API keeps — one endpoint per
@@ -492,17 +494,105 @@ function Page(props: { page: DocPage; docId: string; onAppended: () => void }): 
           when={props.page.content}
           fallback={<p class="text-ink-4 text-md">This page is empty.</p>}
         >
-          {/* Sanitized in renderMarkdown. A Doc is other people's input and
-              never reaches the DOM raw. */}
-          <div
-            class="prose-rask selectable text-base"
-            innerHTML={renderMarkdown(props.page.content)}
-          />
+          <Body page={props.page} />
         </Show>
 
         <Append docId={props.docId} pageId={props.page.id} onAppended={props.onAppended} />
       </div>
     </article>
+  );
+}
+
+/**
+ * The page body, foldable by heading, the way ClickUp's own editor folds one.
+ *
+ * The index on the left stops at page granularity, and one of these pages is
+ * long enough that its headings are the only structure there is to navigate by.
+ *
+ * The markdown is rendered exactly as it was — through `renderMarkdown`, which
+ * sanitizes — and only then cut into sections, so folding adds no second route
+ * to the DOM for content that came out of somebody else's Doc.
+ */
+function Body(props: { page: DocPage }): JSX.Element {
+  const outline = createMemo(() => splitSections(renderMarkdown(props.page.content)));
+
+  // Keyed on the page, so folding a heading re-reads this and nothing else; the
+  // rendered sections themselves are untouched and their innerHTML is not
+  // reparsed. On a 154 000-character Doc that difference is the feature.
+  const hidden = createMemo(() =>
+    hiddenSections(outline().sections, (id) => isFolded(props.page.id, id)),
+  );
+
+  return (
+    <div class="prose-rask selectable text-base">
+      <Show when={outline().intro}>
+        <div class="rask-fold-body" innerHTML={outline().intro} />
+      </Show>
+      <For each={outline().sections}>
+        {(section) => (
+          <Section
+            section={section}
+            pageId={props.page.id}
+            hidden={hidden().has(section.id)}
+            folded={isFolded(props.page.id, section.id)}
+          />
+        )}
+      </For>
+    </div>
+  );
+}
+
+const HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
+
+/**
+ * One heading and its content.
+ *
+ * The toggle is a button beside the heading rather than the heading itself,
+ * because a `<button>` carries `user-select: none` in every engine's own
+ * stylesheet: wrapping the words in one would cut a selection dragged through
+ * them in half, on the one part of the app that exists to be read and copied.
+ * It also keeps double-click-to-select-a-word working on a heading.
+ *
+ * Sitting in the column's left padding, so folding a section moves nothing on
+ * the line. Hidden until the heading is hovered or the button is tabbed to,
+ * except when the section is folded — then it is the only thing on screen
+ * saying there is anything under it.
+ */
+function Section(props: {
+  section: DocSection;
+  pageId: string;
+  hidden: boolean;
+  folded: boolean;
+}): JSX.Element {
+  const bodyId = () => `doc-body-${props.pageId}-${props.section.id}`;
+
+  return (
+    <>
+      <Dynamic
+        component={HEADING_TAGS[props.section.level - 1] ?? "h6"}
+        class="group relative"
+        hidden={props.hidden}
+      >
+        <button
+          type="button"
+          onClick={() => toggleFold(props.pageId, props.section.id)}
+          aria-expanded={!props.folded}
+          aria-controls={bodyId()}
+          aria-label={`${props.folded ? "Expand" : "Collapse"} ${props.section.text}`}
+          class="-left-5 absolute top-0 flex h-[1.6em] w-4 select-none items-center justify-center text-[10px] text-ink-4 hover:text-ink-2 focus-visible:opacity-100 group-hover:opacity-100"
+          classList={{ "opacity-0": !props.folded }}
+        >
+          {props.folded ? "▸" : "▾"}
+        </button>
+        <span innerHTML={props.section.heading} />
+      </Dynamic>
+      <div
+        id={bodyId()}
+        class="rask-fold-body"
+        hidden={props.hidden || props.folded}
+        innerHTML={props.section.body}
+      />
+    </>
   );
 }
 
@@ -533,9 +623,9 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
    * it calls `onCommit` and then blurs, which calls it again. A description
    * PATCH does not care — the same value written twice is the same value. The
    * same paragraph appended twice to somebody's Doc is somebody's Doc with the
-   * paragraph in it twice, and nothing here can tidy that up — deleting the
-   * page takes the other twenty entries with it. So the send is keyed on the
-   * text: one post per distinct draft, whatever fires it.
+   * paragraph in it twice, and tidying that up means deleting the page and
+   * writing it again. So the send is keyed on the text: one post per distinct
+   * draft, whatever fires it.
    *
    * It doubles as the guard against re-sending on the way out of a failure.
    * Click away from a composer that just failed and blur commits the same text

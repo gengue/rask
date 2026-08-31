@@ -14,18 +14,10 @@ from one; it still cannot rewrite a page. Everything after this is a design
 note, and the numbers in it come from the vendored v3 spec and from the code as
 it stands.
 
-**One correction runs through this file.** It was written believing there is no
-delete endpoint on the Docs surface, because there is none in
-`openapi/clickup-v3.json`, and several arguments below leaned on that. `DELETE
-/v3/workspaces/{ws}/docs/{doc}/pages/{page}` exists and answers 204 — confirmed
-live against workspace 529 on 2026-08-31. The vendored spec understates this
-surface; its `parent_type` enum omits the value the workspace uses most, and now
-this. Every "there is no endpoint for X" in the Docs code is unverified until a
-live request says so. Three neighbours were checked in the same session:
-`DELETE .../docs/{doc}` is 405, `PUT .../pages/{page}` with `archived: true` is
-403, and `DELETE /v2/view/{doc}` is 200 and does remove the Doc — Docs are
-view-backed — which is undocumented and indirect enough not to reach for
-without deciding it is really what you want.
+**One correction runs through this file**, and it is worth reading before the
+rest: most of this was written believing the Docs surface has no delete. It
+does. "What the spec omits" near the end has the live answers and what they
+change.
 
 ## Summary
 
@@ -41,10 +33,10 @@ without deciding it is really what you want.
 4. **Create Doc** (`POST /docs`) last, or not at all. It writes a row the `docs`
    index does not learn about until the nightly hierarchy pass.
 
-**Delete page** was not in this list because it was believed not to exist. It
-does, and it shipped after create: one route, one confirmation naming the page,
-no undo. It is the only write here that destroys text, and unlike the other
-three a retried delete is harmless — the second one 404s at worst.
+**Delete page** is missing from this list because it was believed not to
+exist. It does, and it shipped after create: one route, one confirmation naming
+the page, no undo. It is the only write here that destroys text, and unlike the
+other three a retried delete is harmless — the second one 404s at worst.
 
 Every one of them writes straight through to ClickUp. None go in the outbox.
 
@@ -237,9 +229,9 @@ outcome. That is worth having and it is not the same as being safe.
   knowing before writing it: `MarkdownEditor` commits on blur **and** on ⌘↵, and
   ⌘↵ does both — it calls `onCommit` and then blurs, which calls it again. A
   description PATCH does not care. The same paragraph appended twice to
-  somebody's Doc does, and nothing short of deleting the page — which takes the
-  other entries with it — tidies that up. So the send is keyed on the text: one
-  post per distinct draft, whatever fires it.
+  somebody's Doc does, and tidying that up means deleting the page and writing
+  it again. So the send is keyed on the text: one post per distinct draft,
+  whatever fires it.
 - Failures go to a toast, as every other write-through failure in the app does,
   carrying ClickUp's own words as the detail. The composer stays open with the
   text still in it, and an explicit "Add" button is what retries the same draft
@@ -284,13 +276,11 @@ optional:
   deletes rows it was not given, so that row survives only because the next sync
   reads it back from ClickUp. That is a paragraph of reasoning owed to a feature
   nobody has asked for.
-- **Do not read the spec as the whole surface.** This bullet used to say there
-  is no delete-page and no delete-doc endpoint, on the strength of
-  `clickup-v3.json` holding neither. Delete-page is real and has since shipped.
-  Delete-doc is genuinely not there on v3 — 405 — so a Doc created through Rask
-  still can only be removed in ClickUp's own UI, or through `DELETE
-  /v2/view/{doc}`. That remains a cost of `POST /docs`; it was never a cost of
-  creating a *page*.
+- **Note what the spec does not list.** `clickup-v3.json` has no delete of any
+  kind. Treat that as unknown rather than settled — see "What the spec omits"
+  below, where exactly this turned out to be wrong. Delete-*page* is real and
+  has since shipped; delete-*doc* is genuinely a 405, so a Doc created through
+  Rask is still only removable in ClickUp's own UI.
 
 ## Slice two, as it shipped
 
@@ -315,17 +305,12 @@ Guessing was never the right shape here, and the reason is in the spec:
 editPagePublic: ['name', 'sub_title', 'content', 'content_edit_mode', 'content_format']
 ```
 
-No `parent_page_id`, no `order_index`, no move endpoint, no reorder endpoint.
-`parent_page_id` is write-once. A page filed in the wrong place cannot be
-moved, and ClickUp's own drag-and-drop runs on its internal API, not this one.
-The single moment the parent is decidable is the moment the page is created; a
-control that guesses spends that moment on a coin flip.
-
-This paragraph used to end "cannot be moved or removed from Rask at all", and
-that half is wrong: delete exists. The conclusion survives anyway, because
-delete-and-recreate is not a fix — it costs everything written on the page
-since. Misfiling is recoverable at the price of the writing, which is a worse
-bargain than asking one question up front, not a better one.
+No `parent_page_id`, no `order_index`, no move endpoint and no reorder
+endpoint. `parent_page_id` is write-once, and ClickUp's own
+drag-and-drop runs on its internal API, not this one. A page filed in the wrong
+place can only be corrected by deleting it and making it again, which costs it
+its content and its history. The single moment the parent is decidable is the
+moment the page is created; a control that guesses spends it on a coin flip.
 
 So it asks. Every row of the index carries a `+` meaning "inside this one", the
 header button is the root slot, and the name box opens **in the index at the
@@ -395,11 +380,55 @@ defence available.
 - **Replace**, now gated on eyes-on-the-render plus the conflict check rather
   than on the probe.
 - **Reparenting or reordering a page.** Not deferred — impossible. There is no
-  move endpoint and no reorder endpoint; `editPagePublic` writes neither field.
-  Delete-and-recreate is the only route, and it loses the page's contents.
+  endpoint for either, and `editPagePublic` cannot write `parent_page_id`.
+  Delete-and-recreate is the only correction, and it costs the page its content
+  and its history.
 - **`POST /docs`**, still behind the index question: a Doc created through Rask
   is invisible to `GET /api/docs/:id` and to the sidebar until the next
   hierarchy pass, which runs at boot and nightly.
 - **Reordering or renaming a page.** `editPagePublic` writes `name`, so a rename
   is one field away — but it is a field on the endpoint whose other field is the
   one that destroys pages, and nothing has asked for it yet.
+
+## What the spec omits — a correction
+
+Written after the fact, because this document asserted the opposite several
+times and the code quoted it.
+
+**`DELETE /v3/workspaces/{ws}/docs/{doc_id}/pages/{page_id}` exists.** Verified
+live against workspace 529 on 2026-08-31: it answers `204` and the page is
+gone. It is not in `packages/clickup-client/openapi/clickup-v3.json`.
+
+That is the trap CLAUDE.md names in as many words — *"Not in either means it
+does not exist — but the reverse does not hold"* — and this file walked into it
+anyway, having already recorded the vendored file understating the
+`parent_type` enum two paragraphs earlier. Absence from the spec is not
+evidence. Send the request.
+
+Also verified live, so the next person does not have to guess twice:
+
+| Request | Answer |
+|---|---|
+| `DELETE /v3/.../docs/{doc}/pages/{page}` | `204` — works, undocumented |
+| `DELETE /v3/.../docs/{doc}` | `405` — no doc-level delete on v3 |
+| `DELETE /v2/view/{doc_id}` | `200` — removes the Doc; Docs are view-backed |
+| `PUT .../pages/{page}` with `archived: true` | `403` — archiving a page is not offered |
+| `GET .../pages/{page}?content_format=text/html` | `400` — only `text/md` and `text/plain` exist |
+
+What this changes, and what it does not:
+
+- **The "ask, do not guess" conclusion stands.** Reparenting is still
+  impossible, so the parent is still decided once and only once.
+- **The stakes were overstated.** "Cannot be put right from Rask at all" was
+  wrong. It is delete-and-recreate — bad, since the page loses its content and
+  its history, but not permanent.
+- **Rask should probably offer deletion.** It does now: `deleteDocPage`,
+  `DELETE /api/docs/:docId/pages/:pageId` behind the same `writable` guard the
+  additive writes use, and a "×" per index row behind a `window.confirm` that
+  names the page. Two things the build turned up. `request` was calling
+  `.json()` on every 2xx, and this is the only endpoint that answers with an
+  empty body — the parse error read like a malformed response rather than the
+  success it was. And an empty Doc became reachable for the first time, so the
+  reader draws "This Doc has no pages." where it used to sit on "Loading…".
+  What is still unverified: whether deleting a parent takes its children. The
+  confirmation says "may take them with it" rather than claiming either way.

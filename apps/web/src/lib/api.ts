@@ -443,6 +443,7 @@ export type ResolvedRef =
   | { kind: "list"; listId: string; name: string }
   | { kind: "folder"; folderId: string; name: string }
   | { kind: "space"; spaceId: string; name: string }
+  | { kind: "doc"; docId: string; name: string }
   | { kind: "unknown" };
 
 export interface TaskQuery {
@@ -863,8 +864,8 @@ export const api = {
    * root, which is what the header button sends.
    *
    * Worth knowing before changing this: `parent_page_id` is write-once. v3 has
-   * no move endpoint, so a page filed in the wrong place cannot be moved — only
-   * deleted and made again, losing whatever was written on it.
+   * no move endpoint, so a page filed in the wrong place can only be corrected
+   * by deleting it and making it again.
    *
    * Answers the new page's id and nothing else, because a page has no place in
    * the Doc's shape until the Doc is read again. The caller refetches and then
