@@ -51,6 +51,24 @@ export { viewRefresh };
  * own, and because both payloads are whole rows a missed frame is corrected by
  * the next one rather than leaving the client subtly wrong.
  */
+/**
+ * Keeps each stored row's `customValues` where an incoming frame carries none.
+ *
+ * The change feed reads the mirror with no field ids, so its rows say
+ * `customValues: null` — a statement about the frame, not about the task. The
+ * row on hand may hold the very values a column is drawing and a Custom Field
+ * clause is filtering on, and letting the null through blanked every cell of a
+ * task within a second of anybody touching it. Task details never carry the
+ * key at all, for the reason spelled out at the `task` handler below.
+ */
+export function withKeptValues(rows: Task[], stored: (id: string) => Task | undefined): Task[] {
+  return rows.map((row) => {
+    if (row.customValues != null) return row;
+    const prev = stored(row.id);
+    return prev?.customValues != null ? { ...row, customValues: prev.customValues } : row;
+  });
+}
+
 export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}): () => void {
   const source = new EventSource("/api/events");
 
@@ -59,7 +77,8 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
   source.addEventListener("ready", () => setConnected(true));
 
   source.addEventListener("tasks", (event) => {
-    merge(JSON.parse((event as MessageEvent<string>).data) as Task[]);
+    const rows = JSON.parse((event as MessageEvent<string>).data) as Task[];
+    merge(withKeptValues(rows, (id) => tasks.get(id)));
   });
 
   source.addEventListener("task", (event) => {
@@ -74,10 +93,7 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
      * dedupe and fails the Custom Field clause its view is filtered on —
      * which would drop the open task from the list it is being read in.
      */
-    const row = taskHalf(detail);
-    const prev = tasks.get(detail.id);
-    if (prev && "customValues" in prev) row.customValues = prev.customValues;
-    merge([row]);
+    merge(withKeptValues([taskHalf(detail)], (id) => tasks.get(id)));
     setPushedDetail(detail);
     handlers.onDetail?.(detail);
   });

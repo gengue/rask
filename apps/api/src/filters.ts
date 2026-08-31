@@ -82,6 +82,28 @@ export function fieldIdsIn(clauses: readonly Clause[]): string[] {
     .map((clause) => customFieldId(clause.field));
 }
 
+/**
+ * The filter's field ids plus the columns the client wants to draw.
+ *
+ * A union, never a replacement: the browser re-evaluates the filter over these
+ * rows, and `customValues` missing a field the filter names would fail every
+ * row against it (see `matchesClause` in apps/web). The cap is this
+ * parameter's own ceiling — every id becomes a bound parameter in an
+ * `in (...)` — and the filter's ids go into the set first, so a trim can only
+ * ever drop columns, never a clause's field.
+ */
+export function withDisplayFields(
+  fieldIds: readonly string[],
+  param: string | undefined,
+): string[] {
+  const wanted = new Set(fieldIds);
+  for (const id of param?.split(",") ?? []) {
+    const trimmed = id.trim();
+    if (trimmed) wanted.add(trimmed);
+  }
+  return [...wanted].slice(0, 50);
+}
+
 // --- text search ------------------------------------------------------------
 
 /**

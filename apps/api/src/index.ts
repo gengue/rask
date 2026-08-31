@@ -30,13 +30,14 @@ import { authRoutes, currentUser, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
 import { docsRoutes } from "./docs.ts";
-import { fieldIdsIn, parseFilter } from "./filters.ts";
+import { fieldIdsIn, parseFilter, withDisplayFields } from "./filters.ts";
 import {
   findListView,
   findViewMembership,
   getHierarchy,
   getTaskDetail,
   type ListViewRow,
+  listDisplayFields,
   listFilterFields,
   listMembers,
   listTasks,
@@ -384,6 +385,11 @@ const taskFilters = z.object({
    * `parseFilter` rejects a field it does not know rather than ignoring it.
    */
   filter: z.string().max(8000).optional(),
+  /**
+   * Comma-separated Custom Field ids whose values the client draws as columns.
+   * Unioned with the filter's own ids; see `withDisplayFields`.
+   */
+  fields: z.string().max(2000).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
 
@@ -411,7 +417,7 @@ api.get("/tasks", async (c) => {
     statuses: f.status ? f.status.split(",") : undefined,
     tag: f.tag,
     clauses,
-    fieldIds: fieldIdsIn(clauses),
+    fieldIds: withDisplayFields(fieldIdsIn(clauses), f.fields),
     includeClosed: f.closed === "1",
     limit,
   });
@@ -436,6 +442,14 @@ api.get("/lists/:id/statuses", async (c) => c.json(await statusesForList(db, c.r
  */
 api.get("/lists/:id/filter-fields", async (c) =>
   c.json(await listFilterFields(db, c.req.param("id"))),
+);
+
+/**
+ * The Custom Fields the column picker can offer for one List — every type,
+ * where `filter-fields` above stops at the ones worth a facet.
+ */
+api.get("/lists/:id/display-fields", async (c) =>
+  c.json(await listDisplayFields(db, c.req.param("id"))),
 );
 
 /**
@@ -508,7 +522,10 @@ api.get("/views/:id/tasks", async (c) => {
    */
   let fieldIds: string[] = [];
   try {
-    fieldIds = fieldIdsIn(parseFilter(c.req.query("filter")));
+    fieldIds = withDisplayFields(
+      fieldIdsIn(parseFilter(c.req.query("filter"))),
+      c.req.query("fields"),
+    );
   } catch {
     return c.json({ error: "bad filter" }, 400);
   }

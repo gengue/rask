@@ -1,6 +1,7 @@
 import { isPlaceholder } from "@rask/clickup-client/vocabulary";
-import { type JSX, Show } from "solid-js";
-import type { Task } from "../lib/api.ts";
+import { For, type JSX, Show } from "solid-js";
+import type { DisplayField, Task } from "../lib/api.ts";
+import { fieldCellText } from "../lib/custom-fields.ts";
 import { DUE_TONE, formatDue } from "../lib/format.ts";
 import { AvatarStack } from "./Avatar.tsx";
 import { MarkRead, UnreadDot } from "./InboxMarks.tsx";
@@ -46,6 +47,8 @@ export function TaskRow(props: {
   selected: boolean;
   /** Cross-list views show which list a row came from; a list view does not. */
   showList: boolean;
+  /** The Custom Fields this list draws as columns. See `listColumns`. */
+  columns: DisplayField[];
   onOpen: () => void;
   onStatusClick: (event: MouseEvent) => void;
 }): JSX.Element {
@@ -113,6 +116,22 @@ export function TaskRow(props: {
           to nudge it to pure white, a difference of one step on a 4-step ladder
           that nobody could see and that turns invisible on a light background. */}
       <span class="flex-1 truncate text-md text-ink">{props.task.name}</span>
+
+      <Show when={props.columns.length}>
+        {/* Chosen columns shed with the tags: they answer a question the
+            filter can also answer, and the four columns that never shed are
+            already the ones a narrow row is scanned for. A cell reads the raw
+            JSON the row carries; `fieldCellText` is the decoder. */}
+        <div class="flex shrink-0 items-center gap-3 @max-row-full:hidden">
+          <For each={props.columns}>
+            {(field) => (
+              <span class="w-[110px] truncate text-right text-xs text-ink-3" title={field.name}>
+                {fieldCellText(field.type, field.typeConfig, props.task.customValues?.[field.id])}
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
 
       <Show when={props.showList && props.task.listName}>
         {/* My Tasks spans 243 lists. Without this a row gives no clue which

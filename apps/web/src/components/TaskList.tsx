@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Sho
 import type { Task } from "../lib/api.ts";
 import { reasonFor } from "../lib/inbox.ts";
 import { setUi, toggleGroup, ui } from "../lib/ui.ts";
-import { flatItems, viewIsFeed, viewListId, viewLoading } from "../lib/view.ts";
+import { flatItems, listColumns, viewIsFeed, viewListId, viewLoading } from "../lib/view.ts";
 import { sameRange, visibleRange } from "../lib/windowing.ts";
 import { InboxRow } from "./InboxRow.tsx";
 import { Chevron } from "./Sidebar.tsx";
@@ -238,6 +238,7 @@ export function TaskList(props: {
                             <TaskRow
                               task={current().task}
                               showList={viewListId() === null}
+                              columns={listColumns()}
                               active={rowIndices()[ui.cursor] === index()}
                               selected={props.openTaskId === current().task.id}
                               onOpen={open}

@@ -987,9 +987,37 @@ export interface FilterField {
  * join, which measures 189.8ms, because an `exists` stops at the first hit and
  * a distinct does not. A table would be a third thing for ingest to keep in
  * step, for a query nothing but an open menu ever runs.
+ *
+ * Derived from `listDisplayFields` rather than run as its own query, so the
+ * "used in this list" probe is written once; the drop_down restriction is one
+ * `filter` over a result the ponytail note above already priced.
  */
 export async function listFilterFields(db: Db, listId: string): Promise<FilterField[]> {
-  const rows = await db
+  const fields = await listDisplayFields(db, listId);
+  return fields
+    .filter((field) => field.type === "drop_down")
+    .map((field) => ({
+      id: field.id,
+      name: field.name,
+      type: field.type,
+      options: optionsOf(field.typeConfig),
+    }));
+}
+
+export interface DisplayField {
+  id: string;
+  name: string;
+  type: string;
+  /** ClickUp's own shape, verbatim — `formatFieldValue` in apps/web reads it. */
+  typeConfig: unknown;
+}
+
+/**
+ * Every Custom Field with a value somewhere in one List, for the column picker
+ * — all types, since a column only has to render, not offer choices.
+ */
+export async function listDisplayFields(db: Db, listId: string): Promise<DisplayField[]> {
+  return db
     .select({
       id: customFieldDefs.id,
       name: customFieldDefs.name,
@@ -998,23 +1026,13 @@ export async function listFilterFields(db: Db, listId: string): Promise<FilterFi
     })
     .from(customFieldDefs)
     .where(
-      and(
-        inArray(customFieldDefs.type, ["drop_down"]),
-        sql`exists (
-          select 1 from ${taskCustomValues} v
-          join ${tasks} t on t.id = v.task_id
-          where v.field_id = ${customFieldDefs.id} and t.list_id = ${listId}
-        )`,
-      ),
+      sql`exists (
+        select 1 from ${taskCustomValues} v
+        join ${tasks} t on t.id = v.task_id
+        where v.field_id = ${customFieldDefs.id} and t.list_id = ${listId}
+      )`,
     )
-    .orderBy(asc(customFieldDefs.name));
-
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    options: optionsOf(row.typeConfig),
-  }));
+    .orderBy(asc(customFieldDefs.name), asc(customFieldDefs.id));
 }
 
 interface RawOption {

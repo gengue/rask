@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomField } from "../src/lib/api.ts";
 import {
+  arrangeDetailFields,
   CLEAR,
   customFieldWrite,
+  fieldCellText,
   fieldInstant,
   formatFieldValue,
   peopleIn,
@@ -162,5 +164,62 @@ describe("formatFieldValue", () => {
     expect(
       formatFieldValue("formula", { formula: "NETWORKDAYS(TASK_CREATED, TODAY())" }, "-950"),
     ).toBe("-950");
+  });
+});
+
+describe("fieldCellText", () => {
+  const options = { options: [{ id: "o0", name: "Minor", orderindex: 0 }] };
+
+  test("decodes the row's JSON text before formatting", () => {
+    expect(fieldCellText("drop_down", options, "0")).toBe("Minor");
+    expect(fieldCellText("text", null, '"hello"')).toBe("hello");
+    expect(fieldCellText("number", null, "42")).toBe("42");
+  });
+
+  test("absent and undecodable both read as the em dash", () => {
+    expect(fieldCellText("text", null, undefined)).toBe("—");
+    expect(fieldCellText("text", null, "{oh no")).toBe("—");
+  });
+});
+
+describe("arrangeDetailFields", () => {
+  const rows = [
+    { id: "a", display: "set" },
+    { id: "b", display: "—" },
+    { id: "c", display: "set" },
+    { id: "d", display: "set" },
+  ];
+  const arrange = (opts: {
+    hidden?: string[];
+    pinned?: string[];
+    showAll?: boolean;
+    limit?: number;
+  }) =>
+    arrangeDetailFields(rows, {
+      hidden: new Set(opts.hidden ?? []),
+      pinned: new Set(opts.pinned ?? []),
+      showAll: opts.showAll ?? false,
+      limit: opts.limit ?? 4,
+    }).map((row) => row.id);
+
+  test("collapsed keeps the old heuristic when nothing was chosen", () => {
+    expect(arrange({ limit: 2 })).toEqual(["a", "c"]);
+  });
+
+  test("a pinned field shows first even when empty, and counts against the limit", () => {
+    expect(arrange({ pinned: ["b"], limit: 2 })).toEqual(["b", "a"]);
+  });
+
+  test("a hidden field never shows collapsed, and comes back last expanded", () => {
+    expect(arrange({ hidden: ["a"], limit: 4 })).toEqual(["c", "d"]);
+    expect(arrange({ hidden: ["a"], showAll: true })).toEqual(["b", "c", "d", "a"]);
+  });
+
+  test("more pins than the limit still all show", () => {
+    expect(arrange({ pinned: ["b", "d"], limit: 1 })).toEqual(["b", "d"]);
+  });
+
+  test("a field two racing tabs left in both sets renders once, as pinned", () => {
+    expect(arrange({ pinned: ["a"], hidden: ["a"], showAll: true })).toEqual(["a", "b", "c", "d"]);
   });
 });
