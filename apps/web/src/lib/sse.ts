@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { type Task, type TaskDetail, type TimeEntry, taskHalf } from "./api.ts";
-import { merge, tasks } from "./store.ts";
+import { merge } from "./store.ts";
 import { setRunningTimer } from "./timer.ts";
 import { pushToast } from "./toast.ts";
 
@@ -51,24 +51,6 @@ export { viewRefresh };
  * own, and because both payloads are whole rows a missed frame is corrected by
  * the next one rather than leaving the client subtly wrong.
  */
-/**
- * Keeps each stored row's `customValues` where an incoming frame carries none.
- *
- * The change feed reads the mirror with no field ids, so its rows say
- * `customValues: null` — a statement about the frame, not about the task. The
- * row on hand may hold the very values a column is drawing and a Custom Field
- * clause is filtering on, and letting the null through blanked every cell of a
- * task within a second of anybody touching it. Task details never carry the
- * key at all, for the reason spelled out at the `task` handler below.
- */
-export function withKeptValues(rows: Task[], stored: (id: string) => Task | undefined): Task[] {
-  return rows.map((row) => {
-    if (row.customValues != null) return row;
-    const prev = stored(row.id);
-    return prev?.customValues != null ? { ...row, customValues: prev.customValues } : row;
-  });
-}
-
 export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}): () => void {
   const source = new EventSource("/api/events");
 
@@ -78,7 +60,7 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
 
   source.addEventListener("tasks", (event) => {
     const rows = JSON.parse((event as MessageEvent<string>).data) as Task[];
-    merge(withKeptValues(rows, (id) => tasks.get(id)));
+    merge(rows);
   });
 
   source.addEventListener("task", (event) => {
@@ -88,12 +70,11 @@ export function connect(handlers: { onDetail?: (task: TaskDetail) => void } = {}
      * whole detail in there means the list rebuilds on every push. The panel
      * still gets everything, through `pushedDetail` below.
      *
-     * `customValues` is kept from the row already here: a detail never carries
-     * that key, list rows always do, and a row stripped of it both breaks the
-     * dedupe and fails the Custom Field clause its view is filtered on —
-     * which would drop the open task from the list it is being read in.
+     * A detail carries no `customValues` at all; `merge` keeps the row's own,
+     * which both the columns and a Custom Field clause read — see
+     * `keepValues`.
      */
-    merge(withKeptValues([taskHalf(detail)], (id) => tasks.get(id)));
+    merge([taskHalf(detail)]);
     setPushedDetail(detail);
     handlers.onDetail?.(detail);
   });
