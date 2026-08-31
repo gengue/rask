@@ -1,5 +1,5 @@
 import { isPlaceholder } from "@rask/clickup-client/vocabulary";
-import { Outlet, useNavigate, useSearch } from "@tanstack/solid-router";
+import { Outlet, useNavigate, useParams, useSearch } from "@tanstack/solid-router";
 import {
   createEffect,
   createMemo,
@@ -41,7 +41,7 @@ import {
 import { lightboxOpen } from "./lib/lightbox.ts";
 import { useLiveTask, useLiveTasks } from "./lib/live.ts";
 import { useExpanded } from "./lib/nav.tsx";
-import { loadSession, me, reloadHierarchy, spaces } from "./lib/session.ts";
+import { loadSession, me, reloadHierarchy, spaces, workspaceDocs } from "./lib/session.ts";
 import { signInError } from "./lib/sign-in-error.ts";
 import { markSignedOut, signedOut } from "./lib/signed-out.ts";
 import { connect } from "./lib/sse.ts";
@@ -95,6 +95,9 @@ const MENU_PLACEHOLDER: Record<"status" | "priority" | "task", string> = {
 export function AppShell(): JSX.Element {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
+  /** Whether a Doc is open, which is the one route with no task query behind it. */
+  const params = useParams({ strict: false });
+  const onDoc = () => (params() as { docId?: string }).docId !== undefined;
 
   /*
    * A refused sign-in is a signed-out state, not an error to swallow.
@@ -677,8 +680,12 @@ export function AppShell(): JSX.Element {
   });
 
   const commands = (): Command[] => [
-    ...buildNavigationCommands(spaces(), (listId) =>
-      navigate({ to: "/list/$listId", params: { listId } }),
+    ...buildNavigationCommands(
+      { spaces: spaces(), docs: workspaceDocs() },
+      {
+        list: (listId) => navigate({ to: "/list/$listId", params: { listId } }),
+        doc: (docId) => navigate({ to: "/doc/$docId", params: { docId } }),
+      },
     ),
     {
       id: "nav:my-tasks",
@@ -873,6 +880,7 @@ export function AppShell(): JSX.Element {
         <Sidebar
           me={me()}
           spaces={spaces()}
+          docs={workspaceDocs()}
           open={ui.sidebarOpen}
           onSearch={() => setUi("palette", true)}
           onQuickAdd={() => setUi("quickAdd", true)}
@@ -899,7 +907,17 @@ export function AppShell(): JSX.Element {
               exists purely to carry `hidden` when a task is expanded. Unwrap
               that and the skins shed silently, which no test can see. Pinned in
               skin-hooks.test.ts. */}
-            <header class="view-header flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5">
+            {/*
+              Hidden on a Doc, which is the one route here that is not a list of
+              tasks. Filter, Closed, Status and the layout toggle all act on a
+              task query a Doc does not have, and a toolbar whose every control
+              is inert on the thing under it reads as a broken page. The reader
+              draws its own header in its place.
+            */}
+            <header
+              class="view-header flex h-12 shrink-0 items-center gap-3 border-line/70 border-b px-5"
+              classList={{ hidden: onDoc() }}
+            >
               {/* The only way back to the workspace tree for a mouse below
                 `dock`, where the sidebar is a drawer. */}
               <button

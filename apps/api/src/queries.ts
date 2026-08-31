@@ -1,10 +1,11 @@
-import { flattenMentions } from "@rask/clickup-client";
+import { DOC_PARENT, flattenMentions } from "@rask/clickup-client";
 import {
   checklistItems,
   commentMentions,
   comments,
   customFieldDefs,
   type Db,
+  docs,
   folders,
   lists,
   listViews,
@@ -824,15 +825,42 @@ export async function statusesForList(db: Db, listId: string): Promise<StatusDef
   return row?.listStatuses ?? row?.spaceStatuses ?? [];
 }
 
+/** A Doc as the tree shows it: a name and somewhere to click. */
+export interface DocRef {
+  id: string;
+  name: string;
+}
+
+export interface ListNode {
+  id: string;
+  name: string;
+  /** Docs written inside this List. Usually none; the node stays a leaf then. */
+  docs: DocRef[];
+}
+
 export interface HierarchyNode {
   id: string;
   name: string;
-  folders: Array<{ id: string; name: string; lists: Array<{ id: string; name: string }> }>;
-  lists: Array<{ id: string; name: string }>;
+  folders: Array<{ id: string; name: string; lists: ListNode[]; docs: DocRef[] }>;
+  lists: ListNode[];
+  docs: DocRef[];
 }
 
-export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
-  const [allSpaces, allFolders, allLists] = await Promise.all([
+export interface Hierarchy {
+  spaces: HierarchyNode[];
+  /**
+   * Docs that hang off the Workspace itself rather than any Space.
+   *
+   * ClickUp's own sidebar keeps these outside the tree too, and there are more
+   * of them than every other kind put together in the workspace this was built
+   * against — 73 against 4 at Space level. Dropping them because the tree has
+   * no node for them would hide most of the Docs somebody has.
+   */
+  docs: DocRef[];
+}
+
+export async function getHierarchy(db: Db): Promise<Hierarchy> {
+  const [allSpaces, allFolders, allLists, allDocs] = await Promise.all([
     db
       .select({ id: spaces.id, name: spaces.name })
       .from(spaces)
@@ -853,7 +881,35 @@ export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
       .from(lists)
       .where(eq(lists.archived, false))
       .orderBy(asc(lists.orderindex), asc(lists.name)),
+    db
+      .select({ id: docs.id, name: docs.name, parentId: docs.parentId, type: docs.parentType })
+      .from(docs)
+      .where(eq(docs.archived, false))
+      .orderBy(asc(docs.name)),
   ]);
+
+  /*
+   * Docs by parent, so each node can take its own without rescanning the list.
+   *
+   * Task-parented Docs are deliberately left out of the tree. They are the
+   * majority by count and they already have a home — the Docs section of the
+   * task panel — and hanging them off the List their task lives in would
+   * scatter a hundred rows through the sidebar under names nobody recognises.
+   */
+  const byParent = new Map<string, DocRef[]>();
+  for (const doc of allDocs) {
+    if (doc.type === DOC_PARENT.task || !doc.parentId) continue;
+    const key = `${doc.type}:${doc.parentId}`;
+    const bucket = byParent.get(key) ?? [];
+    bucket.push({ id: doc.id, name: doc.name });
+    byParent.set(key, bucket);
+  }
+  const docsOf = (type: number, id: string): DocRef[] => byParent.get(`${type}:${id}`) ?? [];
+  const listNode = (l: { id: string; name: string }): ListNode => ({
+    id: l.id,
+    name: l.name,
+    docs: docsOf(DOC_PARENT.list, l.id),
+  });
 
   // A list whose folder is not in the tree — hidden, archived, or simply not
   // mirrored yet — belongs at the space level. Without this it belongs nowhere
@@ -861,22 +917,33 @@ export async function getHierarchy(db: Db): Promise<HierarchyNode[]> {
   // went missing.
   const knownFolders = new Set(allFolders.map((folder) => folder.id));
 
-  return allSpaces.map((space) => ({
-    id: space.id,
-    name: space.name,
-    folders: allFolders
-      .filter((f) => f.spaceId === space.id)
-      .map((folder) => ({
-        id: folder.id,
-        name: folder.name,
-        lists: allLists
-          .filter((l) => l.folderId === folder.id)
-          .map((l) => ({ id: l.id, name: l.name })),
-      })),
-    lists: allLists
-      .filter((l) => l.spaceId === space.id && (!l.folderId || !knownFolders.has(l.folderId)))
-      .map((l) => ({ id: l.id, name: l.name })),
-  }));
+  return {
+    spaces: allSpaces.map((space) => ({
+      id: space.id,
+      name: space.name,
+      folders: allFolders
+        .filter((f) => f.spaceId === space.id)
+        .map((folder) => ({
+          id: folder.id,
+          name: folder.name,
+          lists: allLists.filter((l) => l.folderId === folder.id).map(listNode),
+          docs: docsOf(DOC_PARENT.folder, folder.id),
+        })),
+      lists: allLists
+        .filter((l) => l.spaceId === space.id && (!l.folderId || !knownFolders.has(l.folderId)))
+        .map(listNode),
+      docs: docsOf(DOC_PARENT.space, space.id),
+    })),
+    /*
+     * Everything (7) sits beside the Workspace (12) here. Both mean "not filed
+     * under a Space", they are two of ClickUp's words for nearly the same
+     * place, and splitting the sidebar into two indistinguishable sections
+     * would be a distinction the reader cannot act on.
+     */
+    docs: allDocs
+      .filter((d) => d.type === DOC_PARENT.workspace || d.type === DOC_PARENT.everything)
+      .map((d) => ({ id: d.id, name: d.name })),
+  };
 }
 
 export interface FilterFieldOption {

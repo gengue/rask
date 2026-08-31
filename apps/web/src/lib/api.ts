@@ -195,6 +195,38 @@ export interface AttachmentUpload {
   detail: TaskDetail;
 }
 
+/**
+ * A ClickUp Doc that lives inside a task.
+ *
+ * A Doc is a stack of pages, and a one-page Doc is the common case — the panel
+ * only shows page names once there is more than one of them.
+ */
+export interface Doc {
+  id: string;
+  name: string;
+  /** ISO 8601. */
+  updated: string | null;
+  pages: DocPage[];
+}
+
+export interface DocPage {
+  id: string;
+  name: string;
+  /** Markdown, rendered through the same sanitizer as a task description. */
+  content: string;
+  /** How deep the page sits. The list is flat and in reading order. */
+  depth: number;
+  /** The page's emoji, when it has one. */
+  icon: string | null;
+  /** Banner across the top of the page. A public ClickUp attachments URL. */
+  cover: string | null;
+  /** ISO 8601. */
+  updated: string | null;
+  /** ClickUp user ids, resolved against the workspace directory for faces. */
+  authors: string[];
+  contributors: string[];
+}
+
 export interface ChecklistItem {
   id: string;
   name: string;
@@ -330,11 +362,37 @@ export interface Me {
   inboxSeenAt: string;
 }
 
+/** A Doc in the tree: a name and somewhere to click. Contents come later. */
+export interface DocRef {
+  id: string;
+  name: string;
+}
+
+export interface ListRef {
+  id: string;
+  name: string;
+  /** Docs written inside this List. Usually empty; the node stays a leaf then. */
+  docs: DocRef[];
+}
+
 export interface Space {
   id: string;
   name: string;
-  folders: Array<{ id: string; name: string; lists: Array<{ id: string; name: string }> }>;
-  lists: Array<{ id: string; name: string }>;
+  folders: Array<{ id: string; name: string; lists: ListRef[]; docs: DocRef[] }>;
+  lists: ListRef[];
+  docs: DocRef[];
+}
+
+/**
+ * The tree, plus the Docs that hang off the Workspace rather than any Space.
+ *
+ * ClickUp keeps those outside the tree too, and there are more of them than
+ * every other kind put together — so they get their own section rather than
+ * being dropped for want of a node.
+ */
+export interface Hierarchy {
+  spaces: Space[];
+  docs: DocRef[];
 }
 
 /**
@@ -544,7 +602,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ taskId }),
     }),
-  hierarchy: () => request<Space[]>("/api/hierarchy"),
+  hierarchy: () => request<Hierarchy>("/api/hierarchy"),
   members: () => request<Assignee[]>("/api/members"),
 
   tasks(query: TaskQuery = {}): Promise<TaskPage> {
@@ -742,6 +800,23 @@ export const api = {
 
   timeEntries: (taskId: string) =>
     request<{ entries: TimeEntry[] }>(`/api/tasks/${taskId}/time-entries`),
+
+  /**
+   * The Docs written inside a task, contents and all.
+   *
+   * Live from ClickUp like the entries above, and for the same reason: nothing
+   * in Rask filters or sorts by a Doc, so mirroring one would be upkeep with no
+   * reader. Costs a request per Doc, so the panel only asks when expanded.
+   */
+  taskDocs: (taskId: string) => request<{ docs: Doc[] }>(`/api/tasks/${taskId}/docs`),
+
+  /**
+   * One Doc, contents included.
+   *
+   * The name and the parent come from the mirrored index; only the pages are
+   * read live. Costs one ClickUp request no matter how many pages the Doc has.
+   */
+  doc: (docId: string) => request<{ doc: Doc }>(`/api/docs/${docId}`),
 
   createTimeEntry: (taskId: string, entry: NewTimeEntry) =>
     request<{ entry: TimeEntry }>(`/api/tasks/${taskId}/time-entries`, {

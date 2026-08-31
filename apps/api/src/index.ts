@@ -29,6 +29,7 @@ import { readUpload } from "./attachments.ts";
 import { authRoutes, currentUser, type SessionUser } from "./auth.ts";
 import { ChangeFeed } from "./changes.ts";
 import { loadConfig } from "./config.ts";
+import { docsRoutes } from "./docs.ts";
 import { fieldIdsIn, parseFilter } from "./filters.ts";
 import {
   findListView,
@@ -953,6 +954,12 @@ api.route(
     refreshTask: (userId, taskId, options) => refreshTask(userId, taskId, options),
   }),
 );
+
+/*
+ * Docs on a task, also read live rather than from the mirror. Same mounting
+ * rule as the rest: on `api`, so it inherits the session check.
+ */
+api.route("/", docsRoutes({ db, clientFor }));
 
 api.route(
   "/timesheet",

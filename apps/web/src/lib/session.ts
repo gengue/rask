@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { type Assignee, api, type Me, type Space } from "./api.ts";
+import { type Assignee, api, type DocRef, type Me, type Space } from "./api.ts";
 
 /**
  * Who is signed in and what the workspace looks like.
@@ -11,17 +11,22 @@ import { type Assignee, api, type Me, type Space } from "./api.ts";
  */
 export const [me, setMe] = createSignal<Me | null>(null);
 export const [spaces, setSpaces] = createSignal<Space[]>([]);
+/** Docs that hang off the Workspace itself. Their own section in the sidebar. */
+export const [workspaceDocs, setWorkspaceDocs] = createSignal<DocRef[]>([]);
 export const [members, setMembers] = createSignal<Assignee[]>([]);
 
 export async function loadSession(): Promise<void> {
   const [user, tree, directory] = await Promise.all([api.me(), api.hierarchy(), api.members()]);
   setMe(user);
-  setSpaces(tree);
+  setSpaces(tree.spaces);
+  setWorkspaceDocs(tree.docs);
   setMembers(directory);
 }
 
 export async function reloadHierarchy(): Promise<void> {
-  setSpaces(await api.hierarchy());
+  const tree = await api.hierarchy();
+  setSpaces(tree.spaces);
+  setWorkspaceDocs(tree.docs);
 }
 
 /** Resolves a list id to its name without another round trip. */

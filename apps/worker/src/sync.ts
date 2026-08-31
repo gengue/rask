@@ -1,8 +1,10 @@
-import type { ClickUpClient, ClickUpList } from "@rask/clickup-client";
+import type { ClickUpClient, ClickUpDoc, ClickUpList } from "@rask/clickup-client";
 import {
   type Db,
   ingestComments,
   ingestTasks,
+  mapDoc,
+  replaceDocs,
   syncCursors,
   tasks,
   upsertFolders,
@@ -57,12 +59,47 @@ export async function syncHierarchy(
     }
   }
 
+  /*
+   * The Doc index rides along with the tree, because it is the same kind of
+   * thing: names and parents that the sidebar needs all at once, refreshed on
+   * the same schedule. It is deliberately last — a workspace whose Docs cannot
+   * be read still gets its Spaces, Folders and Lists, which is what task sync
+   * depends on.
+   *
+   * A failure here is warned about and swallowed for that reason. There is no
+   * webhook for a Doc, so the next hierarchy pass is the retry.
+   */
+  const docs = await readDocIndex(client, teamId);
+  if (docs)
+    await replaceDocs(
+      db,
+      teamId,
+      docs.map((doc) => mapDoc(doc, teamId)),
+    );
+
   return {
-    requests: 1 + tree.length * 2 + extra,
+    // The index costs at least one request even when it comes back empty.
+    requests: 1 + tree.length * 2 + extra + (docs ? Math.max(1, Math.ceil(docs.length / 100)) : 0),
     tasks: 0,
     changed: 0,
     ms: Date.now() - started,
   };
+}
+
+/**
+ * The workspace's Docs, or null if ClickUp would not say.
+ *
+ * Null rather than an empty array, and the caller checks: `replaceDocs` deletes
+ * every row it was not given, so handing it `[]` on a failed read would empty
+ * the sidebar of Docs and look exactly like a workspace that has none.
+ */
+async function readDocIndex(client: ClickUpClient, teamId: string): Promise<ClickUpDoc[] | null> {
+  try {
+    return await client.listAllDocs(teamId);
+  } catch (error) {
+    console.warn("[sync] doc index:", error instanceof Error ? error.message : error);
+    return null;
+  }
 }
 
 /**

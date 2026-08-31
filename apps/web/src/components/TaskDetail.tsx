@@ -55,6 +55,7 @@ import { pushToast } from "../lib/toast.ts";
 import { Attachments } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Checklists } from "./Checklists.tsx";
+import { Docs } from "./Docs.tsx";
 
 /*
  * CodeMirror is loaded when someone starts editing, not before.
@@ -761,6 +762,8 @@ export function TaskDetail(props: {
                 />
 
                 <TimeEntries taskId={props.taskId} />
+
+                <Docs taskId={props.taskId} />
 
                 <Comments taskId={props.taskId} threads={task().comments} onDetail={acceptDetail} />
               </div>

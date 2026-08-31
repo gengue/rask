@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount } from "solid-js";
-import type { Space } from "../lib/api.ts";
+import type { DocRef, Space } from "../lib/api.ts";
 import { rankCommands } from "../lib/rank.ts";
 
 export interface Command {
@@ -153,21 +153,50 @@ export function CommandPalette(props: {
   );
 }
 
-export function buildNavigationCommands(spaces: Space[], go: (listId: string) => void): Command[] {
-  return spaces.flatMap((space) => [
-    ...space.lists.map((list) => ({
-      id: `list:${list.id}`,
-      label: list.name,
-      section: space.name,
-      run: () => go(list.id),
-    })),
-    ...space.folders.flatMap((folder) =>
-      folder.lists.map((list) => ({
+/**
+ * Everything in the workspace tree, as one typeable list.
+ *
+ * Docs are in here for the same reason Lists are: the sidebar's own argument
+ * for hiding below `dock` is that ⌘K reaches anything by typing it, and a row
+ * you can see but cannot search makes that false. A Doc and a List can share a
+ * name, so the ids are prefixed by kind rather than by parent.
+ */
+export function buildNavigationCommands(
+  tree: { spaces: Space[]; docs: DocRef[] },
+  go: { list: (listId: string) => void; doc: (docId: string) => void },
+): Command[] {
+  const docCommands = (docs: DocRef[], section: string, prefix = "") =>
+    docs.map((doc) => ({
+      id: `doc:${doc.id}`,
+      label: `${prefix}${doc.name}`,
+      section,
+      run: () => go.doc(doc.id),
+    }));
+
+  return [
+    ...tree.spaces.flatMap((space) => [
+      ...space.lists.map((list) => ({
         id: `list:${list.id}`,
-        label: `${folder.name} / ${list.name}`,
+        label: list.name,
         section: space.name,
-        run: () => go(list.id),
+        run: () => go.list(list.id),
       })),
-    ),
-  ]);
+      ...space.lists.flatMap((list) => docCommands(list.docs, space.name, `${list.name} / `)),
+      ...docCommands(space.docs, space.name),
+      ...space.folders.flatMap((folder) => [
+        ...folder.lists.map((list) => ({
+          id: `list:${list.id}`,
+          label: `${folder.name} / ${list.name}`,
+          section: space.name,
+          run: () => go.list(list.id),
+        })),
+        ...folder.lists.flatMap((list) =>
+          docCommands(list.docs, space.name, `${folder.name} / ${list.name} / `),
+        ),
+        ...docCommands(folder.docs, space.name, `${folder.name} / `),
+      ]),
+    ]),
+    // The ones ClickUp files at the Workspace, which have no Space to name.
+    ...docCommands(tree.docs, "Docs"),
+  ];
 }

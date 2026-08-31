@@ -20,6 +20,7 @@ import {
 import { Dynamic } from "solid-js/web";
 import { AppShell } from "./App.tsx";
 import { Board } from "./components/Board.tsx";
+import { DocReader } from "./components/DocReader.tsx";
 import { RouteError } from "./components/RouteError.tsx";
 import { TaskList } from "./components/TaskList.tsx";
 import { TimesheetTable } from "./components/TimesheetTable.tsx";
@@ -161,6 +162,24 @@ const viewRoute = createRoute({
   path: "/view/$viewId",
   component: ContainerView,
 });
+
+/**
+ * One Doc, opened from the sidebar.
+ *
+ * Its own route rather than a panel over a list, because a Doc does not belong
+ * to whatever was on screen — the release notes are read for their own sake and
+ * the URL should say so.
+ */
+const docRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/doc/$docId",
+  component: DocView,
+});
+
+function DocView(): JSX.Element {
+  const params = useParams({ from: docRoute.id });
+  return <DocReader docId={params().docId} />;
+}
 
 const clickUpRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -731,6 +750,7 @@ const routeTree = rootRoute.addChildren([
   listRoute,
   savedViewRoute,
   viewRoute,
+  docRoute,
   clickUpRoute,
 ]);
 
