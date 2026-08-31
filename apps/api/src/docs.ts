@@ -22,23 +22,25 @@ import { upstream } from "./upstream.ts";
  * This is also the only place Rask touches ClickUp's v3 API. See
  * `searchDocs` for why that needs no separate client.
  *
- * The two writes here — appending to a page, and creating one — go straight
- * through to ClickUp rather than into the outbox, for a reason that follows
- * from all of the above. The outbox exists so a write can be *shown* before it
- * lands: the mirror is updated and a row queued in one transaction, and the
- * browser paints from the mirror. No Doc body is mirrored, so there is nothing
- * to paint optimistically and nothing for the worker to repair when ClickUp
- * refuses — and the outbox's retry would append the same paragraph twice, which
- * is the argument `time.ts` makes about starting the same timer twice. So they
- * wait for ClickUp, as the attachment upload does.
+ * The writes here — appending to a page, creating one, deleting one — go
+ * straight through to ClickUp rather than into the outbox, for a reason that
+ * follows from all of the above. The outbox exists so a write can be *shown*
+ * before it lands: the mirror is updated and a row queued in one transaction,
+ * and the browser paints from the mirror. No Doc body is mirrored, so there is
+ * nothing to paint optimistically and nothing for the worker to repair when
+ * ClickUp refuses — and the outbox's retry would append the same paragraph
+ * twice, which is the argument `time.ts` makes about starting the same timer
+ * twice. So they wait for ClickUp, as the attachment upload does.
  *
- * Both are additive, and that is the design rather than a coincidence. An
- * append carries only the new block and a create addresses a page that does not
- * exist yet, so neither has a stale copy of anything in flight and neither can
- * overwrite what somebody wrote in ClickUp's own editor in the meantime — which
- * matters because there is no webhook for a Doc to tell us they did.
- * `docs/doc-editing.md` has the rest, including what whole-body replace is
- * waiting on.
+ * Two of the three are additive, and that is the design rather than a
+ * coincidence. An append carries only the new block and a create addresses a
+ * page that does not exist yet, so neither has a stale copy of anything in
+ * flight and neither can overwrite what somebody wrote in ClickUp's own editor
+ * in the meantime — which matters because there is no webhook for a Doc to tell
+ * us they did. Delete is the one that destroys writing, so it is a route of its
+ * own with a confirmation in front of it rather than a mode on the edit; what
+ * still has no route is whole-body *replace*, which would lose text without
+ * anybody asking for it to go. `docs/doc-editing.md` has the rest.
  */
 
 type Env = { Variables: { user: SessionUser } };
@@ -369,6 +371,51 @@ export function docsRoutes(deps: DocsDeps) {
       const { status, error: message } = upstream(error);
       return c.json({ error: message }, status);
     }
+  });
+
+  /**
+   * Removes a page.
+   *
+   * The one route in this module that destroys text rather than adding to it,
+   * and the only reason it can exist is that the endpoint behind it turned out
+   * to be real: `DELETE .../pages/{id}` is missing from the vendored v3 spec
+   * and answers 204 anyway. `deleteDocPage` carries the live check.
+   *
+   * The same `writable` guard the two additive writes have, and it earns more
+   * here than it does there. The Doc id arrives from the caller and decides
+   * what this server destroys on the caller's token; Doc ids are guessable,
+   * "gh-" and five digits. The page id still cannot be checked — pages are not
+   * mirrored — so the blast radius stays a page inside a Doc the caller has
+   * already proved they can reach.
+   *
+   * Write-through like its neighbours, for the reason the module comment gives:
+   * nothing about a Doc is mirrored, so there is no optimistic row to paint and
+   * none for the worker to repair. Unlike them, a retried delete is harmless —
+   * the second one 404s at worst — so the shared 5xx retry costs nothing here.
+   *
+   * Nothing is echoed back. The browser refetches the Doc, which is what tells
+   * it what the index now looks like without this route inventing a shape.
+   */
+  app.delete("/docs/:docId/pages/:pageId", async (c) => {
+    const user = c.get("user");
+    const docId = c.req.param("docId");
+    const pageId = c.req.param("pageId");
+
+    if (!(await writable(docId, user.teamId))) return c.json({ error: "not found" }, 404);
+
+    const client = await clientFor(user.id);
+    if (!client) return c.json({ error: "no ClickUp token" }, 409);
+
+    try {
+      await client.deleteDocPage(user.teamId, docId, pageId);
+    } catch (error) {
+      // Never ClickUp's own status: a 401 upstream means Rask's token has gone
+      // bad, and the browser would read one of its own as the session ending.
+      const { status, error: message } = upstream(error);
+      return c.json({ error: message }, status);
+    }
+
+    return c.json({ ok: true });
   });
 
   return app;

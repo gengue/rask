@@ -240,7 +240,10 @@ export class ClickUpClient {
       this.limiter.syncFromHeaders(response.headers);
 
       if (response.ok) {
-        const json = await response.json();
+        // 204 has no body, and `.json()` on one throws a parse error that reads
+        // like a malformed answer rather than the success it was. v3's page
+        // delete is the only endpoint here that answers that way.
+        const json = response.status === 204 ? undefined : await response.json();
         const parsed = schema.safeParse(json);
         if (!parsed.success) {
           throw new ClickUpError(
@@ -1087,6 +1090,35 @@ export class ClickUpClient {
           content_format: "text/md",
         },
       },
+    );
+  }
+
+  /**
+   * Removes a page, and everything written on it.
+   *
+   * Absent from `openapi/clickup-v3.json` — there is no `deletePagePublic` in
+   * the vendored file at all — and it exists anyway. Confirmed live against
+   * workspace 529 on 2026-08-31: `DELETE /v3/workspaces/{ws}/docs/{doc}/pages/
+   * {page}` answers 204 and the page is gone. This is the same shape as the
+   * `parent_type` enum `clickUpDoc` documents: the spec understates the
+   * surface, so "not in the file" is a reason to go and ask, not a conclusion.
+   *
+   * Three neighbouring answers from the same session, so nobody has to probe
+   * them twice. `DELETE .../docs/{doc}` is 405 — there is no doc-level delete
+   * on v3, though `DELETE /v2/view/{doc}` does remove a Doc, since Docs are
+   * view-backed. `PUT .../pages/{page}` with `{ archived: true }` is 403, so
+   * there is no softer version of this call to reach for.
+   *
+   * The one write here that destroys text, which is why it is a verb of its own
+   * rather than a flag on the edit: nothing a caller can get wrong turns an
+   * append into this. ClickUp offers no undo for it that Rask can reach — ask
+   * the person first.
+   */
+  async deleteDocPage(workspaceId: string, docId: string, pageId: string): Promise<void> {
+    await this.request(
+      z.unknown(),
+      "DELETE",
+      `/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`,
     );
   }
 

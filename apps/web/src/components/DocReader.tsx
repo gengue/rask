@@ -67,11 +67,13 @@ export function DocReader(props: { docId: string }): JSX.Element {
    *
    * Asked rather than inferred, and that is not a nicety. `parent_page_id` is
    * write-once — `editPagePublic` takes `name`, `sub_title`, `content`,
-   * `content_edit_mode` and `content_format`, and there is no move endpoint and
-   * no delete endpoint anywhere in v3 — so a page created in the wrong place
-   * cannot be put right from Rask at all. The earlier version guessed "sibling
-   * of whatever you are reading", which on the Doc's own first page means the
-   * root, and quietly filed pages outside the tree they belonged to.
+   * `content_edit_mode` and `content_format`, and v3 has no move endpoint — so
+   * a page created in the wrong place cannot be moved. Delete exists, so it can
+   * be undone, but only by destroying the page and making it again somewhere
+   * else, which costs whatever was written on it in between. The earlier
+   * version guessed "sibling of whatever you are reading", which on the Doc's
+   * own first page means the root, and quietly filed pages outside the tree
+   * they belonged to.
    */
   const [addingUnder, setAddingUnder] = createSignal<string | null | undefined>(undefined);
 
@@ -93,6 +95,51 @@ export function DocReader(props: { docId: string }): JSX.Element {
   const created = async (id: string): Promise<void> => {
     await refetch();
     setPicked(id);
+  };
+
+  /** The page a delete is in flight for, so a second press cannot start one. */
+  const [deleting, setDeleting] = createSignal<string | null>(null);
+
+  /*
+   * Removing a page, behind the same `window.confirm` the task menu uses.
+   *
+   * This is the only thing in the reader that destroys somebody's prose, and it
+   * is the second confirmation in the app for the same reason as the first:
+   * there is no undo Rask can reach. The dialog rather than the timesheet's
+   * two-step "Sure?" because what has to be confirmed is *which* page, and the
+   * index is 240px of rows that look alike — twenty-five of them on the Doc
+   * this was built against, named "November 7 - 2025" and its neighbours.
+   *
+   * `picked` needs no reset. It is read by id and resolves to the first page
+   * when the id is gone, which is exactly where a reader should land.
+   */
+  const remove = async (page: DocPage): Promise<void> => {
+    if (deleting()) return;
+
+    // "may take them with it" rather than a promise: ClickUp's answer for a
+    // page with children has not been checked, and the safe reading is the one
+    // that does not tell somebody their sub-pages are staying.
+    const ok = window.confirm(
+      `Delete "${page.name}"?\n\nEverything written on it goes, and a page with pages ` +
+        `under it may take them with it. Rask cannot undo this.`,
+    );
+    if (!ok) return;
+
+    setDeleting(page.id);
+    try {
+      await api.deleteDocPage(props.docId, page.id);
+      await refetch();
+    } catch (error) {
+      // A toast carrying ClickUp's own refusal, as every other write-through
+      // failure here does. "You do not have edit access" is the likely one.
+      pushToast({
+        tone: "error",
+        title: "Could not delete that page",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+    } finally {
+      setDeleting(null);
+    }
   };
 
   // `heldValue`, never `doc()`: this resource talks to ClickUp, so a plain read
@@ -189,6 +236,22 @@ export function DocReader(props: { docId: string }): JSX.Element {
                     >
                       +
                     </button>
+                    {/* Beside the "+", revealed the same way and reachable by
+                        keyboard for the same reason. A plain click, not a
+                        pointer-down: if a name box is open, the blur that
+                        closes it reflows the column and the press simply does
+                        not land, which for this button is the right nothing to
+                        happen. */}
+                    <button
+                      type="button"
+                      onClick={() => void remove(page)}
+                      disabled={deleting() === page.id}
+                      title={`Delete "${page.name}"`}
+                      aria-label={`Delete ${page.name}`}
+                      class="h-6 w-6 shrink-0 rounded-[5px] text-ink-4 leading-none opacity-0 hover:bg-hover hover:text-high focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      ×
+                    </button>
                   </div>
                   <Show when={addingUnder() === page.id}>
                     <NewPageBox
@@ -239,10 +302,10 @@ export function DocReader(props: { docId: string }): JSX.Element {
  * In the index at the parent's own indent rather than in a dialog, because the
  * one thing this control has to communicate is *where* — `parent_page_id` is
  * write-once (`editPagePublic` accepts `name`, `sub_title`, `content`,
- * `content_edit_mode`, `content_format`, and v3 has no move endpoint and no
- * delete endpoint), so a page filed in the wrong place cannot be moved or
- * removed from Rask afterwards. Showing the slot it will occupy is cheaper
- * than any amount of labelling.
+ * `content_edit_mode`, `content_format`, and v3 has no move endpoint), so a
+ * page filed in the wrong place cannot be moved. It can be deleted and made
+ * again, which is a worse fix than it sounds: it costs whatever was written on
+ * it. Showing the slot it will occupy is cheaper than any amount of labelling.
  *
  * A name and nothing else; the page is born empty. Writing into it is
  * `Append`'s job, which is the same rule the API keeps — one endpoint per
@@ -461,9 +524,9 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
    * it calls `onCommit` and then blurs, which calls it again. A description
    * PATCH does not care — the same value written twice is the same value. The
    * same paragraph appended twice to somebody's Doc is somebody's Doc with the
-   * paragraph in it twice, and there is no delete-page endpoint to tidy up
-   * with. So the send is keyed on the text: one post per distinct draft,
-   * whatever fires it.
+   * paragraph in it twice, and nothing here can tidy that up — deleting the
+   * page takes the other twenty entries with it. So the send is keyed on the
+   * text: one post per distinct draft, whatever fires it.
    *
    * It doubles as the guard against re-sending on the way out of a failure.
    * Click away from a composer that just failed and blur commits the same text

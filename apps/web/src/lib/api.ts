@@ -863,8 +863,8 @@ export const api = {
    * root, which is what the header button sends.
    *
    * Worth knowing before changing this: `parent_page_id` is write-once. v3 has
-   * no move endpoint and no delete endpoint, so a page filed in the wrong place
-   * cannot be put right from Rask at all.
+   * no move endpoint, so a page filed in the wrong place cannot be moved — only
+   * deleted and made again, losing whatever was written on it.
    *
    * Answers the new page's id and nothing else, because a page has no place in
    * the Doc's shape until the Doc is read again. The caller refetches and then
@@ -875,6 +875,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  /**
+   * Removes a page and everything on it.
+   *
+   * The endpoint behind this is missing from ClickUp's vendored v3 spec and
+   * works anyway — `deleteDocPage` in the client carries the live check. Ask
+   * before calling it: ClickUp offers no undo Rask can reach.
+   */
+  deleteDocPage: (docId: string, pageId: string) =>
+    request<{ ok: true }>(`/api/docs/${docId}/pages/${pageId}`, { method: "DELETE" }),
 
   createTimeEntry: (taskId: string, entry: NewTimeEntry) =>
     request<{ entry: TimeEntry }>(`/api/tasks/${taskId}/time-entries`, {

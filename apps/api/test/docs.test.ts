@@ -402,8 +402,8 @@ describe("POST /docs/:docId/pages/:pageId/append", () => {
   /*
    * The assertion this whole route exists for. `content_edit_mode` defaults to
    * `replace` upstream, so a body that stops saying `append` does not fail —
-   * it replaces a 154 000-character Doc page with one paragraph, and there is
-   * no delete-page endpoint to undo it with.
+   * it replaces a 154 000-character Doc page with one paragraph, and the only
+   * thing Rask could do about it afterwards is delete the page.
    */
   test("appends, and never replaces", async () => {
     await mirrored();
@@ -635,6 +635,106 @@ describe("POST /docs/:docId/pages", () => {
     await mirrored();
 
     expect((await create(null, { name: "Top" })).status).toBe(409);
+  });
+});
+
+/**
+ * `DELETE /docs/:docId/pages/:pageId`, the one write here that destroys text.
+ *
+ * The endpoint behind it is not in `openapi/clickup-v3.json` and works anyway
+ * — confirmed live, 204 — which is why the path is pinned here rather than
+ * taken on trust: nothing in the vendored spec would catch it drifting.
+ *
+ * The guard matters more than on either additive route. A Doc id arrives from
+ * the caller and decides what this server *destroys* on the caller's token,
+ * and Doc ids are guessable — "gh-" and five digits. An id the index does not
+ * hold, or holds for another workspace, has to stop before a request leaves.
+ */
+describe("DELETE /docs/:docId/pages/:pageId", () => {
+  const mirrored = () =>
+    db.insert(docsTable).values({
+      id: OPEN_DOC,
+      teamId: TEAM,
+      name: "AI Release notes",
+      parentType: 4,
+    });
+
+  const remove = (client: ClickUpClient | null, docId = OPEN_DOC, pageId = "p1") =>
+    mount(client).request(`/docs/${docId}/pages/${pageId}`, { method: "DELETE" });
+
+  /*
+   * ClickUp answers 204 with no body at all, which is the only endpoint in this
+   * client that does — `.json()` on one throws a parse error that reads like a
+   * malformed answer rather than the success it was.
+   */
+  test("deletes the page ClickUp was named, and survives its empty 204", async () => {
+    await mirrored();
+    const { client, calls } = stub([{ status: 204, body: undefined }]);
+
+    const response = await remove(client);
+
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toContain(`/v3/workspaces/${TEAM}/docs/${OPEN_DOC}/pages/p1`);
+  });
+
+  test("404s a Doc the index does not hold, without spending a request", async () => {
+    const { client, calls } = stub([]);
+
+    const response = await remove(client, "gh-not-mirrored");
+
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  /*
+   * Without the workspace scoping, a guessed Doc id belonging to another team
+   * would have a page deleted out of it on this caller's token.
+   */
+  test("404s a Doc that belongs to another workspace", async () => {
+    await db.insert(docsTable).values({
+      id: OPEN_DOC,
+      teamId: "some-other-team",
+      name: "Not yours",
+      parentType: 4,
+    });
+    const { client, calls } = stub([]);
+
+    const response = await remove(client);
+
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("turns a ClickUp refusal into a 422 carrying its message", async () => {
+    await mirrored();
+    const { client } = stub([{ status: 403, body: { err: "You do not have edit access" } }]);
+
+    const response = await remove(client);
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(422);
+    expect(body.error).toContain("You do not have edit access");
+  });
+
+  /*
+   * The status that must never come back out. A 401 from ClickUp means Rask's
+   * stored token has gone bad; the browser reads a 401 of its own as its
+   * session ending and would sign the person out over a page they tried to
+   * delete.
+   */
+  test("turns a ClickUp 401 into a 502, never a 401", async () => {
+    await mirrored();
+    const { client } = stub([{ status: 401, body: { err: "Token invalid" } }]);
+
+    expect((await remove(client)).status).toBe(502);
+  });
+
+  test("409s when the session has no ClickUp token", async () => {
+    await mirrored();
+
+    expect((await remove(null)).status).toBe(409);
   });
 });
 
