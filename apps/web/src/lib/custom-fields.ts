@@ -141,11 +141,12 @@ function personRows(field: CustomField): Array<{ id: string; raw: unknown }> {
  * and undecodable both read as the em dash: a cell is no place for an error.
  */
 export function fieldCellText(type: string, config: unknown, rawJson: string | undefined): string {
-  if (rawJson === undefined) return "—";
   try {
-    return formatFieldValue(type, config, JSON.parse(rawJson));
+    // Absent and undecodable both format as null, so the empty-cell glyph
+    // stays defined once, inside `formatFieldValue`.
+    return formatFieldValue(type, config, rawJson === undefined ? null : JSON.parse(rawJson));
   } catch {
-    return "—";
+    return formatFieldValue(type, config, null);
   }
 }
 

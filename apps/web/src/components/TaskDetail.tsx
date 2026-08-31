@@ -989,26 +989,29 @@ function CustomFields(props: {
    * list carries a dozen and most are blank on any given task. Expanded, the
    * blanks come too, because that is the only way to set one.
    */
-  const decorated = () =>
+  const decorated = createMemo(() =>
     props.fields.map((field) => ({
       ...field,
       display: formatFieldValue(field.type, field.typeConfig, field.value),
-    }));
+    })),
+  );
 
   /*
    * The heuristic above, bent by the user's own pins and hides: a pinned field
    * always shows, even empty; a hidden one only comes back expanded, dimmed,
-   * which is also where it gets unhidden. `arrangeDetailFields` owns the order.
+   * which is also where it gets unhidden. `arrangeDetailFields` owns the order,
+   * and expanded it returns every field exactly once — which is what lets
+   * `more` be a plain subtraction.
    */
-  const arranged = (all: boolean) =>
+  const shown = createMemo(() =>
     arrangeDetailFields(decorated(), {
       hidden: hiddenFields(),
       pinned: pinnedFields(),
-      showAll: all,
+      showAll: showAll(),
       limit: VISIBLE_FIELDS,
-    });
-  const shown = () => arranged(showAll());
-  const more = () => arranged(true).length - arranged(false).length;
+    }),
+  );
+  const more = () => (showAll() ? 0 : decorated().length - shown().length);
 
   /** Sends the value and asks the parent to refetch, since it lives in a resource. */
   const write = async (fieldId: string, next: FieldWrite) => {

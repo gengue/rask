@@ -1032,9 +1032,7 @@ export function AppShell(): JSX.Element {
                 <GroupPicker />
                 {/* Columns are a per-list choice, so the picker only appears
                     where there is a list to choose for. */}
-                <Show when={viewListId()}>
-                  <FieldsPicker listId={viewListId() ?? ""} />
-                </Show>
+                <Show when={viewListId()}>{(listId) => <FieldsPicker listId={listId()} />}</Show>
               </Show>
             </header>
 

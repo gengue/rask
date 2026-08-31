@@ -35,7 +35,6 @@ import {
   listViewsOf,
   loadListViews,
 } from "./lib/clickup-views.ts";
-import { columnsFor } from "./lib/field-prefs.ts";
 import {
   inboxCutoff,
   inboxPredicate,
@@ -52,6 +51,8 @@ import { viewRefresh } from "./lib/sse.ts";
 import { load, loadViewTasks, type TaskPageResult } from "./lib/store.ts";
 import {
   boardLayout,
+  columnFetchIds,
+  columnFetchKey,
   filterFieldIds,
   includeClosed,
   serverFilter,
@@ -65,7 +66,6 @@ import {
   setViewTasks,
   setViewTitle,
   setViewTruncated,
-  viewListId,
 } from "./lib/view.ts";
 
 /**
@@ -332,13 +332,14 @@ function ListView(): JSX.Element {
     // The tabs are loaded here too, so they are already on screen when somebody
     // arrives from the sidebar rather than appearing a round trip later.
     void loadListViews(listId);
-    // `columnsFor` is reactive on purpose: choosing a column refetches, since
-    // the rows in hand carry no values for a field nobody had asked about.
+    // `columnFetchIds` is reactive on purpose: choosing a column the session
+    // has never fetched refetches, since the rows in hand carry no values for
+    // it. Unchoosing one shrinks nothing and refetches nothing.
     void load({
       list: listId,
       closed: includeClosed(),
       filter: serverFilter(),
-      fields: columnsFor(listId),
+      fields: columnFetchIds(),
     }).then(applyPage(serverFilter()));
   });
 
@@ -428,16 +429,15 @@ function viewRows(view: () => View | null | undefined): () => View | null {
     // Columns ride on the same key as the filter's fields and for the same
     // reason: the rows have to be re-read to carry values for a field nobody
     // asked about before. A remembered membership answers from the mirror, so
-    // this is only ClickUp's 1.8s when the membership itself has gone stale.
-    const listId = viewListId();
-    const columnIds = listId ? columnsFor(listId) : [];
-    const key = `${current.id}|${filterFieldIds()}|${columnIds.join(",")}`;
+    // this is only ClickUp's 1.8s when the membership itself has gone stale —
+    // and the key is the session union, so it only ever grows.
+    const key = `${current.id}|${filterFieldIds()}|${columnFetchKey()}`;
     if (loadedKey === key) return;
     const first = loadedKey === null || !loadedKey.startsWith(`${current.id}|`);
     loadedKey = key;
     if (first) applyView(current);
 
-    void loadViewTasks(current.id, serverFilter(), columnIds).then((page) => {
+    void loadViewTasks(current.id, serverFilter(), columnFetchIds()).then((page) => {
       // A second view was picked while this one was in flight. `null` is the
       // store saying the same thing; either answer means these rows are stale.
       if (!page || loadedKey !== key) return;

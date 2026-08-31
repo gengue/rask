@@ -920,34 +920,21 @@ export interface FilterField {
  * join, which measures 189.8ms, because an `exists` stops at the first hit and
  * a distinct does not. A table would be a third thing for ingest to keep in
  * step, for a query nothing but an open menu ever runs.
+ *
+ * Derived from `listDisplayFields` rather than run as its own query, so the
+ * "used in this list" probe is written once; the drop_down restriction is one
+ * `filter` over a result the ponytail note above already priced.
  */
 export async function listFilterFields(db: Db, listId: string): Promise<FilterField[]> {
-  const rows = await db
-    .select({
-      id: customFieldDefs.id,
-      name: customFieldDefs.name,
-      type: customFieldDefs.type,
-      typeConfig: customFieldDefs.typeConfig,
-    })
-    .from(customFieldDefs)
-    .where(
-      and(
-        inArray(customFieldDefs.type, ["drop_down"]),
-        sql`exists (
-          select 1 from ${taskCustomValues} v
-          join ${tasks} t on t.id = v.task_id
-          where v.field_id = ${customFieldDefs.id} and t.list_id = ${listId}
-        )`,
-      ),
-    )
-    .orderBy(asc(customFieldDefs.name));
-
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    options: optionsOf(row.typeConfig),
-  }));
+  const fields = await listDisplayFields(db, listId);
+  return fields
+    .filter((field) => field.type === "drop_down")
+    .map((field) => ({
+      id: field.id,
+      name: field.name,
+      type: field.type,
+      options: optionsOf(field.typeConfig),
+    }));
 }
 
 export interface DisplayField {
@@ -959,12 +946,8 @@ export interface DisplayField {
 }
 
 /**
- * Every Custom Field with a value somewhere in one List, for the column picker.
- *
- * `listFilterFields` minus the type restriction: a column only has to render,
- * not offer choices, so types the filter menu turns away — number, date, text,
- * formula — all belong here. Same `exists` probe per definition, same reasoning
- * as the ponytail note above about not keeping a list-scope join table.
+ * Every Custom Field with a value somewhere in one List, for the column picker
+ * — all types, since a column only has to render, not offer choices.
  */
 export async function listDisplayFields(db: Db, listId: string): Promise<DisplayField[]> {
   return db

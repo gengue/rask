@@ -353,10 +353,22 @@ const [filterFields, setFilterFields] = createSignal<FilterField[]>([]);
 
 export { filterFields };
 
+// Declared above the effect below, which reads both while the module loads.
+const [displayFields, setDisplayFields] = createSignal<DisplayField[]>([]);
+const displayFieldCache = new Map<string, DisplayField[]>();
+
+export { displayFields };
+
 createRoot(() => {
   createEffect(() => {
     const listId = viewListId();
     setFilterFields([]);
+    // The column catalogue swaps with the list too, from a session cache so
+    // bouncing between lists neither refetches nor blanks the columns while a
+    // request is in flight. Untracked: a column toggled from the picker must
+    // not clear the catalogue it is being rendered from.
+    setDisplayFields(listId ? (displayFieldCache.get(listId) ?? []) : []);
+    if (listId && untrack(() => columnsFor(listId)).length > 0) loadDisplayFields();
     if (!listId) {
       setViewStatuses([]);
       return;
@@ -417,36 +429,25 @@ export function loadFilterFields(): void {
 
 /**
  * The list's whole Custom Field catalogue, for the column picker and the
- * columns it chose. Same lifecycle as `filterFields` above — read when the
- * picker opens — plus one eager case: a list somebody already gave columns to
- * loads it on arrival, or the columns would have names and no way to render.
+ * columns it chose. Read when the picker opens, like `filterFields` above,
+ * plus one eager case: a list somebody already gave columns to loads it on
+ * arrival, or the columns would have names and no way to render. Cached per
+ * list for the session — definitions change about as often as statuses do,
+ * and re-forgetting them on every navigation blanked ~30 rows' cells for
+ * identical data. The signal and cache themselves live further up, above the
+ * effect that reads them at module load.
  */
-const [displayFields, setDisplayFields] = createSignal<DisplayField[]>([]);
-
-export { displayFields };
-
-let displayFor: string | null = null;
-
 export function loadDisplayFields(): void {
   const listId = viewListId();
-  if (!listId || displayFor === listId) return;
-  displayFor = listId;
+  if (!listId || displayFieldCache.has(listId)) return;
   void api
     .displayFields(listId)
-    .then((fields) => viewListId() === listId && setDisplayFields(fields))
+    .then((fields) => {
+      displayFieldCache.set(listId, fields);
+      if (viewListId() === listId) setDisplayFields(fields);
+    })
     .catch(() => setDisplayFields([]));
 }
-
-createRoot(() => {
-  createEffect(() => {
-    const listId = viewListId();
-    displayFor = null;
-    setDisplayFields([]);
-    // Untracked: a column toggled from the picker must not clear the
-    // catalogue it is being rendered from.
-    if (listId && untrack(() => columnsFor(listId)).length > 0) loadDisplayFields();
-  });
-});
 
 /** The chosen columns as definitions, in the order they were chosen. */
 export const listColumns = globalMemo(() => {
@@ -458,6 +459,33 @@ export const listColumns = globalMemo(() => {
     return def ? [def] : [];
   });
 });
+
+/**
+ * The Custom Field ids task fetches should carry for the current list, as a
+ * stable comma key plus its array form.
+ *
+ * A session union per list rather than the live choice: unchoosing a column
+ * changes what renders, not what the rows need to carry — their values are
+ * already in hand — and a key that shrank would refetch 500 rows (or, on a
+ * stale saved view, walk ClickUp) to display less. Only a field this session
+ * has never asked for grows the key, and the routes' load effects re-run on
+ * exactly that.
+ */
+const fetchedColumns = new Map<string, Set<string>>();
+
+export const columnFetchKey = globalMemo(() => {
+  const listId = viewListId();
+  if (!listId) return "";
+  const seen = fetchedColumns.get(listId) ?? new Set<string>();
+  for (const id of columnsFor(listId)) seen.add(id);
+  fetchedColumns.set(listId, seen);
+  return [...seen].sort().join(",");
+});
+
+export function columnFetchIds(): string[] {
+  const key = columnFetchKey();
+  return key ? key.split(",") : [];
+}
 
 export interface FacetOption {
   value: string;

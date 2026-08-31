@@ -82,7 +82,7 @@ export function toggleHiddenField(fieldId: string): void {
   const next = new Set(hiddenIds());
   if (!next.delete(fieldId)) {
     next.add(fieldId);
-    dropPin(fieldId);
+    remove(pinnedIds, setPinnedIds, PINNED_KEY, fieldId);
   }
   setHiddenIds(next);
   write(HIDDEN_KEY, [...next]);
@@ -92,19 +92,20 @@ export function togglePinnedField(fieldId: string): void {
   const next = new Set(pinnedIds());
   if (!next.delete(fieldId)) {
     next.add(fieldId);
-    const hidden = new Set(hiddenIds());
-    if (hidden.delete(fieldId)) {
-      setHiddenIds(hidden);
-      write(HIDDEN_KEY, [...hidden]);
-    }
+    remove(hiddenIds, setHiddenIds, HIDDEN_KEY, fieldId);
   }
   setPinnedIds(next);
   write(PINNED_KEY, [...next]);
 }
 
-function dropPin(fieldId: string): void {
-  const pinned = new Set(pinnedIds());
-  if (!pinned.delete(fieldId)) return;
-  setPinnedIds(pinned);
-  write(PINNED_KEY, [...pinned]);
+function remove(
+  read: () => ReadonlySet<string>,
+  set: (value: ReadonlySet<string>) => void,
+  key: string,
+  fieldId: string,
+): void {
+  const next = new Set(read());
+  if (!next.delete(fieldId)) return;
+  set(next);
+  write(key, [...next]);
 }

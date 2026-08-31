@@ -48,7 +48,7 @@ export function TaskRow(props: {
   /** Cross-list views show which list a row came from; a list view does not. */
   showList: boolean;
   /** The Custom Fields this list draws as columns. See `listColumns`. */
-  columns?: DisplayField[];
+  columns: DisplayField[];
   onOpen: () => void;
   onStatusClick: (event: MouseEvent) => void;
 }): JSX.Element {
@@ -117,7 +117,7 @@ export function TaskRow(props: {
           that nobody could see and that turns invisible on a light background. */}
       <span class="flex-1 truncate text-md text-ink">{props.task.name}</span>
 
-      <Show when={props.columns?.length}>
+      <Show when={props.columns.length}>
         {/* Chosen columns shed with the tags: they answer a question the
             filter can also answer, and the four columns that never shed are
             already the ones a narrow row is scanned for. A cell reads the raw

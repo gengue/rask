@@ -87,8 +87,10 @@ export function fieldIdsIn(clauses: readonly Clause[]): string[] {
  *
  * A union, never a replacement: the browser re-evaluates the filter over these
  * rows, and `customValues` missing a field the filter names would fail every
- * row against it (see `matchesClause` in apps/web). The cap mirrors the
- * filter's own ceiling — every id becomes a bound parameter in an `in (...)`.
+ * row against it (see `matchesClause` in apps/web). The cap is this
+ * parameter's own ceiling — every id becomes a bound parameter in an
+ * `in (...)` — and the filter's ids go into the set first, so a trim can only
+ * ever drop columns, never a clause's field.
  */
 export function withDisplayFields(
   fieldIds: readonly string[],
