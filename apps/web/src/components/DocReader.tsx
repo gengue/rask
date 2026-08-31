@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { ApiError, type Assignee, api, type DocPage } from "../lib/api.ts";
+import { draftWriter } from "../lib/doc-draft.ts";
 import { isFolded, toggleFold } from "../lib/doc-fold.ts";
 import { type DocSection, hiddenSections, splitSections } from "../lib/doc-sections.ts";
 import { formatRelative } from "../lib/format.ts";
@@ -520,8 +521,13 @@ function Page(props: { page: DocPage; docId: string; onChanged: () => void }): J
           </Show>
         </div>
 
+        {/* `editing() && updated` rather than `editing()` alone: the timestamp is
+            what the write is checked against, so a page without one has no
+            editable form. The "Edit" button is hidden on those for the same
+            reason, and this is what makes the editor unable to exist without
+            the value it has to send. */}
         <Show
-          when={editing()}
+          when={editing() && props.page.updated}
           fallback={
             <>
               <Show
@@ -535,15 +541,18 @@ function Page(props: { page: DocPage; docId: string; onChanged: () => void }): J
             </>
           }
         >
-          <PageEditor
-            docId={props.docId}
-            page={props.page}
-            onClose={() => setEditing(false)}
-            onSaved={() => {
-              setEditing(false);
-              props.onChanged();
-            }}
-          />
+          {(readAt) => (
+            <PageEditor
+              docId={props.docId}
+              page={props.page}
+              readAt={readAt()}
+              onClose={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false);
+                props.onChanged();
+              }}
+            />
+          )}
         </Show>
       </div>
     </article>
@@ -661,65 +670,26 @@ function Section(props: {
  */
 function Append(props: { docId: string; pageId: string; onAppended: () => void }): JSX.Element {
   const [open, setOpen] = createSignal(false);
-  const [sending, setSending] = createSignal(false);
 
-  /*
-   * The text of the attempt in flight, or the one that just failed.
-   *
-   * MarkdownEditor commits on blur *and* on Cmd-Enter, and Cmd-Enter does both:
-   * it calls `onCommit` and then blurs, which calls it again. A description
-   * PATCH does not care — the same value written twice is the same value. The
-   * same paragraph appended twice to somebody's Doc is somebody's Doc with the
-   * paragraph in it twice, and tidying that up means deleting the page and
-   * writing it again. So the send is keyed on the text: one post per distinct
-   * draft, whatever fires it.
-   *
-   * It doubles as the guard against re-sending on the way out of a failure.
-   * Click away from a composer that just failed and blur commits the same text
-   * again; that is a retry nobody asked for, and if the failure was a 502 that
-   * ClickUp had already applied it is a duplicate. Retrying is the button's
-   * job, and the button is what clears this.
-   */
-  let attempted: string | null = null;
-
-  const send = async (text: string): Promise<void> => {
-    const content = text.trim();
-    if (!content || sending() || content === attempted) return;
-
-    attempted = content;
-    setSending(true);
+  const draft = draftWriter(async (content) => {
     try {
       await api.appendDocPage(props.docId, props.pageId, content);
-      attempted = null;
-      setOpen(false);
-      props.onAppended();
     } catch (error) {
       // A toast rather than a line under the editor, as every other
       // write-through failure in the app does it — the detail is ClickUp's own
       // words, and "you do not have edit access to this Doc" is the one people
-      // will hit. The composer stays open with the text still in it.
+      // will hit. The composer stays open with the text still in it, and the
+      // rethrow is what keeps the draft unsent so only the button retries it.
       pushToast({
         tone: "error",
         title: "Could not add that entry",
         detail: error instanceof ApiError ? error.message : undefined,
       });
-    } finally {
-      setSending(false);
+      throw error;
     }
-  };
-
-  /*
-   * Clicking this blurs the editor first, which commits and sends on its own;
-   * by the time the click lands the send is either in flight or deduped. What
-   * is left for the handler is the case blur cannot cover: the same text
-   * failing and the person wanting it tried again without editing it.
-   */
-  const add = (): void => {
-    const text = attempted;
-    if (!text || sending()) return;
-    attempted = null;
-    void send(text);
-  };
+    setOpen(false);
+    props.onAppended();
+  });
 
   return (
     <div class="pt-6">
@@ -745,18 +715,22 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
               value=""
               placeholder="Add to the end of this page…"
               autofocus
-              onCommit={(value) => void send(value)}
+              onCommit={(value) => void draft.commit(value.trim())}
               /* Escape restores the empty document and closes, which is the same
                "never mind" the task panel's editors mean by it. */
               onCancel={() => setOpen(false)}
             />
           </Suspense>
           <div class="flex items-baseline justify-end gap-3 pt-2 text-ink-4 text-xs">
-            <span>{sending() ? "Adding…" : "⌘↵ to add"}</span>
+            <span>{draft.busy() ? "Adding…" : "⌘↵ to add"}</span>
+            {/* Pressing this blurs the editor first, which commits and sends on
+                its own; by the time the click lands the send is in flight or
+                deduped. What is left for the handler is what blur cannot do:
+                send the same text again after it failed. */}
             <button
               type="button"
-              onClick={add}
-              disabled={sending()}
+              onClick={draft.retry}
+              disabled={draft.busy()}
               class="h-6 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50"
             >
               Add
@@ -792,25 +766,38 @@ function Append(props: { docId: string; pageId: string; onAppended: () => void }
 function PageEditor(props: {
   docId: string;
   page: DocPage;
+  /**
+   * When the text in the editor was last written, as the page was read.
+   *
+   * Sent back with the body and compared upstream, so it has to be the read
+   * this draft was written against. Taken once, on mount, for that reason.
+   */
+  readAt: string;
   onSaved: () => void;
   onClose: () => void;
 }): JSX.Element {
-  const [saving, setSaving] = createSignal(false);
+  const readAt = props.readAt;
 
-  /*
-   * The text of the attempt in flight, or the one that just failed — the same
-   * guard the composer above keeps, for the same two reasons. MarkdownEditor
-   * commits on blur *and* on Cmd-Enter, and Cmd-Enter does both; and clicking
-   * away from an edit that just failed would blur-commit the identical text
-   * again, which against a page that a 502 had already written is a second
-   * write racing the first. Retrying is the button's job.
-   */
-  let attempted: string | null = null;
+  const draft = draftWriter(async (content) => {
+    try {
+      await api.replaceDocPage(props.docId, props.page.id, content, readAt);
+    } catch (error) {
+      // ClickUp's own words, or the server's on a 409 — "somebody edited this
+      // page while you had it open" is the one worth reading. The editor stays
+      // open with the draft in it, and the rethrow is what keeps that draft
+      // unsent so a blur cannot write it a second time.
+      pushToast({
+        tone: "error",
+        title: "Could not save this page",
+        detail: error instanceof ApiError ? error.message : undefined,
+      });
+      throw error;
+    }
+    props.onSaved();
+  });
 
-  const save = async (text: string): Promise<void> => {
+  const save = (text: string): void => {
     const content = text.trim();
-    const updated = props.page.updated;
-    if (saving() || content === attempted || !updated) return;
 
     /*
      * Emptying a page is not an edit anybody means, and the shape they do mean
@@ -833,37 +820,7 @@ function PageEditor(props: {
       return;
     }
 
-    attempted = content;
-    setSaving(true);
-    try {
-      await api.replaceDocPage(props.docId, props.page.id, content, updated);
-      attempted = null;
-      props.onSaved();
-    } catch (error) {
-      // ClickUp's own words, or the server's on a 409 — "somebody edited this
-      // page while you had it open" is the one worth reading, and the editor
-      // stays open with the draft in it either way.
-      pushToast({
-        tone: "error",
-        title: "Could not save this page",
-        detail: error instanceof ApiError ? error.message : undefined,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /*
-   * Pressing this blurs the editor first, which commits and saves on its own;
-   * by the time the click lands the save is in flight or deduped. What is left
-   * for the handler is the case blur cannot cover: the same text failing and
-   * the person wanting it tried again without editing it.
-   */
-  const commit = (): void => {
-    const text = attempted;
-    if (!text || saving()) return;
-    attempted = null;
-    void save(text);
+    void draft.commit(content);
   };
 
   return (
@@ -876,7 +833,7 @@ function PageEditor(props: {
           value={props.page.content}
           placeholder="Write this page…"
           autofocus
-          onCommit={(value) => void save(value)}
+          onCommit={save}
           /* Escape puts the page back as it was and closes, which is what it
              means everywhere else in the app. Blur commits, so clicking away
              saves — the same bargain a task description makes. */
@@ -884,11 +841,15 @@ function PageEditor(props: {
         />
       </Suspense>
       <div class="flex items-baseline justify-end gap-3 pt-2 text-ink-4 text-xs">
-        <span>{saving() ? "Saving…" : "⌘↵ to save · esc to discard"}</span>
+        <span>{draft.busy() ? "Saving…" : "⌘↵ to save · esc to discard"}</span>
+        {/* Pressing this blurs the editor first, which commits and saves on its
+            own; by the time the click lands the save is in flight or deduped.
+            What is left for the handler is what blur cannot do: send the same
+            text again after it failed. */}
         <button
           type="button"
-          onClick={commit}
-          disabled={saving()}
+          onClick={draft.retry}
+          disabled={draft.busy()}
           class="h-6 rounded-[5px] px-2 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50"
         >
           Save

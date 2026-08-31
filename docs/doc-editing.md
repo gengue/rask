@@ -470,6 +470,15 @@ twice leaves the page holding what it held after the first. What a retry can do
 is win a race it should have lost, which is what the compare is for and why the
 window between the compare-read and the PUT is still worth naming out loud.
 
+**The one-write-per-draft guard is now shared and tested.** Both writers had a
+copy of it — `MarkdownEditor` commits on blur *and* on Cmd-Enter, and Cmd-Enter
+does both — and a second copy of subtle logic is how the two drift. It lives in
+`apps/web/src/lib/doc-draft.ts` as `draftWriter`, with `apps/web/test/
+doc-draft.test.ts` pinning the two properties that matter: a given text is
+written once per composer, and a failed draft is kept unsent so a blur cannot
+repeat it while the button still can. Writing that test is what turned up that
+`retry` had quietly been made unreachable.
+
 One near-miss worth recording, because the test that caught it was written for
 exactly this. Mutating `content_edit_mode` to check the tests went red, and
 restoring it by matching on text, swapped the modes between the two methods —
