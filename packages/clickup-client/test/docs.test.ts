@@ -187,3 +187,27 @@ describe("listAllDocs", () => {
     expect(calls.length).toBeLessThanOrEqual(50);
   });
 });
+
+describe("archived Docs", () => {
+  /*
+   * Both reads say it, so this asserts the index walk and the task search
+   * together: `archived` and `deleted` default to false in the spec and today
+   * on the live endpoint, but this is v3, whose documented enums have already
+   * been short one value the workspace uses. An archived Doc that came back
+   * anyway would be indexed as live — the list response omits the `archived`
+   * field, so `mapDoc` reads it as false — and sit in the sidebar.
+   */
+  test("asks only for Docs that are neither archived nor deleted", async () => {
+    const { client, calls } = makeClient([{ body: { docs: [] } }, { body: { docs: [] } }]);
+
+    await client.listAllDocs("529");
+    await client.searchDocs("529", { parentId: "86cb4ckva", parentType: "TASK" });
+
+    for (const call of calls) {
+      const query = new URL(call).searchParams;
+      expect(query.get("archived")).toBe("false");
+      expect(query.get("deleted")).toBe("false");
+    }
+    expect(calls).toHaveLength(2);
+  });
+});

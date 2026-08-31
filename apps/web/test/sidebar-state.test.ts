@@ -63,6 +63,30 @@ describe("expansion", () => {
   });
 });
 
+describe("the Docs section", () => {
+  test("starts open, so a sidebar remembered before it existed keeps its Docs", async () => {
+    const state = await load();
+    expect(state.docsOpen()).toBe(true);
+  });
+
+  test("stays closed across a reload", async () => {
+    const first = await load();
+    first.setDocsOpen(false);
+
+    const second = await load(Object.fromEntries(store));
+    expect(second.docsOpen()).toBe(false);
+  });
+
+  test("reopens, and the reload agrees", async () => {
+    const first = await load();
+    first.setDocsOpen(false);
+    first.setDocsOpen(true);
+
+    const second = await load(Object.fromEntries(store));
+    expect(second.docsOpen()).toBe(true);
+  });
+});
+
 describe("pins", () => {
   test("survive a reload", async () => {
     const first = await load();
@@ -92,6 +116,13 @@ describe("bad storage", () => {
     // would put junk in the DOM as `open` state.
     const state = await load({ "rask.sidebar.pinned": '{"a":1}' });
     expect([...state.pinned()]).toEqual([]);
+  });
+
+  test("junk in the Docs key reads as open, which is the default", async () => {
+    // Anything but the one value that means closed. A section nobody can see
+    // is worse than one that ignores a byte somebody else wrote.
+    const state = await load({ "rask.sidebar.docs": "maybe" });
+    expect(state.docsOpen()).toBe(true);
   });
 
   test("non-string entries are dropped, the rest kept", async () => {

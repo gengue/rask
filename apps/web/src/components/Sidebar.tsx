@@ -1,14 +1,16 @@
-import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, Show, untrack } from "solid-js";
 import type { DocRef, ListRef, Me, Space } from "../lib/api.ts";
 import { celebrate } from "../lib/celebration.tsx";
 import { inboxPredicate, inboxSeenAt, inboxTruncated } from "../lib/inbox.ts";
 import { useLiveTasks } from "../lib/live.ts";
 import { A, useParams, useRouterState } from "../lib/nav.tsx";
 import {
+  docsOpen,
   isOpen,
   isPinned,
   pinned,
   revealPath,
+  setDocsOpen,
   toggleOpen,
   togglePinned,
 } from "../lib/sidebar-state.ts";
@@ -50,7 +52,10 @@ export function Sidebar(props: {
   onSearch: () => void;
   onQuickAdd: () => void;
 }): JSX.Element {
-  useRevealActiveList(() => props.spaces);
+  useRevealActiveList(
+    () => props.spaces,
+    () => props.docs,
+  );
 
   /*
    * Counted from the shared collection rather than from a count endpoint.
@@ -156,10 +161,18 @@ export function Sidebar(props: {
           together. A section of their own is the only place they fit.
         */}
         <Show when={props.docs.length > 0}>
-          <div class="mt-4 px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em]">
+          <button
+            type="button"
+            onClick={() => setDocsOpen(!docsOpen())}
+            aria-expanded={docsOpen()}
+            class="mt-4 flex w-full items-center gap-1.5 px-2 pb-1 font-medium text-ink-4 text-xs uppercase tracking-[0.04em] hover:text-ink-2"
+          >
+            <Chevron open={docsOpen()} />
             Docs
-          </div>
-          <For each={props.docs}>{(doc) => <DocItem doc={doc} />}</For>
+          </button>
+          <Show when={docsOpen()}>
+            <For each={props.docs}>{(doc) => <DocItem doc={doc} />}</For>
+          </Show>
         </Show>
       </div>
 
@@ -548,7 +561,7 @@ export function Chevron(props: { open: boolean; muted?: boolean }): JSX.Element 
  * route happens to be inside it, is the sidebar arguing with the person using
  * it.
  */
-function useRevealActiveList(spaces: () => Space[]): void {
+function useRevealActiveList(spaces: () => Space[], docs: () => DocRef[]): void {
   // `strict: false` because the sidebar renders on every route and most have no
   // listId. `matchRoute` answers whether a route matches, not what its
   // parameters are, which is the question here.
@@ -559,7 +572,22 @@ function useRevealActiveList(spaces: () => Space[]): void {
     // A Doc as readily as a List: both are rows in this tree, and a link to
     // either one lands on a sidebar that cannot show where you are without it.
     const path = listId ? pathToList(spaces(), listId) : docId ? pathToDoc(spaces(), docId) : null;
-    if (path) revealPath(path);
+    // A workspace Doc has no branch to unfold — `pathToDoc` answers null — and
+    // its own section is the only thing that can be hiding it. Opening that is
+    // the same courtesy the tree gets. A Doc written on a task is not in this
+    // sidebar at all, so the section stays as it was.
+    const inDocsSection = docId !== undefined && docs().some((doc) => doc.id === docId);
+
+    /*
+     * Untracked, or `revealPath` reads the open set it is about to write and
+     * subscribes this effect to it — and then collapsing the Space that holds
+     * the open List re-runs this and unfolds it again, one click later. The
+     * route is what should reveal a row, never somebody else's toggle.
+     */
+    untrack(() => {
+      if (path) revealPath(path);
+      if (inDocsSection) setDocsOpen(true);
+    });
   });
 }
 
