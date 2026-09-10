@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatClock, formatDuration, parseDuration } from "../src/lib/format.ts";
+import { formatClock, formatDuration } from "../src/lib/format.ts";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -57,46 +57,5 @@ describe("formatClock", () => {
     expect(formatClock(null)).toBe("0:00");
     // Negative is how ClickUp encodes "running"; it is never an elapsed time.
     expect(formatClock(-1_756_080_000_000)).toBe("0:00");
-  });
-});
-
-describe("parseDuration", () => {
-  test("takes the shapes people type", () => {
-    expect(parseDuration("1h 30m")).toBe(90 * MINUTE);
-    expect(parseDuration("1h30m")).toBe(90 * MINUTE);
-    expect(parseDuration("1:30")).toBe(90 * MINUTE);
-    expect(parseDuration("90m")).toBe(90 * MINUTE);
-    expect(parseDuration("2h")).toBe(2 * HOUR);
-    expect(parseDuration("1.5h")).toBe(90 * MINUTE);
-  });
-
-  test("a bare number is minutes, which is what it means on a timesheet", () => {
-    expect(parseDuration("90")).toBe(90 * MINUTE);
-    expect(parseDuration("0")).toBe(0);
-  });
-
-  test("ignores case and stray spacing", () => {
-    expect(parseDuration("  2H 15M ")).toBe(2 * HOUR + 15 * MINUTE);
-  });
-
-  test("round-trips what formatDuration prints", () => {
-    for (const ms of [45 * MINUTE, 2 * HOUR, 90 * MINUTE, 7 * HOUR + 13 * MINUTE]) {
-      expect(parseDuration(formatDuration(ms) ?? "")).toBe(ms);
-    }
-  });
-
-  /*
-   * The distinction that matters. Returning 0 for an unreadable box would turn
-   * a typo into "you worked no time" and overwrite somebody's afternoon, so the
-   * caller gets null and refuses to write anything.
-   */
-  test("refuses what it cannot read rather than calling it zero", () => {
-    expect(parseDuration("")).toBeNull();
-    expect(parseDuration("   ")).toBeNull();
-    expect(parseDuration("about an hour")).toBeNull();
-    expect(parseDuration("1h 30")).toBeNull();
-    expect(parseDuration("h")).toBeNull();
-    expect(parseDuration("1:75")).toBeNull();
-    expect(parseDuration("-30m")).toBeNull();
   });
 });

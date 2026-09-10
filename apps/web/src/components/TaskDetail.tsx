@@ -629,6 +629,12 @@ export function TaskDetail(props: {
                     taskId={props.taskId}
                     taskName={task().name}
                     timeSpent={task().timeSpent}
+                    /* The API re-reads the task into the mirror after the
+                       entry lands, so the new total would arrive over SSE
+                       anyway — a beat later. This asks for it now, because the
+                       dialog closing onto an unchanged total reads as a write
+                       that did nothing. */
+                    onLogged={() => void refetch()}
                   />
                 </Property>
 

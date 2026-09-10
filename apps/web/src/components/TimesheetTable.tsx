@@ -1,14 +1,17 @@
 import { createEffect, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type TimesheetRow } from "../lib/api.ts";
-import { formatDuration } from "../lib/format.ts";
+import { formatDuration, toDateInput } from "../lib/format.ts";
 import { heldValue } from "../lib/resource.ts";
+import { TimeEntryModal } from "./TimeEntryModal.tsx";
 
 /**
  * My week: one row per task tracked against, seven day columns, totals.
  *
- * An informative sheet, not ClickUp's editor — the cells read and open the
- * task; they do not take typing. Numbers come from ClickUp live (see the API
- * route), the status chip and the path under each name from the mirror.
+ * Still not ClickUp's editor — no cell takes typing. The name opens the task
+ * and a day cell opens "Add time" for that task on that day, which is the one
+ * thing you come to a sheet wanting to do to a number that is missing.
+ * Numbers come from ClickUp live (see the API route), the status chip and the
+ * path under each name from the mirror.
  *
  * The bars under the day headers are scaled against the week's heaviest day,
  * so the shape of the week survives even when nobody hit eight hours.
@@ -40,26 +43,48 @@ const MONTHS = [
   "Dec",
 ] as const;
 
-function dayLabel(instant: number): string {
-  const d = new Date(instant);
-  return `${DAY_LABELS[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+/**
+ * The `day`-th column of the week that starts at `weekStart`, as a local date.
+ *
+ * Calendar arithmetic, not `weekStart + day * DAY_MS`: a week containing a DST
+ * change has a 23- or 25-hour day in it, and the fixed step slides every column
+ * after the fold onto the wrong date. That was harmless while the dates were
+ * only labels; the cells are now clickable and the date they name is what gets
+ * written to ClickUp.
+ *
+ * Local getters, unlike the UTC ones the labels used to read. `start` is the
+ * epoch of the viewer's own Sunday midnight, so east of UTC its UTC date is the
+ * Saturday before — the whole header row was a day behind in those zones.
+ *
+ * ponytail: the *numbers* in the columns are still bucketed by the server with
+ * a fixed 24h step (`timesheet.ts`), so in the two weeks a year that hold a
+ * clock change its boundaries sit an hour off the dates named here. An hour of
+ * one week's work lands one column over, twice a year; fixing it properly means
+ * teaching the route calendar days, which is a server change and a wider one
+ * than a clickable cell. Exported for its test.
+ */
+export function columnDate(weekStart: number, day: number): Date {
+  const d = new Date(weekStart);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + day);
+}
+
+function dayLabel(date: Date): string {
+  return `${DAY_LABELS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}`;
 }
 
 /** "Aug 23" — the bare date, for the range title. No weekday: the column
  *  headers under it already name the days, and the title repeating them reads
  *  as noise on a line whose job is to say which week. */
-function dateLabel(instant: number): string {
-  const d = new Date(instant);
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+function dateLabel(date: Date): string {
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}`;
 }
 
 /**
  * Whether the week starting at `start` is the one containing `now`.
  *
- * Day labels are drawn from UTC getters on server answers; this comparison
- * runs in the same frame so the badge and the column agree. The tz offset is
- * what the browser already told the server — using it here too keeps one
- * answer to "which week is this" across both ends.
+ * Folded the way the server folds it — shift into wall time, read the UTC
+ * getters, shift back — so the two ends cannot disagree about which Sunday a
+ * week begins on. The tz offset is what the browser already told the server.
  */
 function isThisWeek(now: number, start: number): boolean {
   const tz = -new Date().getTimezoneOffset();
@@ -105,7 +130,14 @@ export function TimesheetTable(): JSX.Element {
    * the same call answers both cases, one shape throughout.
    */
   const [anchor, setAnchor] = createSignal<number>(Date.now());
-  const [week] = createResource(anchor, (a) => api.timesheet(a));
+  const [week, { refetch }] = createResource(anchor, (a) => api.timesheet(a));
+
+  /** The cell "Add time" was opened from: which task, and which day of it. */
+  const [adding, setAdding] = createSignal<{
+    taskId: string;
+    taskName: string;
+    day: string;
+  } | null>(null);
 
   /**
    * The last good sheet, held by us rather than by the resource.
@@ -169,7 +201,8 @@ export function TimesheetTable(): JSX.Element {
             moment the button is pressed, and a title that blanks mid-flight
             takes the bar's layout with it. */}
         <span class="flex-1 text-center font-medium text-ink text-xs">
-          {dateLabel(weekStartOf(anchor()))} — {dateLabel(weekStartOf(anchor()) + 6 * DAY_MS)}
+          {dateLabel(columnDate(weekStartOf(anchor()), 0))} —{" "}
+          {dateLabel(columnDate(weekStartOf(anchor()), 6))}
           <Show when={!navigating() && isThisWeek(Date.now(), weekStartOf(anchor()))}>
             <span class="ml-2 rounded bg-chip px-1.5 py-0.5 font-normal text-ink-4">this week</span>
           </Show>
@@ -227,7 +260,7 @@ export function TimesheetTable(): JSX.Element {
                         return (
                           <th class="max-dock:hidden max-dock:pb-2 max-dock:pl-3 pb-2 text-right align-bottom">
                             <div class="font-normal text-ink-4 text-xs">
-                              {dayLabel(data().start + day() * DAY_MS)}
+                              {dayLabel(columnDate(data().start, day()))}
                             </div>
                             <div class="font-medium text-ink-2 text-xs tabular-nums">
                               {formatDuration(total) ?? "—"}
@@ -249,7 +282,19 @@ export function TimesheetTable(): JSX.Element {
                 </thead>
                 <tbody>
                   <For each={data().rows}>
-                    {(row) => <SheetRow weekStart={data().start} now={data().now} row={row} />}
+                    {(row) => (
+                      <SheetRow
+                        weekStart={data().start}
+                        row={row}
+                        onAddTime={(day) =>
+                          setAdding({
+                            taskId: row.taskId,
+                            taskName: row.taskName,
+                            day: toDateInput(columnDate(data().start, day).getTime()),
+                          })
+                        }
+                      />
+                    )}
                   </For>
                   <Show when={data().rows.length === 0}>
                     <tr>
@@ -274,11 +319,33 @@ export function TimesheetTable(): JSX.Element {
           )}
         </Show>
       </Show>
+
+      {/* Outside the grid rather than inside the cell that opened it: a dialog
+          rendered from a `<td>` inherits the table's layout, and the row it
+          hangs off is replaced wholesale by the refetch it triggers. */}
+      <Show when={adding()}>
+        {(cell) => (
+          <TimeEntryModal
+            taskId={cell().taskId}
+            taskName={cell().taskName}
+            day={cell().day}
+            onClose={() => setAdding(null)}
+            // The whole week, because a manual entry moves the day column, the
+            // row total, the header bars and the grand total all at once.
+            onSaved={() => void refetch()}
+          />
+        )}
+      </Show>
     </div>
   );
 }
 
-function SheetRow(props: { weekStart: number; now: number; row: TimesheetRow }): JSX.Element {
+function SheetRow(props: {
+  weekStart: number;
+  row: TimesheetRow;
+  /** The day column that was clicked, 0 = Sunday. */
+  onAddTime: (day: number) => void;
+}): JSX.Element {
   const path = (): string | null => {
     const location = props.row.location;
     if (!location?.includes(" / ")) return null;
@@ -301,21 +368,34 @@ function SheetRow(props: { weekStart: number; now: number; row: TimesheetRow }):
           </span>
         </a>
       </td>
+      {/* Every day of an existing row is a way in, including the empty ones —
+          a blank Wednesday is exactly where somebody notices they forgot to
+          track something. Rows the sheet does not have need a task picker,
+          which this version does not carry. */}
       <For each={props.row.days}>
-        {(cell) => (
+        {(cell, day) => (
           <td class="max-dock:hidden py-2 pl-3 text-right align-top text-xs tabular-nums">
-            <Show when={cell} fallback={<span class="text-ink-4">—</span>}>
-              {(value) => (
-                <span
-                  classList={{
-                    "text-high": value().running,
-                    "text-ink-2": !value().running,
-                  }}
-                >
-                  {formatDuration(value().durationMs)}
-                </span>
-              )}
-            </Show>
+            <button
+              type="button"
+              onClick={() => props.onAddTime(day())}
+              aria-label={`Add time to ${props.row.taskName} on ${dayLabel(
+                columnDate(props.weekStart, day()),
+              )}`}
+              class="-mx-1 w-full rounded-[5px] px-1 py-0.5 text-right hover:bg-hover"
+            >
+              <Show when={cell} fallback={<span class="text-ink-4">—</span>}>
+                {(value) => (
+                  <span
+                    classList={{
+                      "text-high": value().running,
+                      "text-ink-2": !value().running,
+                    }}
+                  >
+                    {formatDuration(value().durationMs)}
+                  </span>
+                )}
+              </Show>
+            </button>
           </td>
         )}
       </For>

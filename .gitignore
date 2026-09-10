@@ -29,3 +29,4 @@ skills-lock.json
 # Superpowers working documents. Design specs and plans are scratch for the
 # session that produced them, not a record the repo keeps.
 **/superpowers/
+.hermes/
