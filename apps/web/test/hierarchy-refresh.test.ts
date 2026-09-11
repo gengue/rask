@@ -58,7 +58,7 @@ afterEach(() => {
   Date.now = realNow;
 });
 
-/** Past the refresh window, so the next check is allowed to ask. */
+/** Past the gap between reads, so the next check is allowed to ask. */
 function waitOutTheWindow(): void {
   now += 6 * 60_000;
 }
@@ -107,6 +107,22 @@ test("the load that populated the tree counts as a read", async () => {
   onVisibilityChange?.();
 
   expect(hierarchyRequests).toBe(0);
+  stop();
+});
+
+test("a tick that lands a moment early still asks", async () => {
+  // The interval is armed on mount; the clock is stamped when `loadSession`
+  // resolves a moment after. So the five-minute tick arrives a moment short of
+  // five minutes, and a guard measured against the interval itself would refuse
+  // it — every tick, forever, halving the refresh rate in silence.
+  const stop = watchHierarchy();
+  await loadSession();
+  hierarchyRequests = 0;
+
+  now += 5 * 60_000 - 2_000;
+  onVisibilityChange?.();
+
+  expect(hierarchyRequests).toBe(1);
   stop();
 });
 

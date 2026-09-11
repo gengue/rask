@@ -1,7 +1,7 @@
 import { createDb } from "@rask/schema";
 import { loadConfig } from "./config.ts";
 import { drainOutbox } from "./outbox.ts";
-import { activeLists, coldLists, syncHierarchy, syncList } from "./sync.ts";
+import { activeLists, coldLists, type SyncStats, syncHierarchy, syncList } from "./sync.ts";
 import { TokenPool } from "./tokens.ts";
 import { drainWebhookEvents, ensureWebhook, NO_PUBLIC_URL } from "./webhooks.ts";
 
@@ -107,19 +107,22 @@ async function pollOnce(full: boolean): Promise<void> {
  * Tries each token in turn. A single revoked token must not stop the worker:
  * someone leaving the company should not take ingestion down with them, and a
  * token that fails here still gets its own writes attempted in the outbox loop.
+ *
+ * Silent when it works, like the poll: this runs every five minutes now, and a
+ * line each time is 288 a day saying nothing, which is how a `[webhook] is
+ * failing` warning ends up scrolled past. The stats come back so the one call
+ * that is worth announcing — the boot — can announce itself.
  */
-async function refreshHierarchy(): Promise<boolean> {
+async function refreshHierarchy(): Promise<SyncStats | null> {
   const count = await pool.refresh();
-  if (count === 0) return false;
+  if (count === 0) return null;
 
   for (let attempt = 0; attempt < count; attempt++) {
     const entry = pool.next();
     if (!entry) break;
     try {
       const teamId = config.CLICKUP_TEAM_ID ?? entry.teamId;
-      const stats = await syncHierarchy(db, entry.client, teamId);
-      console.log(`[worker] hierarchy synced in ${stats.ms}ms (${stats.requests} requests)`);
-      return true;
+      return await syncHierarchy(db, entry.client, teamId);
     } catch (error) {
       console.error(
         `[worker] hierarchy sync failed for user ${entry.userId}:`,
@@ -129,7 +132,7 @@ async function refreshHierarchy(): Promise<boolean> {
   }
 
   console.error("[worker] no usable ClickUp token; ingestion is idle until someone signs in");
-  return false;
+  return null;
 }
 
 /**
@@ -173,7 +176,10 @@ console.log(`[worker] ${tokenCount} ClickUp token(s) available`);
  * token to make and every list, every space and the sidebar itself stay empty
  * — the hierarchy loop below is what retries.
  */
-await refreshHierarchy();
+const firstTree = await refreshHierarchy();
+if (firstTree) {
+  console.log(`[worker] hierarchy synced in ${firstTree.ms}ms (${firstTree.requests} requests)`);
+}
 await checkWebhook();
 
 every(config.OUTBOX_INTERVAL_MS, "outbox", async () => {

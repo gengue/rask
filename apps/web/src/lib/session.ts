@@ -45,6 +45,21 @@ export async function reloadHierarchy(): Promise<void> {
 const TREE_REFRESH_MS = 5 * 60_000;
 
 /**
+ * How close together two reads are allowed to be.
+ *
+ * Shorter than the interval, and deliberately not the same constant. Reusing
+ * `TREE_REFRESH_MS` for both looked tidier and made the timer race its own
+ * guard: the interval is armed on mount but the clock is stamped when
+ * `loadSession` resolves a moment later, so the five-minute tick arrived a
+ * moment short of five minutes, was refused, and the tab refreshed every ten
+ * minutes instead — the exact staleness this is here to remove, halved and hidden.
+ *
+ * It only has to be long enough that alt-tabbing between ClickUp and Rask is
+ * not one request per flip.
+ */
+const MIN_READ_GAP_MS = 60_000;
+
+/**
  * Keeps the tree fresh under a tab nobody has reloaded.
  *
  * Deliberately a poll and not an SSE event. The change feed watches
@@ -62,7 +77,7 @@ const TREE_REFRESH_MS = 5 * 60_000;
 export function watchHierarchy(): () => void {
   const refresh = (): void => {
     if (document.visibilityState !== "visible") return;
-    if (Date.now() - treeReadAt < TREE_REFRESH_MS) return;
+    if (Date.now() - treeReadAt < MIN_READ_GAP_MS) return;
     // Stamped before the request, not after: two ticks must not overlap, and a
     // failed read is a reason to wait rather than to retry in a tight loop.
     treeReadAt = Date.now();
