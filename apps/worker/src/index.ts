@@ -6,12 +6,13 @@ import { TokenPool } from "./tokens.ts";
 import { drainWebhookEvents, ensureWebhook, NO_PUBLIC_URL } from "./webhooks.ts";
 
 /**
- * Six loops, no scheduler library.
+ * Seven loops, no scheduler library.
  *
  *  - outbox: ship pending writes to ClickUp
  *  - webhook: read back the tasks ClickUp's events named
  *  - cold: first read of a list somebody has just opened
  *  - poll: re-read every tracked list, because webhooks get lost and have no replay
+ *  - hierarchy: re-walk the Space/Folder/List tree, because renames have no event
  *  - health: notice a webhook ClickUp has suspended, and revive it
  *  - reconcile: once a night, ignore the cursors and re-read everything
  *
@@ -29,6 +30,25 @@ const WEBHOOK_DRAIN_INTERVAL_MS = 1_000;
 const WEBHOOK_HEALTH_INTERVAL_MS = 5 * 60_000;
 /** How long a list somebody just opened waits to be read for the first time. */
 const COLD_INTERVAL_MS = 3_000;
+/**
+ * How stale a List's name is allowed to get.
+ *
+ * Nothing else refreshes it. A task poll reads `GET /list/{id}/task`, which
+ * carries tasks and not the List they came from, and the webhook we register
+ * subscribes to task events only — ClickUp does emit `listUpdated`, but acting
+ * on it means re-registering every webhook, parsing a second shape of event and
+ * a second branch in the queue, to save four minutes on a rename.
+ *
+ * So this walk is the only thing that notices a List, Folder or Space being
+ * renamed, created or moved. It used to run at boot and then once a night,
+ * which meant a rename at 09:00 showed the old name until 03:00 the next
+ * morning; the fix for a wrong sidebar was to restart the worker.
+ *
+ * The tree walk is 1 + 2n requests for n spaces, plus one per folderless List
+ * that overrides its statuses — eleven-ish for a five-space workspace, every
+ * five minutes, against a budget of a hundred a minute.
+ */
+const HIERARCHY_INTERVAL_MS = 5 * 60_000;
 
 let stopping = false;
 
@@ -54,7 +74,6 @@ function every(ms: number | (() => number), name: string, run: () => Promise<voi
 async function pollOnce(full: boolean): Promise<void> {
   const count = await pool.refresh();
   if (count === 0) return;
-  if (!hierarchyLoaded) hierarchyLoaded = await refreshHierarchy();
 
   const listIds = await activeLists(db);
   if (listIds.length === 0) return;
@@ -148,14 +167,13 @@ async function checkWebhook(): Promise<void> {
 const tokenCount = await pool.refresh();
 console.log(`[worker] ${tokenCount} ClickUp token(s) available`);
 /*
- * False until the tree lands once, and retried by the poll below.
- *
- * A worker on a fresh deployment boots before anybody can possibly have signed
- * in, so this first attempt has no token to make and every list, every space
- * and the sidebar itself stay empty. Without the retry the next attempt is the
- * nightly reconciliation, which is a long time to look at an empty app.
+ * Once at boot so the sidebar is populated before the first request, rather
+ * than five minutes into the process' life. A worker on a fresh deployment
+ * boots before anybody can possibly have signed in, so this attempt has no
+ * token to make and every list, every space and the sidebar itself stay empty
+ * — the hierarchy loop below is what retries.
  */
-let hierarchyLoaded = await refreshHierarchy();
+await refreshHierarchy();
 await checkWebhook();
 
 every(config.OUTBOX_INTERVAL_MS, "outbox", async () => {
@@ -219,14 +237,23 @@ every(
   () => pollOnce(false),
 );
 
+/*
+ * Lists get renamed, created and moved, and nothing tells us. See
+ * `HIERARCHY_INTERVAL_MS`. This is also the retry for a boot that found no
+ * token, which is why it does not check whether the tree has ever landed.
+ */
+every(HIERARCHY_INTERVAL_MS, "hierarchy", async () => {
+  await refreshHierarchy();
+});
+
 // Checked every 15 minutes; runs when the clock first lands in the target hour.
 let lastReconcileDay = -1;
 every(15 * 60_000, "reconcile", async () => {
   const now = new Date();
   if (now.getHours() !== config.RECONCILE_HOUR || now.getDate() === lastReconcileDay) return;
   lastReconcileDay = now.getDate();
-  // Lists get created and renamed; the nightly pass is where that catches up.
-  hierarchyLoaded = (await refreshHierarchy()) || hierarchyLoaded;
+  // The tree is the hierarchy loop's job now; this pass is only about the task
+  // cursors, which are the thing a lost webhook leaves stale.
   await pollOnce(true);
 });
 

@@ -64,7 +64,7 @@ writes from there reach ClickUp.
 | [apps/web](apps/web) | SolidJS, Vite, TanStack Router + DB, Tailwind v4, CodeMirror. |
 | [apps/site](apps/site) | The landing page at the apex domain. Vite + Tailwind, no framework, one static page. Shares `apps/web/src/theme.css` and nothing else. |
 | [apps/api](apps/api) | Hono on Bun. Reads the mirror, writes the mirror + outbox, fans out SSE. Serves the built SPA in production. |
-| [apps/worker](apps/worker) | Six self-rescheduling loops: outbox drain, webhook read-back, cold list, poll, webhook health, nightly reconcile. |
+| [apps/worker](apps/worker) | Seven self-rescheduling loops: outbox drain, webhook read-back, cold list, poll, hierarchy walk, webhook health, nightly reconcile. |
 | [packages/schema](packages/schema) | Drizzle tables, idempotent ingest, token encryption. The mirror. |
 | [packages/clickup-client](packages/clickup-client) | Typed ClickUp client, per-token rate limiter, vendored v2 OpenAPI spec, shared vocabulary. |
 
