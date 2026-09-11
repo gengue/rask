@@ -42,7 +42,14 @@ import {
 import { lightboxOpen } from "./lib/lightbox.ts";
 import { useLiveTask, useLiveTasks } from "./lib/live.ts";
 import { useExpanded } from "./lib/nav.tsx";
-import { loadSession, me, reloadHierarchy, spaces, workspaceDocs } from "./lib/session.ts";
+import {
+  loadSession,
+  me,
+  reloadHierarchy,
+  spaces,
+  watchHierarchy,
+  workspaceDocs,
+} from "./lib/session.ts";
 import { signInError } from "./lib/sign-in-error.ts";
 import { markSignedOut, signedOut } from "./lib/signed-out.ts";
 import { connect } from "./lib/sse.ts";
@@ -166,6 +173,8 @@ export function AppShell(): JSX.Element {
     (expanded() && tasks.get(openTaskId() ?? "")) || cursorTask();
 
   onCleanup(connect());
+  // The tree does not come down the change feed. See `watchHierarchy`.
+  onCleanup(watchHierarchy());
 
   const openTaskById = (taskId: string, opts: { replace?: boolean } = {}) =>
     navigate({
