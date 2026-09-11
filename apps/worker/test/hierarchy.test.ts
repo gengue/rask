@@ -170,6 +170,20 @@ test("a List detail that fails keeps the set already mirrored", async () => {
   expect(await statusesOf(INHERITOR)).toBeNull();
 });
 
+test("a renamed List takes the new name", async () => {
+  // The tree walk is the only thing that ever notices a rename: no webhook we
+  // subscribe to carries one, and a task poll reads the List's tasks, not the
+  // List. Dropping `name` from the columns `upsertLists` writes would leave the
+  // sidebar showing a name nobody in the workspace can see any more.
+  await db.insert(lists).values({ id: INHERITOR, spaceId: SPACE, name: "For agents" });
+
+  const { client } = clickUp();
+  await syncHierarchy(db, client, TEAM);
+
+  const [row] = await db.select().from(lists).where(eq(lists.id, INHERITOR));
+  expect(row?.name).toBe("Inherits");
+});
+
 test("an empty set is not a set", async () => {
   // ClickUp answering `statuses: []` would otherwise be stored as an override
   // of nothing, and `statusesForList` returns the List's set ahead of the
